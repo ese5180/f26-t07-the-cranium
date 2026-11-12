@@ -106,6 +106,9 @@
   --idle-soft: #ece6dc;
   /* Nearly opaque, and not blurred: a filter on the bar would hold the tab bar and its sheet inside it. */
   --bar: rgb(250 247 242 / 0.97);
+  /* The floating tab bar of a phone (console 2.28.0): glass over the page, blurred by a layer of its own. */
+  --bar-glass: rgb(253 251 247 / 0.78);
+  --bar-lift: 0 12px 32px -14px rgb(28 24 20 / 0.42), 0 1px 3px rgb(28 24 20 / 0.08);
   --scrim: rgb(28 24 20 / 0.36);
   --space-1: 4px;
   --space-2: 8px;
@@ -182,6 +185,8 @@
     --idle: #a3988c;
     --idle-soft: #2a2521;
     --bar: rgb(23 20 17 / 0.97);
+    --bar-glass: rgb(38 34 30 / 0.78);
+    --bar-lift: 0 12px 32px -12px rgb(0 0 0 / 0.75), 0 1px 3px rgb(0 0 0 / 0.4);
     --scrim: rgb(0 0 0 / 0.55);
   }
 }
@@ -517,6 +522,23 @@ strong {
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-bottom-bar: max(var(--safe-bottom), min(calc(var(--safe-bottom) * 100), 44px));
+  /*
+   * The screen's own corner (console 2.28.0, #212): about 55 pt on an iPhone 17 Pro. A screen with a bottom inset
+   * has rounded corners, so it is 55px there and 0 in a browser, read the same way as --safe-bottom-bar. What floats
+   * near the corners is concentric with them: a piece set a gap in from the edge has the radius 55 - gap, so its
+   * curve runs parallel to the screen's, and a piece inside it the radius less its own inset again.
+   */
+  --radius-screen: min(calc(var(--safe-bottom) * 100), 55px);
+  --radius-tabbar: calc(var(--tabbar) / 2);
+  /* The current tab's pill, and a tab's focus ring, inside the bar's 4px padding. */
+  --radius-tab: calc(var(--radius-tabbar) - 4px);
+  /* The tab bar's gap from the sides and the foot: its pill's ends then follow the screen's corners. */
+  --edge-gap: max(12px, calc(var(--radius-screen) - var(--radius-tabbar)));
+  /* A sheet's gap, and its corners, top and bottom alike: the screen's, a gap in. */
+  --sheet-gap: max(0px, min(8px, var(--radius-screen)));
+  --radius-sheet: max(var(--radius-card), calc(var(--radius-screen) - var(--sheet-gap)));
+  /* A group inside a sheet, inset by --space-4: the sheet's radius less that. */
+  --radius-inset: max(var(--radius-card), calc(var(--radius-sheet) - var(--space-4)));
 }
 
 .masthead {
@@ -728,12 +750,32 @@ body.is-scrolled .masthead-title {
   max-height: 85dvh;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: var(--space-2) max(var(--space-4), env(safe-area-inset-right))
-    calc(var(--space-6) + env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left));
-  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  padding: var(--space-2) var(--space-4) calc(var(--space-4) + max(0px, var(--safe-bottom) - var(--sheet-gap)));
+  border-radius: var(--radius-sheet);
   background: var(--grouped);
   box-shadow: var(--lift);
   animation: sheet-up 0.32s var(--ease);
+}
+
+/* On a screen with rounded corners the sheet floats a gap in, its corners the screen's (#212). */
+.nav-sheet-panel {
+  right: calc(var(--sheet-gap) + var(--safe-right));
+  bottom: var(--sheet-gap);
+  left: calc(var(--sheet-gap) + var(--safe-left));
+  max-height: calc(100dvh - var(--safe-top) - 24px);
+}
+
+.nav-sheet-group + .nav-sheet-group {
+  margin-top: var(--space-4);
+}
+
+.nav-sheet-heading {
+  margin: 0 0 var(--space-2);
+  padding-inline: var(--space-4);
+  color: var(--ink-2);
+  font-size: var(--type-small);
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .nav-sheet-grip {
@@ -747,7 +789,7 @@ body.is-scrolled .masthead-title {
 
 .nav-sheet-list {
   overflow: hidden;
-  border-radius: var(--radius-group);
+  border-radius: var(--radius-inset);
   background: var(--surface);
 }
 
@@ -755,7 +797,7 @@ body.is-scrolled .masthead-title {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  min-height: 52px;
+  min-height: 48px;
   padding: var(--space-2) var(--space-4);
   color: var(--ink);
   font-size: var(--type-large);
@@ -816,19 +858,60 @@ body.is-scrolled .masthead-title {
     white-space: nowrap;
   }
 
+  :root {
+    --tabbar: 62px;
+  }
+
+  /*
+   * The tab bar floats (console 2.28.0, #114 and #212): a pill a gap in from the sides and the foot, its ends
+   * concentric with the screen's corners, and the current tab a smaller pill inside it, concentric again. The page
+   * runs on under it, edge to edge into the corners. Its glass is a layer of its own: a filter on the bar itself
+   * would hold the More sheet, which is inside it, to the bar's box.
+   */
   .nav {
     position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
+    right: calc(var(--edge-gap) + var(--safe-right));
+    bottom: var(--edge-gap);
+    left: calc(var(--edge-gap) + var(--safe-left));
     z-index: 30;
-    padding: 0 var(--safe-right) var(--safe-bottom-bar) var(--safe-left);
-    border-top: 1px solid var(--line);
-    background: var(--bar);
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-tabbar);
+    box-shadow: var(--bar-lift);
+  }
+
+  .nav::before {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--bar-glass);
+    -webkit-backdrop-filter: blur(20px) saturate(1.8);
+    backdrop-filter: blur(20px) saturate(1.8);
+    content: "";
   }
 
   .nav-list {
     justify-content: space-around;
+  }
+
+  .nav-heading,
+  .nav-label.is-long {
+    display: none;
+  }
+
+  .nav-pill {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: var(--radius-tab);
+    background: transparent;
+    transition: background-color 0.2s var(--ease);
+  }
+
+  .nav-link[aria-current="page"] .nav-pill,
+  .nav-more-toggle.is-current .nav-pill {
+    background: var(--accent-wash);
   }
 
   .nav-item {
@@ -841,16 +924,19 @@ body.is-scrolled .masthead-title {
   }
 
   .nav-link {
+    position: relative;
+    z-index: 0;
     flex: 1 1 auto;
     flex-direction: column;
     justify-content: center;
-    gap: 2px;
-    min-height: var(--tabbar);
-    padding: 6px 2px 4px;
-    color: var(--ink-3);
-    font-size: var(--type-label);
+    gap: 1px;
+    min-width: 0;
+    min-height: calc(var(--tabbar) - 10px);
+    padding: 4px 2px 3px;
+    color: var(--ink-2);
+    font-size: var(--type-small);
     font-weight: 600;
-    letter-spacing: 0.01em;
+    letter-spacing: 0;
   }
 
   .nav-link[aria-current="page"],
@@ -859,12 +945,13 @@ body.is-scrolled .masthead-title {
   }
 
   .nav-link:focus-visible {
-    outline-offset: -4px;
+    border-radius: var(--radius-tab);
+    outline-offset: -2px;
   }
 
   .nav-icon {
-    width: 25px;
-    height: 25px;
+    width: 24px;
+    height: 24px;
   }
 
   /* Who is signed in is on the Account page and in the sheet; here only the buttons, as icons. */
@@ -894,21 +981,24 @@ body.is-scrolled .masthead-title {
   }
 
   .main {
-    padding-bottom: calc(var(--tabbar) + var(--safe-bottom-bar) + var(--space-6));
+    padding-bottom: calc(var(--tabbar) + var(--edge-gap) + var(--space-6));
   }
 
-  .foot {
-    padding-bottom: calc(var(--tabbar) + var(--safe-bottom-bar) + var(--space-5));
+  /* The foot's own rule comes later in this file: the console's class keeps it clear of the floating bar. */
+  .console .foot {
+    padding-bottom: calc(var(--tabbar) + var(--edge-gap) + var(--space-5));
   }
 
+  /* Over the tab bar, as wide as it is. */
   .toasts,
   .ui-toasts {
-    bottom: calc(var(--tabbar) + var(--safe-bottom-bar) + var(--space-3));
+    bottom: calc(var(--tabbar) + var(--edge-gap) + var(--space-3));
+    width: calc(100vw - 2 * var(--edge-gap) - var(--safe-left) - var(--safe-right));
   }
 
   html {
     scroll-padding-top: calc(var(--topbar) + env(safe-area-inset-top) + 0.5rem);
-    scroll-padding-bottom: calc(var(--tabbar) + var(--safe-bottom-bar) + 0.5rem);
+    scroll-padding-bottom: calc(var(--tabbar) + var(--edge-gap) + 0.5rem);
   }
 }
 
@@ -916,8 +1006,20 @@ body.is-scrolled .masthead-title {
 @media (min-width: 861px) {
   .masthead-title,
   .nav-item.is-more,
-  .nav-sheet {
+  .nav-sheet,
+  .nav-pill,
+  .nav-label.is-short {
     display: none;
+  }
+
+  /* The sections in their groups (#114): a quiet heading over each but the first. */
+  .nav-heading {
+    margin: var(--space-4) 0 var(--space-1);
+    padding: 0 var(--space-3);
+    color: var(--ink-3);
+    font-size: var(--type-small);
+    font-weight: 600;
+    letter-spacing: 0.01em;
   }
 
   body.is-framed {
@@ -11244,16 +11346,23 @@ body.console {
 
 /* On a phone a dialog is a sheet from the foot of the screen, at one height for every step. */
 @media (max-width: 700px) {
+  /* A gap in from the screen's sides and foot, its four corners concentric with the screen's (#212). */
   .console .dialog,
   .console .ui-dialog {
-    width: 100%;
+    width: calc(100% - 2 * var(--sheet-gap));
     max-width: 100%;
-    height: calc(100dvh - 32px - env(safe-area-inset-top));
+    height: calc(100dvh - 32px - env(safe-area-inset-top) - var(--sheet-gap));
     max-height: none;
-    margin: auto 0 0;
+    margin: auto var(--sheet-gap) var(--sheet-gap);
     border: 0;
-    border-radius: var(--radius-card) var(--radius-card) 0 0;
-    padding-bottom: env(safe-area-inset-bottom);
+    border-radius: var(--radius-sheet);
+    padding-bottom: 0;
+  }
+
+  /* The foot runs to the sheet's lower edge, in its own colour, its buttons above the home indicator. */
+  .console .dialog-foot,
+  .console .ui-dialog-foot {
+    padding-bottom: calc(14px + max(0px, env(safe-area-inset-bottom) - var(--sheet-gap)));
   }
 
   .console .dialog[open],

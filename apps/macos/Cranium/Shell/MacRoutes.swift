@@ -23,8 +23,7 @@ enum MacRoutes {
 
     static let others: [Section] = [
         Section(route: "bluetooth", title: "Bluetooth"),
-        Section(route: "fleet", title: "Fleet"),
-        Section(route: "memfault", title: "Memfault"),
+        Section(route: "memfault", title: "Crashes"),
         Section(route: "alerts", title: "Alerts"),
         Section(route: "reports", title: "Reports"),
         Section(route: "activity", title: "Activity"),

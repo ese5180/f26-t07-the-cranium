@@ -29,7 +29,7 @@ A board has up to three names, and the console shows the first it has, with the 
 
 1. **The name given in the console** (console 2.25.14). A release manager names a board on its page: Rename, then
    up to 40 printable characters on one line, or empty to take the name away. It leads everywhere the console and the
-   apps show the board: Devices, a board's page, Deployments, Fleet, Events, Activity. Viewers see it, and cannot
+   apps show the board: Devices, a board's page, Deployments, Events, Activity. Viewers see it, and cannot
    change it.
 2. **The board's own name**, the device ID set at its serial console, which firmware from 1.11.4 reports.
 3. **Its thing name**, `cranium-` and 16 hex digits: its identity in AWS IoT, in every address and record. It never
@@ -128,8 +128,8 @@ image on a board checks it. The board's own check is the last word.
 - **Roll back** (a group's, before 2.14.0; removed in 2.19.1). The release before the newest of each type in the
   group. It reached only boards behind both releases, so Roll back to last good (below) replaced it. Rollouts it
   started stay in the history as `rollback` (`group.rollback`).
-- **Roll back to last good** (from console 2.14.0). One button on each group (Fleet, Groups) and one on the Fleet page
-  for every board: each board goes back to its own last good version.
+- **Roll back to last good** (from console 2.14.0). One button on each group (Devices, Groups) and one on the Deployments
+  page (the Fleet page's until console 2.28.0) for every board: each board goes back to its own last good version.
   - **Last good.** The newest version, other than the one it runs, that the board ran confirmed, from its update history
     (`GET /api/updates`): a version an update brought and the board kept (it started, reached AWS IoT and confirmed
     itself), or a version an update started from (a board starts an update only from firmware it has confirmed). An

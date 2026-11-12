@@ -312,8 +312,8 @@ test("a staged rollout's page: the canary, the waves, what was never offered, an
   assert.match(textOf(waiting), /Waiting for the canary\. Planned: 1, then 1 boards\./);
 });
 
-test('the Deployments page lists the staged rollouts; the Fleet page has types, groups and Update everything', async () => {
-  const { state, answers, ctx } = connected({ route: { view: 'fleet' }, deployments: loaded([]) });
+test('the Deployments page lists the staged rollouts and Update everything; Devices has the board types', async () => {
+  const { state, answers, ctx } = connected({ route: { view: 'deployments' }, deployments: loaded([]) });
   answers.set('GET /api/fleet', FLEET);
   answers.set('GET /api/rollouts', { rollouts: [{ ...DETAIL, stage: 'waves', stopped: null }] });
   answers.set('GET /api/fleet/health?days=30', { types: [], updates: {}, attention: [] });
@@ -323,12 +323,15 @@ test('the Deployments page lists the staged rollouts; the Fleet page has types, 
   const panel = draw(fleet.rolloutsPanel(ctx));
   assert.equal(textOf(one(panel, 'p.rollout-title')), '1.13.1+0nRF7002 DK Waves under way');
   assert.equal(one(panel, 'a.rollout-version').getAttribute('href'), `#/rollouts/${ROLLOUT}`);
-  const page = draw(fleet.fleetView(ctx));
+  const types = draw(fleet.boardTypesPanel(ctx));
   assert.deepEqual(
-    all(page, 'div.fleet-type').map((el) => textOf(one(el, 'h2'))),
+    all(types, 'div.fleet-type').map((el) => textOf(one(el, 'h2'))),
     ['nRF7002 DK', 'nRF5340 DK']
   );
-  assert.ok(all(page, 'button').some((el) => textOf(el) === 'Update everything'));
+  const tools = fleet.deploymentTools(ctx).map((node) => draw(node));
+  assert.ok(tools.some((el) => textOf(el) === 'Update everything'));
+  // Every rollout, not the first few with a link to a Fleet page.
+  assert.equal(textOf(panel).includes('Fleet page'), false);
 });
 
 test('the fleet asks the API at its own addresses only', async () => {
@@ -532,13 +535,19 @@ test("the client sends a note with PUT and asks the fleet's addresses only", asy
   assert.deepEqual(calls.at(-1).slice(0, 2), ['GET', '/api/groups/grp-0a0b0c0d/last-good']);
 });
 
-test('a rollout has an address of its own, under the Fleet section', () => {
+test('a rollout has an address of its own, under Deployments; the old Fleet address leads there (#115)', () => {
   assert.deepEqual(core.parseRoute(`#/rollouts/${ROLLOUT}`), { view: 'rollout', id: ROLLOUT });
   assert.equal(core.routeHash({ view: 'rollout', id: ROLLOUT }), `#/rollouts/${ROLLOUT}`);
   assert.equal(core.parseRoute('#/rollouts/rol-1'), null);
-  assert.deepEqual(core.parseRoute('#/fleet'), { view: 'fleet' });
+  assert.deepEqual(core.parseRoute('#/fleet'), { view: 'deployments', movedFrom: 'fleet' });
+  assert.equal(core.routeHash(core.parseRoute('#/fleet')), '#/deployments');
+  assert.equal(core.parseRoute('#/fleet/x'), null);
   const nav = draw(views.navView({ state: { route: { view: 'rollout', id: ROLLOUT } } }));
-  assert.equal(one(nav, 'a', 'Fleet').getAttribute('aria-current'), 'page');
+  assert.equal(one(nav, 'a', 'Deployments').getAttribute('aria-current'), 'page');
+  assert.equal(
+    all(nav, 'a').some((link) => textOf(link) === 'Fleet'),
+    false
+  );
 });
 
 test("the activity log tells the fleet's changes in words, the note of a release among them", () => {
@@ -1088,13 +1097,14 @@ test('a group and the Fleet page offer Roll back to last good, to release manage
   answers.set('GET /api/fleet/health?days=30', { types: [], updates: {}, attention: [] });
   await fleet.refreshFor('devices', true);
   assert.ok(all(draw(fleet.groupsCard(ctx)), 'button').some((el) => textOf(el) === 'Roll back to last good'));
-  state.route = { view: 'fleet' };
+  state.route = { view: 'deployments' };
   state.firmware.loadedAt = NOW;
   state.devices.loadedAt = NOW;
-  assert.ok(all(draw(fleet.fleetView(ctx)), 'button').some((el) => textOf(el) === 'Roll back to last good'));
+  const tools = () => fleet.deploymentTools(ctx).map((node) => draw(node));
+  assert.ok(tools().some((el) => textOf(el) === 'Roll back to last good'));
   state.me = { canWrite: false };
   assert.ok(!all(draw(fleet.groupsCard(ctx)), 'button').some((el) => textOf(el) === 'Roll back to last good'));
-  assert.ok(!all(draw(fleet.fleetView(ctx)), 'button').some((el) => textOf(el) === 'Roll back to last good'));
+  assert.deepEqual(tools(), []);
 });
 
 test('the preview: each board from and to under its release, the canary, what is left out and why, the gate always on', async () => {
@@ -1175,12 +1185,12 @@ test('the fleet asks for its own plan, and nothing is offered when no board has 
   answers.set('GET /api/fleet/health?days=30', { types: [], updates: {}, attention: [] });
   answers.set('GET /api/fleet/last-good', { plan: { ...LAST_GOOD_PLAN, scope: { kind: 'fleet' }, targets: [] } });
   await fleet.refreshFor('devices', true);
-  state.route = { view: 'fleet' };
+  state.route = { view: 'deployments' };
   state.firmware.loadedAt = NOW;
   state.devices.loadedAt = NOW;
-  // The page's own, beside Update everything; each group has one too.
-  all(draw(fleet.fleetView(ctx)), 'button')
-    .find((el) => textOf(el) === 'Roll back to last good' && !el.getAttribute('class').includes('is-small'))
+  // The Deployments page's own, beside Update everything; each group has one too.
+  all(draw(views.h('div', null, fleet.deploymentTools(ctx))), 'button')
+    .find((el) => textOf(el) === 'Roll back to last good')
     .dispatchEvent({ type: 'click' });
   await new Promise((resolve) => setImmediate(resolve));
   const shown = dialog();

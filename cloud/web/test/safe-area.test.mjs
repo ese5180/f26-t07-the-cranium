@@ -38,12 +38,12 @@ test('the safe areas have a name each, and the foot bar clears a rounded corner'
 });
 
 test('the bars are clear of the island, the home indicator and the sides', () => {
-  // The console: its tab bar on a phone, and its sidebar beside the island in landscape.
-  assert.ok(
-    rules(APP, '.nav').some((body) =>
-      /padding: 0 var\(--safe-right\) var\(--safe-bottom-bar\) var\(--safe-left\)/.test(body)
-    )
-  );
+  // The console: its floating tab bar on a phone, a gap in from the sides past the safe areas, and its sidebar
+  // beside the island in landscape.
+  const bar = rules(APP, '.nav').find((body) => /position: fixed/.test(body));
+  assert.match(bar, /right: calc\(var\(--edge-gap\) \+ var\(--safe-right\)\)/);
+  assert.match(bar, /left: calc\(var\(--edge-gap\) \+ var\(--safe-left\)\)/);
+  assert.match(bar, /bottom: var\(--edge-gap\)/);
   assert.match(APP, /body\.is-framed \{\s*padding-left: calc\(var\(--sidebar\) \+ var\(--safe-left\)\);/);
   assert.ok(rules(APP, '.main').some((body) => /max\(var\(--gutter\), var\(--safe-left\)\)/.test(body)));
   assert.match(rules(APP, '.gate-copy')[0], /var\(--safe-top\)/);
@@ -64,4 +64,56 @@ test("the customer site's top bar fits a 402px iPhone: Connect device is its ico
   const block = CUSTOMER.slice(CUSTOMER.indexOf('@media (max-width: 460px)'));
   assert.match(block, /^@media \(max-width: 460px\) \{\s*\.btn\.cs-connect \{/);
   assert.doesNotMatch(CUSTOMER, /\.cs-top-brand \.cs-brand-text \{[^}]*clip-path/);
+});
+
+// The iPhone 17 Pro (#212): designed with its rounded corners, not kept out of them. What floats near a corner is
+// concentric with the screen's: a gap in from the edge, its radius the screen's less that gap.
+test("the screen's corner is 55px where there is one, and what floats near it is concentric with it", () => {
+  assert.match(APP, /--radius-screen: min\(calc\(var\(--safe-bottom\) \* 100\), 55px\);/);
+  assert.match(APP, /--radius-tabbar: calc\(var\(--tabbar\) \/ 2\);/);
+  assert.match(APP, /--edge-gap: max\(12px, calc\(var\(--radius-screen\) - var\(--radius-tabbar\)\)\);/);
+  assert.match(
+    APP,
+    /--radius-sheet: max\(var\(--radius-card\), calc\(var\(--radius-screen\) - var\(--sheet-gap\)\)\);/
+  );
+  assert.match(APP, /--radius-inset: max\(var\(--radius-card\), calc\(var\(--radius-sheet\) - var\(--space-4\)\)\);/);
+  // The tab bar is a pill; the current tab's pill inside it is its radius less the bar's padding.
+  const bar = rules(APP, '.nav').find((body) => /position: fixed/.test(body));
+  assert.match(bar, /border-radius: var\(--radius-tabbar\)/);
+  assert.match(bar, /padding: 4px/);
+  assert.match(APP, /--radius-tab: calc\(var\(--radius-tabbar\) - 4px\);/);
+  assert.ok(rules(APP, '.nav-pill').some((body) => /border-radius: var\(--radius-tab\)/.test(body)));
+  // Its glass is a layer of its own: a filter on the bar would hold the More sheet inside it to the bar's box.
+  assert.ok(!bar.includes('filter'));
+  assert.ok(rules(APP, '.nav::before').some((body) => /backdrop-filter/.test(body)));
+  // The More sheet and a dialog on a phone: a gap in, the same corners top and bottom.
+  assert.ok(
+    rules(APP, '.nav-sheet-panel').some((body) => /border-radius: var\(--radius-sheet\);/.test(body)),
+    "the sheet has the screen's corners"
+  );
+  assert.ok(rules(APP, '.nav-sheet-panel').some((body) => /bottom: var\(--sheet-gap\)/.test(body)));
+  assert.ok(rules(APP, '.nav-sheet-list').some((body) => /border-radius: var\(--radius-inset\)/.test(body)));
+  assert.ok(
+    rules(APP, '.console .ui-dialog').some(
+      (body) =>
+        /border-radius: var\(--radius-sheet\)/.test(body) &&
+        /margin: auto var\(--sheet-gap\) var\(--sheet-gap\)/.test(body)
+    )
+  );
+  // The page runs on under the bar: its foot is clear of the bar, not of a blank band.
+  assert.ok(
+    rules(APP, '.main').some((body) =>
+      /padding-bottom: calc\(var\(--tabbar\) \+ var\(--edge-gap\) \+ var\(--space-6\)\)/.test(body)
+    )
+  );
+});
+
+test('tab labels are words at the 13px floor, and the tabs keep a 44px target', () => {
+  const phone = APP.slice(APP.indexOf('@media (max-width: 860px)'));
+  const link = rules(phone, '.nav-link').find((body) => /flex-direction: column/.test(body));
+  assert.match(link, /font-size: var\(--type-small\)/);
+  assert.match(APP, /--type-small: 0\.8125rem;/);
+  // 62px bar, 4px padding and a 1px border each side: 52px tabs.
+  assert.match(phone, /--tabbar: 62px;/);
+  assert.match(link, /min-height: calc\(var\(--tabbar\) - 10px\)/);
 });

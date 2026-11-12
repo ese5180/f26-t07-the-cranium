@@ -198,7 +198,7 @@ test("an issue's page shows each trace's board, version and the crashed thread's
   assert.match(frames[0], /crash_demo_on_tick.*src\/mflt\.c:301/);
   assert.match(textOf(one(root, 'table.registers')), /pc.*0x0003c074/);
   assert.equal(one(root, 'details.thread').getAttribute('open'), '');
-  assert.equal(one(root, 'a', 'Memfault').getAttribute('href'), '#/memfault');
+  assert.equal(one(root, 'a', 'Crashes').getAttribute('href'), '#/memfault');
 });
 
 test("a board's page shows its reboots with their reasons, its events and its issues", () => {
@@ -242,9 +242,9 @@ test("a board's page shows its reboots with their reasons, its events and its is
   assert.match(textOf(silent), /No reboot reported\./);
 });
 
-test('Memfault is in the sections, and an issue belongs to it', () => {
+test('Memfault is in the sections, named Crashes there (console 2.28.0), and an issue belongs to it', () => {
   const nav = draw(views.navView({ state: { route: { view: 'issue', id: '11' } } }));
-  const link = one(nav, 'a', 'Memfault');
+  const link = one(nav, 'a', 'Crashes');
   assert.equal(link.getAttribute('href'), '#/memfault');
   assert.equal(link.getAttribute('aria-current'), 'page');
 });

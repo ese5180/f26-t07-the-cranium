@@ -1954,18 +1954,26 @@ test('the sections keep their place: each link holds the room its name takes in 
       'Overview',
       'Devices',
       'Map',
-      'Diagnostics',
-      'Events',
       'Firmware',
       'Deployments',
-      'Fleet',
-      'Memfault',
       'Alerts',
+      'Crashes',
+      'Diagnostics',
+      'Events',
       'Reports',
       'Activity',
       'Apps',
       'Developer',
     ]
+  );
+  // In groups, under their headings (#114); the first group has none. Fleet is gone (#115).
+  assert.deepEqual(
+    all(nav, 'li.nav-heading').map((item) => textOf(item)),
+    ['Releases', 'Monitoring', 'Admin']
+  );
+  assert.equal(
+    all(nav, 'a').some((link) => link.getAttribute('href') === '#/fleet'),
+    false
   );
 });
 
@@ -1973,9 +1981,19 @@ test('on a phone four sections are tabs and the rest are under More, in a sheet 
   const nav = (changes = {}) => draw(views.navView({ state: { route: { view: 'events' }, ...changes } }));
   const closed = nav();
   const tabs = all(closed, 'li.nav-item').filter((item) => !item.getAttribute('class').includes('is-'));
+  // Overview, Devices, Deploy, Alerts, More (#114): Deployments has a shorter name on the tab.
   assert.deepEqual(
-    tabs.map((item) => textOf(item)),
-    ['Overview', 'Devices', 'Map', 'Deployments']
+    tabs.map((item) => {
+      const short = all(item, 'span.nav-label').find((el) => el.getAttribute('class').includes('is-short'));
+      return textOf(short ?? one(item, 'span.nav-label'));
+    }),
+    ['Overview', 'Devices', 'Deploy', 'Alerts']
+  );
+  assert.equal(
+    all(closed, 'a')
+      .find((link) => link.getAttribute('href') === '#/deployments')
+      .getAttribute('data-label'),
+    'Deployments'
   );
   const more = one(closed, 'button.nav-more-toggle');
   assert.equal(more.getAttribute('aria-expanded'), 'false');
@@ -1988,18 +2006,22 @@ test('on a phone four sections are tabs and the rest are under More, in a sheet 
   assert.deepEqual(
     links.map((link) => link.getAttribute('href')),
     [
+      '#/map',
+      '#/firmware',
+      '#/memfault',
       '#/diagnostics',
       '#/events',
-      '#/firmware',
-      '#/fleet',
-      '#/memfault',
-      '#/alerts',
       '#/reports',
       '#/activity',
       '#/apps',
       '#/history',
       '#/account',
     ]
+  );
+  // The sheet keeps the sidebar's groups, each a list of its own under its heading.
+  assert.deepEqual(
+    all(open, 'p.nav-sheet-heading').map((el) => textOf(el)),
+    ['Releases', 'Monitoring', 'Admin']
   );
   assert.equal(one(open, 'a.nav-sheet-link', 'Events').getAttribute('aria-current'), 'page');
 });

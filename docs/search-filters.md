@@ -18,8 +18,8 @@ desktop app show the same pages, so they all have it.
 | Customers (`#/customers`) | e-mail, name, their boards and labels | invited, active, disabled, gone | the page |
 | Memfault (`#/memfault`) | issue title, number, version | the version it was last seen on | the page |
 
-Left as they are, because they stay short or already have their own: the Fleet page's groups and rollouts (a few of
-each), the Apps page (a handful of releases), the update history (its own board filter and pages), and the Database
+Left as they are, because they stay short or already have their own: the groups on Devices and the staged rollouts on Deployments (a few
+of each), the Apps page (a handful of releases), the update history (its own board filter and pages), and the Database
 page, whose filters came first ([database.md](database.md)).
 
 A short list is filtered as it is drawn, every word of the search in any field, in any case
