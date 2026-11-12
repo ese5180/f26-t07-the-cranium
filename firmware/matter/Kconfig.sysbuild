@@ -1,0 +1,25 @@
+#
+# Sysbuild for the Matter variant: MCUboot, and the network core running Bluetooth and 802.15.4 together.
+#
+
+choice BOOTLOADER
+	default BOOTLOADER_MCUBOOT
+endchoice
+
+config NRF_DEFAULT_IPC_RADIO
+	default y
+
+config NETCORE_IPC_RADIO_IEEE802154
+	default y
+
+config NETCORE_IPC_RADIO_BT_HCI_IPC
+	default y
+
+# The Wi-Fi chip, on the nRF7002 DK only: the border router's backbone.
+config WIFI_NRF70
+	default y if BOARD_NRF7002DK
+
+config PARTITION_MANAGER
+	default n
+
+source "share/sysbuild/Kconfig"

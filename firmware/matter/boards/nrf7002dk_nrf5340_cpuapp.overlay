@@ -1,0 +1,10 @@
+/*
+ * The Matter variant on this board: its flash layout, and the inter-core link at the highest priority so that
+ * 802.15.4 frames from the network core are not held up.
+ */
+#include "matter_partitions.dtsi"
+#include <zephyr/dt-bindings/ipc_service/static_vrings.h>
+
+&ipc0 {
+	zephyr,priority = <0 PRIO_COOP>;
+};
