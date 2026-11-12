@@ -272,6 +272,60 @@ int mt_spake_begin(struct mt_spake *sp, uint32_t passcode, const uint8_t *salt, 
 	return map(s);
 }
 
+int mt_spake_begin_verifier(struct mt_spake *sp, const uint8_t verifier[97], const uint8_t context[32])
+{
+	psa_key_attributes_t a = PSA_KEY_ATTRIBUTES_INIT;
+	psa_pake_cipher_suite_t cs = PSA_PAKE_CIPHER_SUITE_INIT;
+
+	memset(sp, 0, sizeof(*sp));
+	sp->op = psa_pake_operation_init();
+	psa_pake_cs_set_algorithm(&cs, PSA_ALG_SPAKE2P_MATTER);
+	psa_pake_cs_set_primitive(&cs, PSA_PAKE_PRIMITIVE(PSA_PAKE_PRIMITIVE_TYPE_ECC, PSA_ECC_FAMILY_SECP_R1, 256));
+	psa_set_key_usage_flags(&a, PSA_KEY_USAGE_DERIVE);
+	psa_set_key_algorithm(&a, PSA_ALG_SPAKE2P_MATTER);
+	psa_set_key_type(&a, PSA_KEY_TYPE_SPAKE2P_PUBLIC_KEY(PSA_ECC_FAMILY_SECP_R1));
+	psa_status_t s = psa_import_key(&a, verifier, 97, &sp->key);
+
+	if (s == PSA_SUCCESS) {
+		s = psa_pake_setup(&sp->op, sp->key, &cs);
+	}
+	if (s == PSA_SUCCESS) {
+		s = psa_pake_set_role(&sp->op, PSA_PAKE_ROLE_SERVER);
+	}
+	if (s == PSA_SUCCESS) {
+		s = psa_pake_set_user(&sp->op, NULL, 0);
+	}
+	if (s == PSA_SUCCESS) {
+		s = psa_pake_set_peer(&sp->op, NULL, 0);
+	}
+	if (s == PSA_SUCCESS) {
+		s = psa_pake_set_context(&sp->op, context, 32);
+	}
+	if (s != PSA_SUCCESS) {
+		mt_spake_abort(sp);
+	}
+	return map(s);
+}
+
+int mt_spake_verifier_round(struct mt_spake *sp, const uint8_t pa[65], uint8_t pb[65], uint8_t cb[32])
+{
+	size_t n;
+	psa_status_t s = psa_pake_input(&sp->op, PSA_PAKE_STEP_KEY_SHARE, pa, 65);
+
+	if (s == PSA_SUCCESS) {
+		s = psa_pake_output(&sp->op, PSA_PAKE_STEP_KEY_SHARE, pb, 65, &n);
+	}
+	if (s == PSA_SUCCESS) {
+		s = psa_pake_output(&sp->op, PSA_PAKE_STEP_CONFIRM, cb, 32, &n);
+	}
+	return map(s);
+}
+
+int mt_spake_verifier_confirm(struct mt_spake *sp, const uint8_t ca[32], psa_key_id_t *shared)
+{
+	return mt_spake_confirm(sp, ca, shared);
+}
+
 int mt_spake_round1(struct mt_spake *sp, uint8_t pa[65])
 {
 	size_t n;

@@ -10,6 +10,8 @@
  *   matter ota begin <vid> <pid> <version> <name> <length>, ota write <offset> <hex>, ota finish
  *                                                    store an image (tools/matter_ota_upload.py does this)
  *   matter ota announce <node>                       tell a device this board has an update for it
+ *   matter device                                    this board as a device: its onboarding codes, the phone's fabric
+ *   matter open                                      advertise over Bluetooth for a phone to add this board
  */
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +25,10 @@
 #include "mt_ota.h"
 #include "mt_ota_store.h"
 #include "mt_server.h"
+#include "mt_node.h"
+#include "mt_ota_req.h"
+#include "mt_peripheral.h"
+#include "matter_policy.h"
 #include "ot_leader.h"
 
 static const struct shell *last_shell;
@@ -244,6 +250,39 @@ static int cmd_ota_announce(const struct shell *sh, size_t argc, char **argv)
 	return err;
 }
 
+static int cmd_device(const struct shell *sh, size_t argc, char **argv)
+{
+	const struct mt_node_fabric *f = mt_node_fabric();
+	char qr[23];
+	char manual[12];
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	mp_qr_payload(MT_NODE_VENDOR_ID, MT_NODE_PRODUCT_ID, 0x02, MT_NODE_DISCRIMINATOR, MT_NODE_PASSCODE, qr);
+	mp_manual_code(MT_NODE_DISCRIMINATOR, MT_NODE_PASSCODE, manual);
+	shell_print(sh, "as a device: %s; QR %s, code %s (test credentials)",
+		    f->committed ? "added to a phone's fabric" : f->present ? "being added" : "not added yet", qr, manual);
+	if (f->present) {
+		shell_print(sh, "phone fabric 0x%016llx, this board node 0x%016llx", (unsigned long long)f->fabric_id,
+			    (unsigned long long)f->node_id);
+	}
+	shell_print(sh, "Bluetooth: %s; own update: %s", mt_peripheral_advertising() ? "advertising" : "not advertising",
+		    mt_ota_req_state());
+	return 0;
+}
+
+static int cmd_open(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	int err = mt_peripheral_open();
+
+	if (err) {
+		shell_error(sh, "could not advertise: %d", err);
+	}
+	return err;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(ota_cmds,
 	SHELL_CMD(status, NULL, "the stored image and the provider", cmd_ota_status),
 	SHELL_CMD_ARG(begin, NULL, "<vid> <pid> <version> <name> <length>: start storing an image", cmd_ota_begin, 6, 0),
@@ -260,5 +299,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(matter_cmds,
 	SHELL_CMD_ARG(onoff, NULL, "<node> on|off|toggle [endpoint]: switch a device", cmd_onoff, 3, 1),
 	SHELL_CMD_ARG(forget, NULL, "<node>: remove a device from the list", cmd_forget, 2, 0),
 	SHELL_CMD(ota, &ota_cmds, "the OTA provider", NULL),
+	SHELL_CMD(device, NULL, "this board as a device: its codes and the phone's fabric", cmd_device),
+	SHELL_CMD(open, NULL, "advertise for a phone to add this board (15 minutes)", cmd_open),
 	SHELL_SUBCMD_SET_END);
 SHELL_CMD_REGISTER(matter, &matter_cmds, "Matter commissioner", NULL);

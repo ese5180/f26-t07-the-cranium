@@ -43,6 +43,15 @@ bool mt_bdx_parse_query_skip(const uint8_t *in, size_t len, uint32_t *counter, u
 /* Block and BlockEOF: the counter, then the data (written by the caller after the 4 bytes). */
 size_t mt_bdx_block_header(uint8_t *out, uint32_t counter);
 
+/* The receiving side (this board downloading its own update): ReceiveInit and the accept it gets back. */
+size_t mt_bdx_receive_init(uint8_t *out, size_t cap, uint16_t max_block_size, const char *file, size_t file_len);
+bool mt_bdx_parse_accept(const uint8_t *in, size_t len, uint16_t *block_size, uint64_t *length);
+/* BlockQuery, BlockAck, BlockAckEOF */
+size_t mt_bdx_counter(uint8_t out[4], uint32_t counter);
+
+/* "bdx://<16 hex digits>/<file>": the provider's node ID and the file designator. */
+bool mt_bdx_parse_uri(const char *uri, size_t len, uint64_t *node, const char **file, size_t *file_len);
+
 #ifdef __cplusplus
 }
 #endif

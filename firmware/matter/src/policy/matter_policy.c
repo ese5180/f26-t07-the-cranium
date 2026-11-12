@@ -243,3 +243,68 @@ uint8_t mp_pick_thread_channel(uint8_t wifi_channel)
 	}
 	return best;
 }
+
+void mp_qr_payload(uint16_t vendor_id, uint16_t product_id, uint8_t discovery, uint16_t discriminator,
+		   uint32_t passcode, char out[23])
+{
+	static const char alphabet[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.";
+	uint8_t bits[11] = {0};
+	unsigned int pos = 0;
+	const struct {
+		uint32_t value;
+		unsigned int width;
+	} fields[] = {
+		{0, 3}, {vendor_id, 16}, {product_id, 16}, {0, 2}, {discovery, 8},
+		{discriminator & 0x0FFFu, 12}, {passcode & 0x07FFFFFFu, 27}, {0, 4},
+	};
+
+	/* Packed least significant bit first. */
+	for (size_t f = 0; f < sizeof(fields) / sizeof(fields[0]); f++) {
+		for (unsigned int b = 0; b < fields[f].width; b++, pos++) {
+			if (fields[f].value & (1u << b)) {
+				bits[pos / 8] |= (uint8_t)(1u << (pos % 8));
+			}
+		}
+	}
+	memcpy(out, "MT:", 3);
+	size_t n = 3;
+
+	for (size_t i = 0; i < sizeof(bits); i += 3) {
+		size_t take = sizeof(bits) - i < 3 ? sizeof(bits) - i : 3;
+		uint32_t v = 0;
+		unsigned int chars = take == 3 ? 5 : take == 2 ? 4 : 2;
+
+		for (size_t k = 0; k < take; k++) {
+			v |= (uint32_t)bits[i + k] << (8 * k);
+		}
+		for (unsigned int k = 0; k < chars; k++) {
+			out[n++] = alphabet[v % 38];
+			v /= 38;
+		}
+	}
+	out[n] = '\0';
+}
+
+void mp_manual_code(uint16_t discriminator, uint32_t passcode, char out[12])
+{
+	uint8_t s = (uint8_t)((discriminator >> 8) & 0x0F);
+	uint32_t chunk1 = s >> 2;
+	uint32_t chunk2 = ((uint32_t)(s & 3u) << 14) | (passcode & 0x3FFFu);
+	uint32_t chunk3 = (passcode >> 14) & 0x1FFFu;
+	uint32_t parts[3] = {chunk1, chunk2, chunk3};
+	unsigned int widths[3] = {1, 5, 4};
+	size_t n = 0;
+
+	for (int p = 0; p < 3; p++) {
+		for (int d = (int)widths[p] - 1; d >= 0; d--) {
+			uint32_t div = 1;
+
+			for (int k = 0; k < d; k++) {
+				div *= 10;
+			}
+			out[n++] = (char)('0' + (parts[p] / div) % 10);
+		}
+	}
+	out[n] = (char)('0' + mp_verhoeff_check_digit(out, n));
+	out[n + 1] = '\0';
+}

@@ -247,8 +247,34 @@ static void test_channels(void)
 	}
 }
 
+static void test_onboarding(void)
+{
+	char qr[23];
+	char manual[12];
+	struct mp_manual_code code;
+
+	/* The Matter SDK's test device: vendor 0xFFF1, product 0x8000, Bluetooth, 3840, 20202021. */
+	mp_qr_payload(0xFFF1, 0x8000, 0x02, 3840, 20202021, qr);
+	CHECK(strcmp(qr, "MT:Y.K9042C00KA0648G00") == 0);
+	CHECK(mp_qr_code_plausible(qr));
+	mp_manual_code(3840, 20202021, manual);
+	CHECK(strcmp(manual, "34970112332") == 0);
+	/* round trips */
+	for (uint32_t pc = 1; pc < 99999998u; pc += 7777777u) {
+		for (uint16_t d = 0; d < 4096; d += 511) {
+			if (!mp_passcode_valid(pc)) {
+				continue;
+			}
+			mp_manual_code(d, pc, manual);
+			CHECK(mp_parse_manual_code(manual, &code) == MP_CODE_OK);
+			CHECK(code.passcode == pc && code.short_discriminator == (d >> 8));
+		}
+	}
+}
+
 int main(void)
 {
+	test_onboarding();
 	test_manual_codes();
 	test_qr_codes();
 	test_backoff();

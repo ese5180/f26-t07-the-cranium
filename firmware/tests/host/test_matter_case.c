@@ -168,7 +168,7 @@ static void test_messages(void)
 	mt_tlv_reader_init(&r, buf, (size_t)n);
 	CHECK(mt_tlv_next(&r, &e) && mt_tlv_find(&r, 2, &e) && e.len == 10);
 
-	n = mt_case_tbe3(buf, sizeof(buf), noc, sizeof(noc), sig);
+	n = mt_case_tbe3(buf, sizeof(buf), noc, sizeof(noc), NULL, 0, sig);
 	CHECK(n > 0);
 	mt_tlv_reader_init(&r, buf, (size_t)n);
 	CHECK(mt_tlv_next(&r, &e) && mt_tlv_find(&r, 3, &e) && e.len == 64);
