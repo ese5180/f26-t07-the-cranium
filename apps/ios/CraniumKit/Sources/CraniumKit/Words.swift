@@ -1216,6 +1216,8 @@ public enum Words {
         "BUTTON": "pressed a button of {} over USB",
         "REBOOT": "restarted {} over USB",
         "ENTER_BOOTLOADER": "restarted {} into its bootloader over USB",
+        "BT_PASSKEY": "set or erased the Bluetooth passkey of {} over USB",
+        "BT_OFFLINE": "made a new Bluetooth passkey for {} over USB",
     ]
 
     static let auditOutcomes: [String: Look] = [
