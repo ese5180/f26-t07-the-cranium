@@ -19,6 +19,7 @@ The firmware is one Zephyr application (`firmware/app`) behind MCUboot, document
 
 | Feature | What it does | Since | Where | Reuse notes |
 | --- | --- | --- | --- | --- |
+| 2026-11-11 | Update over Bluetooth: Look for boards stays in reach after choosing a release | console 2.27.1 | #211, open |
 | Cloud update (OTA) | Takes an AWS IoT job, downloads a signed image, checks it, swaps on restart, confirms or rolls back | 1.0 | `src/ota/ota.c` | Any MCUboot device with a network link; keep the job states and the rollback trial |
 | Signed images | Every image is signed; the bootloader holds only the public key | 1.0 | `firmware/keys/`, `scripts/firmware/build.sh` | Keep the private key off CI; build and sign on a trusted machine |
 | Update recovery | Interrupted, cancelled, stalled and refused updates each have a defined end state | 1.x | README "When an update fails" | The same table works for any OTA design |

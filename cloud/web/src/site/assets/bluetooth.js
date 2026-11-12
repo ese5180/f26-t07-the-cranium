@@ -1051,6 +1051,25 @@ function boardTile(model, board) {
   );
 }
 
+/**
+ * The next step, at the foot of the release card: the release chosen and "Look for boards". Up to 1100 px the
+ * columns stack and the list can run past the screen, so app.css keeps this bar in view (sticky, above a phone's
+ * tab bar) while the card is: whatever release the person taps, the button to go on is in reach without scrolling.
+ */
+function nextBar(model, flow) {
+  const chosen = offerable(flow.releases, flow.running).some((release) => release.version === flow.release);
+  return h(
+    'div',
+    { class: 'actions bt-next', key: 'next' },
+    h(
+      'p',
+      { class: 'bt-next-what', 'aria-live': 'polite' },
+      chosen ? ['Release ', mono(flow.release)] : h('span', { class: 'quiet' }, 'No release chosen')
+    ),
+    button('is-primary', model.lookForBoards, icon('locate'), 'Look for boards')
+  );
+}
+
 const SETUP = ['Release', 'Board', 'Send'];
 
 function setupHead(at) {
@@ -1184,14 +1203,10 @@ export function bluetoothView(ctx) {
               { class: 'bt-col' },
               h('h2', { class: 'bt-pick-title' }, 'Open the board’s window'),
               windowHelp(device),
-              problem,
-              h(
-                'div',
-                { class: 'actions' },
-                button('is-primary', model.lookForBoards, icon('locate'), 'Look for boards')
-              )
+              problem
             )
-          )
+          ),
+          nextBar(model, flow)
         )
       );
     }

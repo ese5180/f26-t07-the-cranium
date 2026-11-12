@@ -12738,6 +12738,59 @@ span.glance-item:hover {
   align-content: start;
 }
 
+/*
+ * The next step at the foot of the release card: the release chosen and "Look for boards". Where the columns stack
+ * (up to 1100 px) the list can run past the screen, so the bar is sticky: it stays at the foot of the screen, above
+ * a phone's tab bar and the home indicator, for as long as the card is in view, and joins the card's foot at its end.
+ */
+.console .bt-pick {
+  --bt-pad: clamp(18px, 2.3vw, 28px);
+}
+
+.bt-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.bt-next-what {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--type-table);
+}
+
+.bt-next-what .mono {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+@media (max-width: 1100px) {
+  .bt-next {
+    position: sticky;
+    bottom: max(var(--space-3), var(--safe-bottom-bar));
+    z-index: 5;
+    margin: 0 calc(-1 * var(--bt-pad)) calc(-1 * var(--bt-pad));
+    padding: 12px max(var(--bt-pad), var(--safe-right)) 12px max(var(--bt-pad), var(--safe-left));
+    border-radius: 0 0 var(--radius-group) var(--radius-group);
+    background: var(--surface);
+  }
+}
+
+@media (max-width: 860px) {
+  .bt-next {
+    bottom: calc(var(--tabbar) + var(--safe-bottom-bar));
+  }
+
+  .bt-next .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
 .bt-run .bt-choices {
   max-width: 760px;
 }

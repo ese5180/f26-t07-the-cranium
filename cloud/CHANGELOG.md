@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.27.1
+
+Update over Bluetooth: once a release is chosen, "Look for boards" is in reach without scrolling. It sits in a bar at the foot of the release card with the release chosen; on a phone, and wherever the two columns stack, the bar stays at the foot of the screen above the tab bar and the home indicator while the list scrolls, and joins the card's foot at its end. Before, the button came after the whole list and the board's window instructions, so on a phone the person had to scroll to the bottom to go on.
+
+`bluetooth.js` writes the bar (`actions bt-next`) after the columns instead of at the end of the second one; `app.css` makes it sticky up to 1100 px (above `--tabbar` and `--safe-bottom-bar` up to 860 px). bluetooth.test.mjs checks the bar's place, its words and its sticky rules. The apps show it with their next pages; no app changes.
+
 ## 2.27.0
 
 Offline mode is a page of the console now, in the iPhone, Android and Mac apps: **Offline**, in the sections (under More on a phone), and from the sign-in page when there is no network. It finds a board nearby over Bluetooth, pairs with the board's own passkey (the phone or the Mac asks for it), shows the board's firmware, uptime, Wi-Fi, cloud, update state and last restart, and accepts an update that has arrived at the board, after asking "Install version 1.20 on Cranium-3F9C?". In the apps it is easy to reach from where they open: an Offline mode row above the form on the customer site's sign-in page and on the console's, and in the customer site's sections and top bar. It needs firmware 1.19.0 and app 0.9.0 (Mac app 0.4.0).
