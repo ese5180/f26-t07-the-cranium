@@ -19,4 +19,7 @@ int mt_server_announce(uint64_t node_id, void (*done)(uint64_t node, int result)
 
 const char *mt_server_state(void);
 
+/* Where the phone last opened a session from (for this board's own CASE to it as OTA requestor). */
+bool mt_server_phone_address(struct sockaddr_in6 *out);
+
 #endif /* MT_SERVER_H_ */

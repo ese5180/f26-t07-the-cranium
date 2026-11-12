@@ -16,7 +16,10 @@
 #include "mt_cert.h"
 #include "mt_controller.h"
 #include "mt_crypto.h"
+#include "mt_dev_im.h"
 #include "mt_fabric.h"
+#include "mt_identity.h"
+#include "mt_node.h"
 #include "mt_im.h"
 #include "mt_msg.h"
 #include "mt_ota.h"
@@ -34,6 +37,9 @@ extern void mt_ctl_schedule(struct k_work_delayable *work, k_timeout_t delay);
 
 enum state { S_IDLE, S_SIGMA3, S_SESSION };
 static enum state state;
+static struct mt_case_identity id; /* this board in the session: commissioner or the phone's device */
+static struct sockaddr_in6 phone_addr;
+static bool have_phone_addr;
 static struct sockaddr_in6 peer;
 static uint64_t peer_node;
 static uint16_t local_sid;
@@ -135,7 +141,7 @@ static int respond(bool secure, uint16_t exchange, uint16_t protocol, uint8_t op
 	if (secure) {
 		uint8_t nonce[MT_NONCE_LEN];
 
-		mt_msg_nonce(&h, mt_fabric()->own_node_id, nonce);
+		mt_msg_nonce(&h, id.own_node_id, nonce);
 		int err = mt_ccm_encrypt(key_r2i, nonce, tx, hdr, &tx[hdr], n - hdr, &tx[n]);
 
 		if (err) {
@@ -154,12 +160,18 @@ static int respond(bool secure, uint16_t exchange, uint16_t protocol, uint8_t op
 	return 0;
 }
 
-static void sigma1_in(const uint8_t *body, size_t len, uint16_t exchange, uint32_t ack)
+static bool addressed_to(const struct mt_case_identity *who, const struct mt_case_sigma1 *s1)
 {
-	const struct mt_fabric *f = mt_fabric();
-	struct mt_case_sigma1 s1;
 	uint8_t msg[113];
 	uint8_t want[32];
+	size_t m = mt_case_destination_message(msg, s1->random, who->root_public_key, who->fabric_id, who->own_node_id);
+
+	return mt_hmac_sha256(who->ipk, 16, msg, m, want) == 0 && memcmp(want, s1->destination_id, 32) == 0;
+}
+
+static void sigma1_in(const uint8_t *body, size_t len, uint16_t exchange, uint32_t ack)
+{
+	struct mt_case_sigma1 s1;
 	uint8_t random[32];
 	uint8_t salt[16 + 32 + 65 + 32];
 	uint8_t s2k[16];
@@ -174,13 +186,18 @@ static void sigma1_in(const uint8_t *body, size_t len, uint16_t exchange, uint32
 	if (len > sizeof(sigma1) || !mt_case_parse_sigma1(body, len, &s1)) {
 		return;
 	}
-	/* Addressed to this board in this fabric? */
-	size_t m = mt_case_destination_message(msg, s1.random, f->root_public_key, f->fabric_id, f->own_node_id);
+	/* Addressed to this board, on its own fabric or on the phone's? */
+	struct mt_case_identity cand;
 
-	if (mt_hmac_sha256(f->operational_ipk, 16, msg, m, want) != 0 || memcmp(want, s1.destination_id, 32) != 0) {
+	if (mt_identity_get(MT_ID_OWN_FABRIC, &cand) && addressed_to(&cand, &s1)) {
+		/* the board's own devices: the OTA provider */
+	} else if (mt_identity_get(MT_ID_PHONE_FABRIC, &cand) && addressed_to(&cand, &s1)) {
+		/* the phone */
+	} else {
 		return;
 	}
 	reset();
+	id = cand;
 	memcpy(sigma1, body, len);
 	sigma1_len = len;
 	peer_sid = s1.session_id;
@@ -197,17 +214,17 @@ static void sigma1_in(const uint8_t *body, size_t len, uint16_t exchange, uint32
 	if (eph != PSA_KEY_ID_NULL) {
 		psa_destroy_key(eph);
 	}
-	int n = err ? -1 : mt_case_tbs(tbs, sizeof(tbs), f->own_noc, f->own_noc_len, NULL, 0, own_eph_pub, s1.eph_pub);
+	int n = err ? -1 : mt_case_tbs(tbs, sizeof(tbs), id.noc, id.noc_len, id.icac, id.icac_len, own_eph_pub, s1.eph_pub);
 
-	err = n < 0 ? -EIO : mt_fabric_sign_own(tbs, (size_t)n, sig);
+	err = n < 0 ? -EIO : id.sign(tbs, (size_t)n, sig);
 	if (!err) {
 		err = mt_random(resume, sizeof(resume));
 	}
-	n = err ? -1 : mt_case_tbe2(tbe, sizeof(tbe) - 16, f->own_noc, f->own_noc_len, sig, resume);
+	n = err ? -1 : mt_case_tbe2(tbe, sizeof(tbe) - 16, id.noc, id.noc_len, id.icac, id.icac_len, sig, resume);
 	const uint8_t *p1[] = {sigma1};
 	size_t l1[] = {sigma1_len};
 
-	memcpy(salt, f->operational_ipk, 16);
+	memcpy(salt, id.ipk, 16);
 	memcpy(&salt[16], random, 32);
 	memcpy(&salt[48], own_eph_pub, 65);
 	if (n > 0 && mt_sha256(p1, l1, 1, &salt[113]) == 0 &&
@@ -229,7 +246,6 @@ static void sigma1_in(const uint8_t *body, size_t len, uint16_t exchange, uint32
 
 static void sigma3_in(const uint8_t *body, size_t len, uint16_t exchange, uint32_t ack)
 {
-	const struct mt_fabric *f = mt_fabric();
 	const uint8_t *enc;
 	size_t enc_len;
 	uint8_t tbe[600];
@@ -239,12 +255,11 @@ static void sigma3_in(const uint8_t *body, size_t len, uint16_t exchange, uint32
 	uint8_t keys[48];
 	const uint8_t *noc;
 	size_t noc_len;
+	const uint8_t *icac;
+	size_t icac_len;
 	const uint8_t *sig;
 	uint8_t pub[65];
 	uint64_t node;
-	uint64_t fabric;
-	uint8_t der[MT_CERT_DER_MAX];
-	struct mt_x509 x;
 	uint8_t status[8];
 	static const uint8_t n3[13] = "NCASE_Sigma3N";
 
@@ -254,23 +269,17 @@ static void sigma3_in(const uint8_t *body, size_t len, uint16_t exchange, uint32
 	const uint8_t *p2[] = {sigma1, sigma2};
 	size_t l2[] = {sigma1_len, sigma2_len};
 
-	memcpy(salt, f->operational_ipk, 16);
+	memcpy(salt, id.ipk, 16);
 	memcpy(tbe, enc, enc_len - 16);
 	if (mt_sha256(p2, l2, 2, &salt[16]) != 0 ||
 	    mt_hkdf(shared, 32, salt, 48, (const uint8_t *)"Sigma3", 6, s3k, 16) != 0 ||
 	    mt_ccm_once(false, s3k, n3, tbe, enc_len - 16, (uint8_t *)&enc[enc_len - 16]) != 0 ||
-	    !mt_case_parse_tbe3(tbe, enc_len - 16, &noc, &noc_len, &sig) ||
-	    !mt_cert_read(noc, noc_len, pub, &node, &fabric) || fabric != f->fabric_id ||
-	    mt_fabric_node(node) == NULL) {
+	    !mt_case_parse_tbe3(tbe, enc_len - 16, &noc, &noc_len, &icac, &icac_len, &sig) ||
+	    !mt_identity_check_peer(&id, noc, noc_len, icac, icac_len, 0, pub, &node) ||
+	    (id.kind == MT_ID_OWN_FABRIC && mt_fabric_node(node) == NULL)) {
 		goto refuse;
 	}
-	int n = mt_cert_to_der(noc, noc_len, der, sizeof(der), NULL, NULL);
-
-	if (n <= 0 || !mt_x509_parse(der, (size_t)n, &x) ||
-	    !mt_verify(f->root_public_key, x.tbs, x.tbs_len, x.signature)) {
-		goto refuse;
-	}
-	n = mt_case_tbs(tbs, sizeof(tbs), noc, noc_len, NULL, 0, peer_eph_pub, own_eph_pub);
+	int n = mt_case_tbs(tbs, sizeof(tbs), noc, noc_len, icac, icac_len, peer_eph_pub, own_eph_pub);
 	if (n < 0 || !mt_verify(pub, tbs, (size_t)n, sig)) {
 		goto refuse;
 	}
@@ -290,7 +299,13 @@ static void sigma3_in(const uint8_t *body, size_t len, uint16_t exchange, uint32
 	counter = (counter & 0x0FFFFFFFu) + 1;
 	state = S_SESSION;
 	tx_waiting = false;
-	LOG_INF("node 0x%016llx opened a session (OTA)", (unsigned long long)node);
+	if (id.kind == MT_ID_PHONE_FABRIC) {
+		phone_addr = peer;
+		have_phone_addr = true;
+		LOG_INF("the phone (node 0x%016llx) opened a session", (unsigned long long)node);
+	} else {
+		LOG_INF("node 0x%016llx opened a session (OTA)", (unsigned long long)node);
+	}
 	(void)respond(false, exchange, MT_PROTO_SECURE_CHANNEL, MT_SC_STATUS_REPORT, status,
 		      mt_status_report(status, 0, 0, 0), true, ack, true);
 	return;
@@ -328,7 +343,7 @@ static void invoke_in(const uint8_t *body, size_t len, uint16_t exchange, uint32
 				q.software_version, status == MT_OTA_STATUS_AVAILABLE ? "update offered" : "nothing");
 			mt_im_response_begin(&w, req.endpoint, MT_CL_OTA_PROVIDER, MT_OTA_QUERY_IMAGE_RESPONSE);
 			mt_ota_query_response(&w, status, mt_fabric()->own_node_id, &image, token);
-			n = mt_im_invoke_end(&w);
+			n = mt_im_response_end(&w);
 		}
 	} else if (req.command == MT_OTA_APPLY_UPDATE) {
 		uint32_t v;
@@ -339,7 +354,7 @@ static void invoke_in(const uint8_t *body, size_t len, uint16_t exchange, uint32
 			LOG_INF("node 0x%016llx applies version %u", (unsigned long long)peer_node, v);
 			mt_im_response_begin(&w, req.endpoint, MT_CL_OTA_PROVIDER, MT_OTA_APPLY_UPDATE_RESPONSE);
 			mt_ota_apply_response(&w);
-			n = mt_im_invoke_end(&w);
+			n = mt_im_response_end(&w);
 		}
 	} else if (req.command == MT_OTA_NOTIFY_APPLIED) {
 		LOG_INF("node 0x%016llx runs the new version", (unsigned long long)peer_node);
@@ -472,6 +487,20 @@ bool mt_server_rx(uint8_t *msg, size_t len, const struct sockaddr_in6 *from)
 		sigma1_in(body, blen, p.exchange_id, h.counter);
 	} else if (!secure && p.opcode == MT_SC_SIGMA3) {
 		sigma3_in(body, blen, p.exchange_id, h.counter);
+	} else if (secure && p.protocol_id == MT_PROTO_IM && id.kind == MT_ID_PHONE_FABRIC) {
+		static uint8_t out[1100];
+		struct mt_dev_session ds = {.pase = false, .challenge = NULL, .fabric_index = MT_NODE_FABRIC_INDEX};
+		uint8_t op;
+		int n = mt_dev_im(&ds, p.opcode, body, blen, &op, out, sizeof(out));
+
+		if (n >= 0) {
+			(void)respond(true, p.exchange_id, MT_PROTO_IM, op, out, (size_t)n, true, h.counter, true);
+		} else if (reliable) {
+			uint8_t empty;
+
+			(void)respond(true, p.exchange_id, MT_PROTO_SECURE_CHANNEL, MT_SC_STANDALONE_ACK, &empty, 0, true,
+				      h.counter, false);
+		}
 	} else if (secure && p.protocol_id == MT_PROTO_IM && p.opcode == MT_IM_INVOKE_REQUEST) {
 		invoke_in(body, blen, p.exchange_id, h.counter);
 	} else if (secure && p.protocol_id == MT_PROTO_BDX) {
@@ -500,4 +529,12 @@ int mt_server_announce(uint64_t node_id, void (*done)(uint64_t node, int result)
 const char *mt_server_state(void)
 {
 	return transfer_active ? "sending an image" : state == S_SESSION ? "session open" : "idle";
+}
+
+bool mt_server_phone_address(struct sockaddr_in6 *out)
+{
+	if (have_phone_addr) {
+		*out = phone_addr;
+	}
+	return have_phone_addr;
 }

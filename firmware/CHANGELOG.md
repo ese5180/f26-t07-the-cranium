@@ -9,19 +9,20 @@ A version without an entry here still gets a note: the subjects of the firmware 
 
 ## 1.21.0
 
-A new, separate firmware for the nRF7002 DK: the board as Thread border router on Wi-Fi, Matter commissioner and Matter OTA provider for its devices, in one image, with this project's own compact Matter library (firmware/matter, docs/matter-thread.md). The image boards run today is unchanged. Not yet tested on hardware.
+A new, separate firmware for the nRF7002 DK: Thread border router on Wi-Fi, Matter commissioner and OTA provider for its devices, and a Matter device a phone app adds over Bluetooth and then updates over Wi-Fi with Matter OTA, in one image with this project's own compact Matter library (firmware/matter, docs/matter-thread.md). Test credentials only. The image boards run today is unchanged. Not yet tested on hardware.
 
-The Matter SDK's controller needed about 1.4 MB of flash next to Wi-Fi and the border router, so the commissioner
-is our own C code on PSA crypto: TLV, BTP, PASE, device attestation against the Matter test PAAs, the fabric's
-root CA and NOCs (persistent PSA keys), CASE both ways with MRP over Thread, CommissioningComplete, the node list in
-settings with reconnection after a restart, OnOff from the shell, and the OTA provider (QueryImage, BDX,
-ApplyUpdate) with an image store in external flash. Zephyr's border router code, which this SDK does not build,
-is built here and patched for its OpenThread; the nRF70 firmware lives in external flash. Host tests check the
-certificates byte for byte and the CASE derivations against the Matter SDK's and the specification's vectors.
+The Matter SDK's controller needed about 1.4 MB of flash next to Wi-Fi and the border router, so Matter is our own
+C code on PSA crypto: TLV, BTP both ways, PASE both ways, device attestation, the fabric's certificates, CASE both
+ways with MRP, the commissioner's steps, the device's clusters (Basic Information, General and Network
+Commissioning, Operational Credentials with the Matter SDK's test DAC, OTA Requestor), BDX both ways, the OTA
+provider and requestor. Zephyr's border router code is built here and patched for this SDK's OpenThread; the nRF70
+firmware lives in external flash. Host tests check certificates byte for byte, the CASE derivations and the
+onboarding codes against the Matter SDK's and the specification's vectors, and the commissioning commands a phone
+sends, in order.
 
-nRF7002 DK: application flash 859,828 of 954,218 bytes (94,390 free), RAM 348,056 of 458,752 (110,696 free);
+nRF7002 DK: application flash 883,580 of 954,218 bytes (70,638 free), RAM 368,384 of 458,752 (90,368 free);
 network core 191,860 of 262,144 flash, 58,008 of 65,536 RAM; MCUboot 37,688 of 49,152. nRF5340 DK (no Wi-Fi):
-application flash 410,164 (544,054 free), RAM 185,888 (272,864 free).
+application flash 433,308 (520,910 free), RAM 205,320 (253,432 free).
 
 ## 1.19.1
 

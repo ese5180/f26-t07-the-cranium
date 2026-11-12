@@ -19,6 +19,7 @@
 #include "mt_cert.h"
 #include "mt_crypto.h"
 #include "mt_fabric.h"
+#include "mt_identity.h"
 #include "mt_im.h"
 #include "mt_msg.h"
 #include "mt_server.h"
@@ -34,6 +35,8 @@ LOG_MODULE_REGISTER(mt_ctl, LOG_LEVEL_INF);
 
 struct session {
 	bool in_use;
+	enum mt_identity_kind kind;
+	uint64_t own_node_id;
 	uint64_t node_id;
 	struct sockaddr_in6 addr;
 	uint16_t local_id;
@@ -51,8 +54,15 @@ static struct k_work_q wq;
 static K_THREAD_STACK_DEFINE(rx_stack, 2048);
 static struct k_thread rx_thread;
 
+/* The one operation running: on which fabric, to which address if it is known */
+static struct mt_case_identity id;
+static bool have_addr;
+static struct sockaddr_in6 given_addr;
+static void (*op_fields)(const uint8_t *fields, size_t len);
+static void (*op_exchange_rx)(uint8_t protocol_opcode, uint16_t protocol, const uint8_t *body, size_t len);
+
 /* The one operation running */
-enum op_state { OP_IDLE, OP_RESOLVE, OP_SIGMA2, OP_SIGMA_STATUS, OP_INVOKE };
+enum op_state { OP_IDLE, OP_RESOLVE, OP_SIGMA2, OP_SIGMA_STATUS, OP_INVOKE, OP_EXCHANGE };
 static enum op_state op;
 static uint64_t op_node;
 static mt_ctl_done op_done;
@@ -116,6 +126,8 @@ static void finish(int result)
 	memset(shared, 0, sizeof(shared));
 	op = OP_IDLE;
 	op_done = NULL;
+	op_fields = NULL;
+	op_exchange_rx = NULL;
 	tx_waiting_ack = false;
 	if (done) {
 		done(node, result);
@@ -125,7 +137,7 @@ static void finish(int result)
 static struct session *find_session(uint64_t node)
 {
 	for (int i = 0; i < MAX_SESSIONS; i++) {
-		if (sessions[i].in_use && sessions[i].node_id == node) {
+		if (sessions[i].in_use && sessions[i].node_id == node && sessions[i].kind == id.kind) {
 			return &sessions[i];
 		}
 	}
@@ -162,6 +174,8 @@ static struct session *new_session(uint64_t node)
 	}
 	s->in_use = true;
 	s->node_id = node;
+	s->kind = id.kind;
+	s->own_node_id = id.own_node_id;
 	return s;
 }
 
@@ -171,7 +185,6 @@ static int build(struct session *s, uint16_t protocol, uint8_t opcode, const uin
 {
 	struct mt_msg_header h = {0};
 	struct mt_proto_header p = {0};
-	const struct mt_fabric *f = mt_fabric();
 	size_t n;
 
 	if (s) {
@@ -205,7 +218,7 @@ static int build(struct session *s, uint16_t protocol, uint8_t opcode, const uin
 		uint8_t nonce[MT_NONCE_LEN];
 
 		/* CASE: the nonce carries the sender's operational node ID. */
-		mt_msg_nonce(&h, f->own_node_id, nonce);
+		mt_msg_nonce(&h, s->own_node_id, nonce);
 		int err = mt_ccm_encrypt(s->i2r, nonce, tx, hdr, &tx[hdr], n - hdr, &tx[n]);
 
 		if (err) {
@@ -287,15 +300,14 @@ static void timed_out(struct k_work *w)
 /* The device's operational address, from the SRP registration of "<compressed fabric ID>-<node ID>". */
 static bool resolve(uint64_t node, struct sockaddr_in6 *out)
 {
-	const struct mt_fabric *f = mt_fabric();
 	char want[34];
+	const uint8_t *cf = id.compressed_id;
 	const otSrpServerHost *host = NULL;
 	bool found = false;
 	otInstance *ot = openthread_get_default_instance();
 
-	snprintf(want, sizeof(want), "%02X%02X%02X%02X%02X%02X%02X%02X-%016llX", f->compressed_id[0],
-		 f->compressed_id[1], f->compressed_id[2], f->compressed_id[3], f->compressed_id[4],
-		 f->compressed_id[5], f->compressed_id[6], f->compressed_id[7], (unsigned long long)node);
+	snprintf(want, sizeof(want), "%02X%02X%02X%02X%02X%02X%02X%02X-%016llX", cf[0], cf[1], cf[2], cf[3], cf[4],
+		 cf[5], cf[6], cf[7], (unsigned long long)node);
 	openthread_mutex_lock();
 	while (!found && (host = otSrpServerGetNextHost(ot, host)) != NULL) {
 		const otSrpServerService *svc = NULL;
@@ -338,7 +350,6 @@ static bool resolve(uint64_t node, struct sockaddr_in6 *out)
 
 static void start_case(void)
 {
-	const struct mt_fabric *f = mt_fabric();
 	uint8_t random[32];
 	uint8_t dest_msg[113];
 	uint8_t dest[32];
@@ -352,9 +363,9 @@ static void start_case(void)
 		err = mt_ecdh_new(&eph_key, eph_pub);
 	}
 	if (!err) {
-		size_t n = mt_case_destination_message(dest_msg, random, f->root_public_key, f->fabric_id, op_node);
+		size_t n = mt_case_destination_message(dest_msg, random, id.root_public_key, id.fabric_id, op_node);
 
-		err = mt_hmac_sha256(f->operational_ipk, 16, dest_msg, n, dest);
+		err = mt_hmac_sha256(id.ipk, 16, dest_msg, n, dest);
 	}
 	int n = err ? -1 : mt_case_sigma1(sigma1, sizeof(sigma1), random, case_local_id, dest, eph_pub);
 
@@ -376,6 +387,11 @@ static void resolve_step(struct k_work *w)
 	if (op != OP_RESOLVE) {
 		return;
 	}
+	if (have_addr) {
+		peer_addr = given_addr;
+		start_case();
+		return;
+	}
 	if (resolve(op_node, &peer_addr)) {
 		LOG_INF("node 0x%016llx found; opening CASE", (unsigned long long)op_node);
 		start_case();
@@ -389,26 +405,8 @@ static void resolve_step(struct k_work *w)
 	k_work_reschedule_for_queue(&wq, &resolve_work, K_SECONDS(2));
 }
 
-/* Checks the device's NOC: issued by this fabric's root, for this node and fabric. */
-static bool check_noc(const uint8_t *noc, size_t len, uint8_t pub[65])
-{
-	const struct mt_fabric *f = mt_fabric();
-	uint64_t node;
-	uint64_t fabric;
-	uint8_t der[MT_CERT_DER_MAX];
-	struct mt_x509 x;
-	int n;
-
-	if (!mt_cert_read(noc, len, pub, &node, &fabric) || node != op_node || fabric != f->fabric_id) {
-		return false;
-	}
-	n = mt_cert_to_der(noc, len, der, sizeof(der), NULL, NULL);
-	return n > 0 && mt_x509_parse(der, (size_t)n, &x) && mt_verify(f->root_public_key, x.tbs, x.tbs_len, x.signature);
-}
-
 static void handle_sigma2(const uint8_t *body, size_t len)
 {
-	const struct mt_fabric *f = mt_fabric();
 	struct mt_case_sigma2 s2;
 	struct mt_case_tbe2 t2;
 	uint8_t salt[16 + 32 + 65 + 32];
@@ -437,7 +435,7 @@ static void handle_sigma2(const uint8_t *body, size_t len)
 	const uint8_t *p1[] = {sigma1};
 	size_t l1[] = {sigma1_len};
 
-	memcpy(salt, f->operational_ipk, 16);
+	memcpy(salt, id.ipk, 16);
 	memcpy(&salt[16], s2.random, 32);
 	memcpy(&salt[48], s2.eph_pub, 65);
 	err = mt_sha256(p1, l1, 1, &salt[113]);
@@ -450,12 +448,15 @@ static void handle_sigma2(const uint8_t *body, size_t len)
 	if (!err) {
 		err = mt_ccm_once(false, s2k, n2, tbe, tlen, (uint8_t *)&s2.encrypted[tlen]);
 	}
-	if (err || !mt_case_parse_tbe2(tbe, tlen, &t2) || t2.icac != NULL || !check_noc(t2.noc, t2.noc_len, peer_pub)) {
+	uint64_t peer_node_id;
+
+	if (err || !mt_case_parse_tbe2(tbe, tlen, &t2) ||
+	    !mt_identity_check_peer(&id, t2.noc, t2.noc_len, t2.icac, t2.icac_len, op_node, peer_pub, &peer_node_id)) {
 		LOG_WRN("Sigma2 refused: %d", err);
 		finish(-EACCES);
 		return;
 	}
-	int n = mt_case_tbs(tbs, sizeof(tbs), t2.noc, t2.noc_len, NULL, 0, s2.eph_pub, eph_pub);
+	int n = mt_case_tbs(tbs, sizeof(tbs), t2.noc, t2.noc_len, t2.icac, t2.icac_len, s2.eph_pub, eph_pub);
 
 	if (n < 0 || !mt_verify(peer_pub, tbs, (size_t)n, t2.signature)) {
 		LOG_WRN("Sigma2 signature does not verify");
@@ -463,9 +464,9 @@ static void handle_sigma2(const uint8_t *body, size_t len)
 		return;
 	}
 	/* Sigma3 */
-	n = mt_case_tbs(tbs, sizeof(tbs), f->own_noc, f->own_noc_len, NULL, 0, eph_pub, s2.eph_pub);
-	err = n < 0 ? -ENOBUFS : mt_fabric_sign_own(tbs, (size_t)n, sig);
-	n = err ? -1 : mt_case_tbe3(tbe, sizeof(tbe) - 16, f->own_noc, f->own_noc_len, sig);
+	n = mt_case_tbs(tbs, sizeof(tbs), id.noc, id.noc_len, id.icac, id.icac_len, eph_pub, s2.eph_pub);
+	err = n < 0 ? -ENOBUFS : id.sign(tbs, (size_t)n, sig);
+	n = err ? -1 : mt_case_tbe3(tbe, sizeof(tbe) - 16, id.noc, id.noc_len, id.icac, id.icac_len, sig);
 	if (n < 0) {
 		finish(err ? err : -ENOBUFS);
 		return;
@@ -510,7 +511,6 @@ static void send_invoke(void)
 
 static void handle_sigma_status(const uint8_t *body, size_t len)
 {
-	const struct mt_fabric *f = mt_fabric();
 	uint16_t general;
 	uint32_t proto;
 	uint16_t code;
@@ -527,7 +527,7 @@ static void handle_sigma_status(const uint8_t *body, size_t len)
 	const uint8_t *p[] = {sigma1, sigma2, sigma3};
 	size_t l[] = {sigma1_len, sigma2_len, sigma3_len};
 
-	memcpy(salt, f->operational_ipk, 16);
+	memcpy(salt, id.ipk, 16);
 	err = mt_sha256(p, l, 3, &salt[16]);
 	if (!err) {
 		err = mt_hkdf(shared, 32, salt, sizeof(salt), (const uint8_t *)"SessionKeys", 11, keys, 48);
@@ -570,8 +570,11 @@ static void handle_invoke_response(const uint8_t *body, size_t len)
 	struct mt_tlv_reader r;
 	struct mt_tlv_element e;
 
+	if (op_fields) {
+		op_fields(res.fields, res.fields_len);
+	}
 	mt_tlv_reader_init(&r, res.fields, res.fields_len);
-	if (mt_tlv_next(&r, &e) && mt_tlv_find(&r, 0, &e) && e.type == MT_TLV_UINT && e.v.u != 0) {
+	if (mt_tlv_next(&r, &e) && mt_tlv_find(&r, 0, &e) && e.type == MT_TLV_UINT && e.v.u != 0 && !op_fields) {
 		finish((int)e.v.u);
 		return;
 	}
@@ -651,6 +654,9 @@ static void rx_handler(struct k_work *w)
 		   p.opcode == MT_IM_INVOKE_RESPONSE) {
 		send_standalone_ack(s);
 		handle_invoke_response(body, blen);
+	} else if (op == OP_EXCHANGE && s == op_session && op_exchange_rx) {
+		k_work_cancel_delayable(&timeout_work);
+		op_exchange_rx(p.opcode, p.protocol_id, body, blen); /* answers carry the acknowledgement */
 	} else if (op == OP_SIGMA2 && p.opcode == MT_SC_STATUS_REPORT) {
 		send_standalone_ack(NULL);
 		finish(-EACCES);
@@ -722,7 +728,18 @@ int mt_ctl_init(void)
 	return 0;
 }
 
+static int start_op_raw(uint64_t node, mt_ctl_done done);
+
 static int start_op(uint64_t node, mt_ctl_done done)
+{
+	if (!mt_identity_get(MT_ID_OWN_FABRIC, &id)) {
+		return -ENOENT;
+	}
+	have_addr = false;
+	return start_op_raw(node, done);
+}
+
+static int start_op_raw(uint64_t node, mt_ctl_done done)
 {
 	if (sock < 0) {
 		int err = mt_ctl_init();
@@ -739,6 +756,7 @@ static int start_op(uint64_t node, mt_ctl_done done)
 	return 0;
 }
 
+static int start_op_raw(uint64_t node, mt_ctl_done done);
 static void connect_work_fn(struct k_work *w)
 {
 	ARG_UNUSED(w);
@@ -857,4 +875,79 @@ void mt_ctl_reconnect_all(void)
 	reconnect_attempt = 0;
 	/* Mains-powered devices rejoin Thread within seconds of the board. */
 	k_work_reschedule(&reconnect_work, K_MSEC(MP_RECONNECT_FIRST_MS));
+}
+
+int mt_ctl_invoke_phone(uint64_t node_id, const struct sockaddr_in6 *addr, uint16_t endpoint, uint32_t cluster,
+			uint32_t command, void (*fields)(struct mt_tlv_writer *w, void *ctx), void *ctx,
+			void (*response)(const uint8_t *fields, size_t len), mt_ctl_done done)
+{
+	struct mt_tlv_writer w;
+
+	if (op != OP_IDLE) {
+		return -EBUSY;
+	}
+	if (!mt_identity_get(MT_ID_PHONE_FABRIC, &id)) {
+		return -ENOENT;
+	}
+	have_addr = addr != NULL;
+	if (addr) {
+		given_addr = *addr;
+	}
+	int err = start_op_raw(node_id, done);
+
+	if (err) {
+		return err;
+	}
+	op_fields = response;
+	mt_tlv_writer_init(&w, invoke_body, sizeof(invoke_body));
+	mt_im_invoke_begin(&w, endpoint, cluster, command, false);
+	if (fields) {
+		fields(&w, ctx);
+	}
+	int n = mt_im_invoke_end(&w);
+
+	if (n < 0) {
+		op_done = NULL;
+		return -ENOBUFS;
+	}
+	invoke_len = (size_t)n;
+	invoke_pending = true;
+	op = OP_RESOLVE;
+	k_work_submit_to_queue(&wq, &connect_work);
+	return 0;
+}
+
+int mt_ctl_exchange_begin(void (*rx)(uint8_t opcode, uint16_t protocol, const uint8_t *body, size_t len),
+			  mt_ctl_done done)
+{
+	if (op != OP_IDLE || op_session == NULL || op_session->i2r == PSA_KEY_ID_NULL) {
+		return -ENOTCONN;
+	}
+	op = OP_EXCHANGE;
+	op_exchange_rx = rx;
+	op_done = done;
+	return 0;
+}
+
+int mt_ctl_exchange_send(uint16_t protocol, uint8_t opcode, const uint8_t *body, size_t len, bool new_exchange)
+{
+	if (op != OP_EXCHANGE) {
+		return -ENOTCONN;
+	}
+	return send_reliable(op_session, protocol, opcode, body, len, new_exchange);
+}
+
+void mt_ctl_exchange_end(int result)
+{
+	if (op == OP_EXCHANGE) {
+		if (ack_pending) {
+			send_standalone_ack(op_session);
+		}
+		finish(result);
+	}
+}
+
+void mt_ctl_submit(struct k_work *work)
+{
+	k_work_submit_to_queue(&wq, work);
 }

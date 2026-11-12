@@ -36,8 +36,28 @@ target_sources(app PRIVATE
   src/matter/mt_ota.c
   src/matter/mt_ota_store.c
   src/matter/mt_server.c
+  src/matter/mt_identity.c
+  src/matter/mt_node.c
+  src/matter/mt_csr.c
+  src/matter/mt_dev_im.c
+  src/matter/mt_peripheral.c
+  src/matter/mt_ota_req.c
+  src/matter_node.c
 )
 target_include_directories(app PRIVATE src src/policy src/matter)
+
+# The board's Matter TEST device credentials (DAC, its key, PAI, certification declaration), generated from the
+# Matter SDK in the build's SDK at configure time, so that no key is kept in this repository.
+set(cranium_test_creds ${CMAKE_CURRENT_BINARY_DIR}/mt_test_credentials.c)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(
+  COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_LIST_DIR}/scripts/gen_test_credentials.py
+          ${ZEPHYR_CONNECTEDHOMEIP_MODULE_DIR} ${cranium_test_creds}
+  RESULT_VARIABLE cranium_creds_result)
+if(NOT cranium_creds_result EQUAL 0)
+  message(FATAL_ERROR "The Matter SDK's test credentials could not be read (scripts/gen_test_credentials.py)")
+endif()
+target_sources(app PRIVATE ${cranium_test_creds})
 
 if(CONFIG_CRANIUM_MATTER_BORDER_ROUTER)
   target_sources(app PRIVATE src/border_router.c)

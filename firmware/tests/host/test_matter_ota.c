@@ -187,7 +187,8 @@ static void test_im_server(void)
 	mt_tlv_writer_init(&w, buf, sizeof(buf));
 	mt_im_response_begin(&w, 0, 0x29, MT_OTA_APPLY_UPDATE_RESPONSE);
 	mt_ota_apply_response(&w);
-	n = mt_im_invoke_end(&w);
+	n = mt_im_response_end(&w);
+	CHECK(n > 0);
 	struct mt_im_invoke_result res;
 
 	CHECK(mt_im_parse_invoke_response(buf, (size_t)n, &res));
@@ -223,7 +224,7 @@ static void test_case_responder(void)
 
 	uint8_t tbe[300];
 
-	n = mt_case_tbe2(tbe, sizeof(tbe), noc, sizeof(noc), sig, resume);
+	n = mt_case_tbe2(tbe, sizeof(tbe), noc, sizeof(noc), NULL, 0, sig, resume);
 	struct mt_case_tbe2 t2;
 
 	CHECK(n > 0 && mt_case_parse_tbe2(tbe, (size_t)n, &t2) && t2.resumption_id[0] == 8);
@@ -239,11 +240,14 @@ static void test_case_responder(void)
 	CHECK(mt_case_parse_sigma3(buf, (size_t)n, &enc, &enc_len) && enc_len == 50);
 	const uint8_t *noc_out;
 	size_t noc_len;
+	const uint8_t *icac_out;
+	size_t icac_len;
 	const uint8_t *sig_out;
 
-	n = mt_case_tbe3(tbe, sizeof(tbe), noc, sizeof(noc), sig);
-	CHECK(mt_case_parse_tbe3(tbe, (size_t)n, &noc_out, &noc_len, &sig_out) && noc_len == sizeof(noc));
-	CHECK(!mt_case_parse_tbe3(tbe, (size_t)n - 1, &noc_out, &noc_len, &sig_out));
+	n = mt_case_tbe3(tbe, sizeof(tbe), noc, sizeof(noc), noc, 9, sig);
+	CHECK(mt_case_parse_tbe3(tbe, (size_t)n, &noc_out, &noc_len, &icac_out, &icac_len, &sig_out) &&
+	      noc_len == sizeof(noc) && icac_len == 9);
+	CHECK(!mt_case_parse_tbe3(tbe, (size_t)n - 1, &noc_out, &noc_len, &icac_out, &icac_len, &sig_out));
 }
 
 int main(void)

@@ -160,3 +160,40 @@ enum mt_btp_rx mt_btp_receive(struct mt_btp *b, const uint8_t *pkt, size_t len)
 	}
 	return MT_BTP_RX_MORE;
 }
+
+bool mt_btp_parse_handshake_request(const uint8_t *pkt, size_t len, uint16_t *client_mtu, uint8_t *client_window)
+{
+	bool v4 = false;
+
+	if (len < MT_BTP_HANDSHAKE_REQ_LEN || pkt[0] != (F_HANDSHAKE | F_MGMT | F_END | F_BEGIN) ||
+	    pkt[1] != OPCODE_HANDSHAKE) {
+		return false;
+	}
+	for (int i = 2; i < 6; i++) {
+		if ((pkt[i] & 0x0F) == MT_BTP_VERSION || (pkt[i] >> 4) == MT_BTP_VERSION) {
+			v4 = true;
+		}
+	}
+	*client_mtu = (uint16_t)(pkt[6] | (pkt[7] << 8));
+	*client_window = pkt[8];
+	return v4 && *client_window > 0;
+}
+
+size_t mt_btp_server_accept(struct mt_btp *b, uint8_t *out, uint16_t att_mtu, uint8_t window)
+{
+	uint16_t seg = (uint16_t)(att_mtu - 3);
+
+	memset(b, 0, sizeof(*b));
+	b->segment_size = seg;
+	b->window = window;
+	b->tx_seq = 1;      /* the response is our packet 0, which the client acknowledges first */
+	b->tx_unacked = 1;
+	b->rx_seq = 0xFF;   /* the client's first packet is its 0 */
+	out[0] = F_HANDSHAKE | F_MGMT | F_END | F_BEGIN;
+	out[1] = OPCODE_HANDSHAKE;
+	out[2] = MT_BTP_VERSION;
+	out[3] = (uint8_t)seg;
+	out[4] = (uint8_t)(seg >> 8);
+	out[5] = window;
+	return 6;
+}

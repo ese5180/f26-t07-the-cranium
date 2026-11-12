@@ -90,9 +90,10 @@ bool mt_im_parse_invoke_request(const uint8_t *in, size_t len, struct mt_im_invo
 
 /*
  * Starts an InvokeResponse with a response command and returns with the writer inside its fields; the caller
- * puts them and calls mt_im_invoke_end() (the same closing as a request).
+ * puts them and calls mt_im_response_end().
  */
 void mt_im_response_begin(struct mt_tlv_writer *w, uint16_t endpoint, uint32_t cluster, uint32_t command);
+int mt_im_response_end(struct mt_tlv_writer *w);
 /* An InvokeResponse with only a status for the command (0: success). */
 int mt_im_response_status(uint8_t *out, size_t cap, const struct mt_im_invoke_request *req, uint8_t status);
 
