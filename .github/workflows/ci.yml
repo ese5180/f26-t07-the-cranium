@@ -118,6 +118,7 @@ jobs:
           run_test test_board.py 'OK'
           run_test test_recover.py 'OK'
           run_test test_golden.py 'OK (skipped=1)'
+          run_test test_golden_promote.py 'OK'
           run_test test_build_report.py 'OK'
           run_test test_memory_budget.py 'OK'
           run_test test_check_image.py 'OK'
@@ -373,6 +374,18 @@ jobs:
             exit 1
           fi
           python3 "$ZEPHYR_BASE/../bootloader/mcuboot/scripts/imgtool.py" keygen -t ecdsa-p256 -k "$HOME/.cranium/mcuboot_signing_key.pem"
+
+      # The golden key's public half, so that the bootloader is built with promotion over the air as a
+      # release is, and measured with it. Its private half is thrown away at once: no record this job
+      # could sign would mean anything, and the real golden key is kept offline (firmware/README.md).
+      - name: Make a throwaway golden key, outside the tree
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/golden"
+          python3 tools/golden_promote.py genkey --private "$RUNNER_TEMP/golden/private.pem" \
+            --public "$RUNNER_TEMP/golden/public.pem"
+          rm "$RUNNER_TEMP/golden/private.pem"
+          echo "CRANIUM_GOLDEN_PROMOTE_KEY=$RUNNER_TEMP/golden/public.pem" >> "$GITHUB_ENV"
 
       # The compiler's cache from the last run on main, which the toolchain's ccache picks up by itself.
       # Unlike the SDK's cache it holds build output, and a restore may be any earlier one: that is
