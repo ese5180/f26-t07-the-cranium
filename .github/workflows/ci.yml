@@ -125,6 +125,8 @@ jobs:
           run_test test_memfault_upload.py 'OK'
           run_test test_provision.py 'OK'
           run_test test_bt_only_check.py 'OK'
+          # The skip: the real-board run of tools/matter_check.py needs MATTER_PORT and a board with the Matter image.
+          run_test test_matter_check.py 'OK (skipped=1)'
 
   cloud-tests:
     name: Cloud tests

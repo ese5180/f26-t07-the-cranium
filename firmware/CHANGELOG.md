@@ -18,7 +18,9 @@ Commissioning, Operational Credentials with the Matter SDK's test DAC, OTA Reque
 provider and requestor. Zephyr's border router code is built here and patched for this SDK's OpenThread; the nRF70
 firmware lives in external flash. Host tests check certificates byte for byte, the CASE derivations and the
 onboarding codes against the Matter SDK's and the specification's vectors, and the commissioning commands a phone
-sends, in order.
+sends, in order. The board is an On/Off light on endpoint 1 (LED 2) with subscriptions, so Apple Home can add and
+toggle it. `matter selftest` checks the Matter pieces on the board against known answers, and
+`tools/matter_check.py --port <serial port>` says in one run whether Matter works on a board (PASS/FAIL per check).
 
 nRF7002 DK: application flash 883,580 of 954,218 bytes (70,638 free), RAM 368,384 of 458,752 (90,368 free);
 network core 191,860 of 262,144 flash, 58,008 of 65,536 RAM; MCUboot 37,688 of 49,152. nRF5340 DK (no Wi-Fi):

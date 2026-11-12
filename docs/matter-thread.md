@@ -130,8 +130,8 @@ From real builds (bytes; free in brackets). CI builds both on every push (`Matte
 
 | Build | Application flash | Application RAM | Network core | MCUboot flash |
 | --- | --- | --- | --- | --- |
-| nRF7002 DK: border router, commissioner, OTA provider, and the board as a device with its OTA requestor | 883,580 of 954,218 (70,638) | 368,384 of 458,752 (90,368) | 191,860 of 262,144 (70,284); RAM 7,528 free | 37,688 of 49,152 (11,464) |
-| nRF5340 DK: the same without Wi-Fi | 433,308 (520,910) | 205,320 (253,432) | the same | 32,424 (16,728) |
+| nRF7002 DK: border router, commissioner, OTA provider, and the board as a device (light, subscriptions, OTA requestor, self test) | 888,448 of 954,218 (65,770) | 369,728 of 458,752 (89,024) | 191,860 of 262,144 (70,284); RAM 7,528 free | 37,688 of 49,152 (11,464) |
+| nRF5340 DK: the same without Wi-Fi | 438,168 (516,050) | 206,600 (252,152) | the same | 32,424 (16,728) |
 
 How the nRF7002 DK image got there:
 
@@ -145,8 +145,9 @@ How the nRF7002 DK image got there:
 | CASE, MRP, CommissioningComplete, reconnecting, OnOff | 851,316 |
 | OTA provider (CASE responder, BDX, image store) | 859,828 |
 | The board as a device: peripheral, PASE verifier, device clusters, OTA requestor | 883,580 |
+| The light on endpoint 1, subscriptions, `matter selftest` | 888,448 |
 
-The target was at least 40 KB of flash and 8 KB of RAM free; there are 69 KB and 88 KB.
+The target was at least 40 KB of flash and 8 KB of RAM free; there are 64 KB and 87 KB.
 
 ## Lessons kept from the earlier commissioner
 
@@ -177,6 +178,44 @@ the board can reach the phone again. Only images of this variant (same flash lay
    OTA, with a newer software version than the device runs).
 2. `matter ota announce <node>` tells the device (AnnounceOTAProvider). It opens CASE to the board, asks
    QueryImage, downloads the image over BDX, asks ApplyUpdate, restarts into it and reports NotifyUpdateApplied.
+
+## Test it: does Matter work on this board?
+
+One command, with the Matter image on the board and its USB cable in this computer:
+
+    pip install pyserial bleak zeroconf     # bleak and zeroconf are optional: without them those rows are skipped
+    python3 tools/matter_check.py --port /dev/tty.usbmodemXXXXXXXX
+
+It prints one row per check and a verdict at the end (`VERDICT: PASS` or `VERDICT: FAIL`). A row whose tool is
+missing says SKIP, never FAIL.
+
+| Row | What it checks |
+| --- | --- |
+| shell | the Matter image answers on the serial port |
+| selftest | `matter selftest` on the board: TLV, SHA-256, the CASE destination ID and fabric IDs, SPAKE2+ both ways, ECDH and AES-CCM, the test certificates, the onboarding codes, Thread leader, SRP server, flash areas; each against the Matter specification's or SDK's known answers |
+| thread | `matter status`: Thread up as leader (or router) and the SRP server running |
+| onboarding codes | the board prints the SDK's test codes `MT:Y.K9042C00KA0648G00` and `34970112332`, decoded and check-digit checked |
+| bluetooth advert | the board advertises as commissionable (discriminator 3840), seen from this computer with bleak |
+| wifi | the board is on Wi-Fi; `--wifi` joins it from `MATTER_WIFI_SSID` and `MATTER_WIFI_PASSWORD` (never printed) |
+| mdns | `_matter._tcp` from this computer once the board is commissioned (`dns-sd -B` on macOS, else zeroconf). `_matterc._udp` is not used: the board is commissioned over Bluetooth |
+| chip-tool ... | with `chip-tool` on the PATH and the Wi-Fi variables set: commission over Bluetooth and Wi-Fi, read Basic Information, toggle the light (LED 2), restart the board and read again, and with `chip-ota-provider-app` and `--ota-image` announce an update |
+
+The same run as a test: `MATTER_PORT=/dev/tty.usbmodemXXXXXXXX python3 firmware/tests/hil/test_matter_check.py`
+(CI runs the rest of that file and skips the board).
+
+### With an iPhone, in Apple Home
+
+The board uses Matter test credentials (vendor 0xFFF1, product 0x8000), which Apple Home accepts with a warning.
+
+1. Home app, +, Add Accessory, and scan the QR code for `MT:Y.K9042C00KA0648G00` (any QR generator makes it
+   from that text) or choose More options and type `3497-011-2332`.
+2. Home says it is an uncertified accessory: Add Anyway. It asks for a Wi-Fi network for the board and adds it.
+3. The board shows up as a light. Toggling it in Home turns LED 2 on and off.
+4. Restart the board (`matter reboot` or the reset button): it comes back in Home after a few seconds and still
+   toggles.
+
+The iPhone 17 Pro has a Thread radio, but Home does not need it here: Home reaches the board over Wi-Fi, and the
+board leads its own Thread network for the devices it commissions.
 
 ## What the owner tests on hardware: the phone adds the board and updates it
 
