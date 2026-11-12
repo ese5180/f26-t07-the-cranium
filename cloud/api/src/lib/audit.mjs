@@ -90,7 +90,7 @@ export const ACTIONS = Object.freeze([
   'schedule.start',
   'device.seen',
   'firmware.notes',
-  // Golden image promotion (handlers/golden.mjs, console 2.27.5): a release's signed record, and a promotion.
+  // Golden image promotion (handlers/golden.mjs, console 2.27.6): a release's signed record, and a promotion.
   'firmware.golden_record',
   'golden.promote',
   // The phone apps (handlers/apps.mjs): the URL an APK is sent to S3 with, the release published once

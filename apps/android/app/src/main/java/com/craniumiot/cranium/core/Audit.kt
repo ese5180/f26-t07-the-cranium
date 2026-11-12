@@ -144,6 +144,14 @@ object AuditText {
             "saw {} over Bluetooth", "tried to say a phone saw {}", "tried to say a phone saw a board", Glyph.CHIP,
             doneAlone = "saw a board over Bluetooth",
         ),
+        // Golden image promotion (console 2.27.6): a release's record, signed offline, and the promotion itself.
+        "firmware.golden_record" to Action(
+            "uploaded the golden record of", "tried to upload the golden record of", "tried to upload a golden record", Glyph.SHIELD,
+        ),
+        "golden.promote" to Action(
+            "made golden", "tried to make golden", "tried to start a golden promotion", Glyph.SHIELD,
+            doneAlone = "started a golden promotion",
+        ),
         "firmware.notes" to Action(
             "changed the note of", "tried to change the note of", "tried to change the note of a release", Glyph.FILE,
         ),
@@ -332,6 +340,14 @@ object AuditText {
         "bad_signing_key" to "The server’s signing key cannot be read",
         "cancel_refused" to "AWS IoT would not cancel it",
         "forbidden" to "This account may not do that",
+        // Golden image promotion (handlers/golden.mjs).
+        "golden_key_missing" to "This console has no golden key yet",
+        "invalid_record" to "That is not a promotion record",
+        "record_mismatch" to "The record is for another image",
+        "golden_record_exists" to "That release has a golden record already",
+        "counter_not_higher" to "The record’s counter is not above the last one",
+        "no_golden_record" to "That release has no golden record yet",
+        "golden_record_invalid" to "The release’s golden record no longer verifies",
         "internal_error" to "Something went wrong on the server",
         "invalid_body" to "The request could not be read",
         "invalid_deployment" to "Not a valid deployment ID",

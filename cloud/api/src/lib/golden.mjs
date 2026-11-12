@@ -1,5 +1,5 @@
 /**
- * Golden image promotion records and their jobs (firmware 1.22.0, firmware/README.md "Golden image").
+ * Golden image promotion records and their jobs (firmware 1.19.3, firmware/README.md "Golden image").
  *
  * A promotion record is 130 bytes, signed offline with the golden key (tools/golden_promote.py
  * sign), and names one signed image: its hash TLV, size and version, under a golden counter that only
@@ -152,7 +152,7 @@ const STATES = Object.freeze([
 ]);
 
 /**
- * What a board says of its golden image, from firmware 1.22.0, in the report beside "diag":
+ * What a board says of its golden image, from firmware 1.19.3, in the report beside "diag":
  * { "golden": { "version": "1.19.2+0", "counter": 1, "state": "sealed" } }. version is null before the
  * first promotion on a board. Null when there is no such report, or it is not usable.
  */

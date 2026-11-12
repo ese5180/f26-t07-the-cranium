@@ -7,7 +7,7 @@
  * The gesture: if Button 2 is held through a reset and let go in the right window, this stores the
  * pinned image in external flash, or copies it back into the primary slot from there.
  *
- * A promotion (from firmware 1.22.0, in a build that has the golden public key): the application
+ * A promotion (from firmware 1.19.3, in a build that has the golden public key): the application
  * has left a promotion record in external flash (golden_record.h). If its signature is good with the
  * golden key, its counter is above the one this bootloader keeps, and it names the image in the
  * primary slot, confirmed, this copies that image into golden_partition, makes it the pin, and

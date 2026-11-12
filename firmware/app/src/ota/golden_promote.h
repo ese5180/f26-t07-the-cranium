@@ -1,5 +1,5 @@
 /*
- * Golden image promotion, the application's part (from 1.22.0): a job carries a promotion record,
+ * Golden image promotion, the application's part (from 1.19.3): a job carries a promotion record,
  * this hands it to the bootloader through external flash and restarts when the board is idle, and
  * after the restart reports what the bootloader made of it. The bootloader does the checks that
  * count: firmware/README.md, "Golden image".

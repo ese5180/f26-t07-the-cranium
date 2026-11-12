@@ -236,7 +236,7 @@ signing_public_key() {
 }
 
 # golden_public_key: the golden image's public key (firmware/keys/golden_promote_pub.pem, from console
-# 2.27.5) as base64 DER, or nothing when the file is not there yet: the console then accepts no
+# 2.27.6) as base64 DER, or nothing when the file is not there yet: the console then accepts no
 # promotion record (cloud/api/src/handlers/golden.mjs). Its private half is kept offline.
 golden_public_key() {
   local file="$CLOUD_DIR/../firmware/keys/golden_promote_pub.pem" key

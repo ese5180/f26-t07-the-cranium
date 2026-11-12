@@ -5,7 +5,7 @@
  * missing or malformed value stops the function from starting, which is the safe
  * outcome: nothing here has a default that could quietly weaken a check.
  *
- * The only key material is the firmware signing PUBLIC key, and from console 2.27.5 the golden
+ * The only key material is the firmware signing PUBLIC key, and from console 2.27.6 the golden
  * image's PUBLIC key (lib/golden.mjs), which a stack may not have. The console verifies signatures
  * with them and can never produce one.
  */

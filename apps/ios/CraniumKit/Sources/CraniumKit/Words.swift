@@ -1093,6 +1093,11 @@ public enum Words {
     // goes there, and the words after it follow it. A deployment is named by the version it installs,
     // and the boards it went to follow the sentence (`auditBoards`).
     static let auditActions: [String: AuditAction] = [
+        // Golden image promotion (console 2.27.6): a release's record, signed offline, and the promotion itself.
+        "firmware.golden_record": AuditAction(done: "uploaded the golden record of", tried: "tried to upload the golden record of",
+                                              triedAlone: "tried to upload a golden record", icon: "shield"),
+        "golden.promote": AuditAction(done: "made golden", doneAlone: "started a golden promotion",
+                                      tried: "tried to make golden", triedAlone: "tried to start a golden promotion", icon: "shield"),
         // The alert rules, for everybody who gets the alerts (console 2.13.0).
         "alert.rules": AuditAction(done: "changed the alert rules", doneAlone: "changed the alert rules",
                                    tried: "tried to change the alert rules", triedAlone: "tried to change the alert rules", icon: "bell"),
@@ -1237,6 +1242,14 @@ public enum Words {
         "bad_signing_key": "The server’s signing key cannot be read",
         "cancel_refused": "AWS IoT would not cancel it",
         "forbidden": "This account may not do that",
+        // Golden image promotion (handlers/golden.mjs).
+        "golden_key_missing": "This console has no golden key yet",
+        "invalid_record": "That is not a promotion record",
+        "record_mismatch": "The record is for another image",
+        "golden_record_exists": "That release has a golden record already",
+        "counter_not_higher": "The record’s counter is not above the last one",
+        "no_golden_record": "That release has no golden record yet",
+        "golden_record_invalid": "The release’s golden record no longer verifies",
         "internal_error": "Something went wrong on the server",
         "invalid_body": "The request could not be read",
         "invalid_deployment": "Not a valid deployment ID",

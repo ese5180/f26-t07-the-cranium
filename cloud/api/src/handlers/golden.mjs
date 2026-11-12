@@ -1,5 +1,5 @@
 /**
- * Golden image promotion (console 2.27.5, firmware 1.22.0; firmware/README.md "Golden image").
+ * Golden image promotion (console 2.27.6, firmware 1.19.3; firmware/README.md "Golden image").
  *
  *   POST /api/firmware/{version}/golden   { "record": "<base64 of the 130-byte record>" }
  *        A release manager uploads the promotion record that tools/golden_promote.py signed offline

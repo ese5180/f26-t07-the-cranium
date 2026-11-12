@@ -7,9 +7,9 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
-## 2.27.5
+## 2.27.6
 
-Make golden: on the Firmware page a release manager uploads a release's golden promotion record, signed offline with the golden key, and makes that release the golden image on one board, a group or every board that runs it. Each board's page shows its golden image and what came of the last promotion. It needs firmware 1.22.0 and its bootloader, which takes one debug-port flash.
+Make golden: on the Firmware page a release manager uploads a release's golden promotion record, signed offline with the golden key, and makes that release the golden image on one board, a group or every board that runs it. Each board's page shows its golden image and what came of the last promotion. It needs firmware 1.19.3 and its bootloader, which takes one debug-port flash.
 
 `POST /api/firmware/{version}/golden` keeps a record only if its signature is good with the stack's golden public key
 (`GOLDEN_PUBLIC_KEY_B64`, the template's `GoldenPublicKey`, which `deploy.sh` reads from
@@ -21,6 +21,9 @@ version, the release is active, and its counter is above every other release's; 
 `golden.promote`), from the website only. A board's report beside `diag` gives `golden: {version, counter, state}`, and
 a device carries it where it is reported. The apps host the console, so they have it with this version. Tests:
 cloud/api/test/golden.test.mjs, cloud/web/test/golden.test.mjs.
+
+## 2.27.5
+
 Three fixes. On the customer site, a board given to a new owner no longer shows them its earlier owner's restarts and updates. Update over Bluetooth keeps "Look for boards" in reach once a release is chosen. And a Bluetooth passkey set at a board's serial console goes into the activity log, never the passkey itself.
 
 **Health after a hand-over.** The board's health on the customer site (its summary, such as "Recovered from a problem on Tue 3 Nov", the week's strip of restarts and their times, and the last update) still counted the whole week, the earlier owner's days included; it now counts only the time since the board was given to this customer, like its activity and sessions since 2.27.4. A board just handed over shows no restarts until it restarts for its new owner. `healthOf` (cloud/api/src/customer/app.mjs) keeps reading and caching the board's week per board, and clips its events at `ownedSince` before `boardHealth` sees them. Tests: the hand-over test in customers.test.mjs checks the new owner's health has no restarts; customer-health.test.mjs gives the board to Ada more than a week before the events it reads. docs/customer-site.md says health is clipped too, and that a board given back to its first owner shows only what it did since then. (#223)

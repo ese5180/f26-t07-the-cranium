@@ -7,7 +7,7 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
-## 1.22.0
+## 1.19.3
 
 Golden image promotion, not yet tried on a board: the golden image can be replaced over the air with a record signed by the offline golden key, from the console's Make golden. The board seals only a release it runs and has confirmed, and never an older golden image. Needs this version's bootloader, which takes one debug-port flash; the gesture works as before.
 

@@ -3888,7 +3888,7 @@ function deviceFacts(device, ctx, { offer = openOffer(device, ctx), withScale = 
     ['Update', updateFact(device, offer)],
     ['Signal', signalFact(device, withScale)],
     ['Uptime', uptimeFact(device)],
-    // From firmware 1.22.0 (firmware/README.md, "Golden image"): only for a board that reports it.
+    // From firmware 1.19.3 (firmware/README.md, "Golden image"): only for a board that reports it.
     device.golden ? ['Golden image', goldenFact(device.golden)] : null,
   ]);
 }
@@ -5204,7 +5204,7 @@ function releaseRow(release, ctx) {
             'Deploy'
           )
         : null,
-      // Golden image promotion (console 2.27.5): a release of a board whose bootloader has the golden image.
+      // Golden image promotion (console 2.27.6): a release of a board whose bootloader has the golden image.
       overTheAir && actions.openGolden
         ? h(
             'button',
@@ -7432,7 +7432,7 @@ const GOLDEN_RECORD_TITLE =
   'A promotion record, signed offline with the golden key, is uploaded: this release can be made the golden image.';
 
 /**
- * Making a release the golden image (console 2.27.5, firmware/README.md "Golden image"). First its
+ * Making a release the golden image (console 2.27.6, firmware/README.md "Golden image"). First its
  * promotion record, which tools/golden_promote.py signed offline; then the boards: one, a group's or
  * every board that runs the release. Only a board that runs it, confirmed, seals it: its bootloader
  * checks the record again, and it restarts once when it is idle.

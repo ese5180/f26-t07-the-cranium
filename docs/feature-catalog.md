@@ -24,7 +24,7 @@ The firmware is one Zephyr application (`firmware/app`) behind MCUboot, document
 | Update recovery | Interrupted, cancelled, stalled and refused updates each have a defined end state | 1.x | README "When an update fails" | The same table works for any OTA design |
 | Stuck detection | Restarts a board whose Wi-Fi chip or update hangs, and reports why | 1.7.0 | `src/policy/stuck_policy.h` | Watch progress, not just liveness |
 | Golden image | One sealed image in external flash that only the bootloader restores, from a button held at boot | 1.x | README "Golden image", `sysbuild/mcuboot/golden` | The last way back with no laptop, Wi-Fi or cloud |
-| Golden image promotion | Replaces the golden image over the air with a record signed by an offline golden key; the bootloader checks it, keeps a counter that only goes up, and seals only the confirmed image that runs | 1.22.0 | README "Golden image", `golden/src/golden_record.h`, `src/ota/golden_promote.c`, `tools/golden_promote.py` | A second key for the way back, so a stolen image key cannot change it; needs one debug-port flash of the bootloader per board |
+| Golden image promotion | Replaces the golden image over the air with a record signed by an offline golden key; the bootloader checks it, keeps a counter that only goes up, and seals only the confirmed image that runs | 1.19.3 | README "Golden image", `golden/src/golden_record.h`, `src/ota/golden_promote.c`, `tools/golden_promote.py` | A second key for the way back, so a stolen image key cannot change it; needs one debug-port flash of the bootloader per board |
 | Serial recovery | MCUboot takes an image over UART | 1.x | README "Serial recovery" | Needs neither Wi-Fi nor a debugger |
 | Factory mode | A board with no valid ID boots into setup, off the network | 1.x | README "Factory mode" | Clean provisioning path |
 | Serial console | Line commands: `STATUS`, `WIFI`, `CLOUD`, `KEYGEN`, `REBOOT`, `FACTORY_RESET`, `BT_PASSKEY` and more | 1.x | `src/console_cmd.c` | One command table, help text built in |
@@ -49,7 +49,7 @@ The cloud is one AWS SAM stack (`cloud/infra/template.yaml`): an HTTP API, AWS I
 | Feature | What it does | Since | Where | Reuse notes |
 | --- | --- | --- | --- | --- |
 | Devices and board pages | Every board as it last reported: version, Wi-Fi, cloud, update state, boot diary, diagnostics | 1.x | `devices`, `device` pages | Reads the device shadow; no polling of boards |
-| Make golden | A release manager uploads a release's signed promotion record (checked against the golden public key and the release's image hash) and makes it golden on one board, a group or every board that runs it; each board's golden version on its page; both on the activity log | 2.27.5 | `cloud/api/src/handlers/golden.mjs`, Firmware page | The console verifies and never signs: the golden private key stays offline |
+| Make golden | A release manager uploads a release's signed promotion record (checked against the golden public key and the release's image hash) and makes it golden on one board, a group or every board that runs it; each board's golden version on its page; both on the activity log | 2.27.6 | `cloud/api/src/handlers/golden.mjs`, Firmware page | The console verifies and never signs: the golden private key stays offline |
 | Board names | A label first, the hardware ID second, everywhere | 2.25.14 | console 2.25.14 | People recognise names, not IDs |
 | Firmware releases | Upload a signed image; the console checks the signature and registers the version once | 1.x | `firmware` page, `scripts/firmware/upload-to-console.sh` | A version number is burned once uploaded |
 | Deployments and staged rollouts | Send a release to one board, a group or the fleet, in waves, with rollback to the last good | 1.x | `deployments`, `rollout`, `docs/mass-updates.md` | Built on AWS IoT jobs |
@@ -163,7 +163,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
-| 2026-11-11 | Golden image promotion over the air: signed record, counter floor, Make golden (not yet on hardware) | firmware 1.22.0, console 2.27.5 | #217, open |
+| 2026-11-11 | Golden image promotion over the air: signed record, counter floor, Make golden (not yet on hardware) | firmware 1.19.3, console 2.27.6 | #217, open |
 | 2026-11-11 | Customer site: a reassigned board's health, like its activity and sessions, covers only the new owner's time | console 2.27.5 | #227 |
 | 2026-11-11 | Update over Bluetooth: Look for boards stays in reach after choosing a release | console 2.27.5 | #227 |
 | 2026-11-11 | A Bluetooth passkey set at the serial console (`BT_PASSKEY`, `BT_OFFLINE\|NEW`) goes on record, never the passkey | console 2.27.5 | #227 |

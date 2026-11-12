@@ -14,7 +14,7 @@
  * docs/fleet.md), the same as its image carries. Nothing here is secret, and nothing names the
  * network.
  *
- * From 1.22.0, on a board with golden image promotion (CONFIG_APP_GOLDEN_PROMOTE), the same report
+ * From 1.19.3, on a board with golden image promotion (CONFIG_APP_GOLDEN_PROMOTE), the same report
  * also says which image is golden, next to "diag": "golden":{"version":"1.19.2+0","counter":1,
  * "state":"sealed"} (src/ota/golden_promote.h).
  */

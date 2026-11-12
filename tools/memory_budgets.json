@@ -1,13 +1,13 @@
 {
   "_about": "The least flash and RAM, in bytes, each image of a firmware build must keep free; tools/memory_budget.py checks them in every firmware job (docs/ci.md, 'Memory headroom'). Keyed by the firmware job's matrix configuration, then by image: app, mcuboot, tfm, or the network core's build folder. Each floor starts just below what the build had when it was set. Lower one only in the pull request that needs it, and say why there.",
   "default": {
-    "_measured": "1.18.0, main e29e53a: app 45298 flash / 1100 RAM free, mcuboot 15212 flash, tfm 552 flash / 12532 RAM. 1.19.1 (offline Bluetooth mode, #127): app 40810 flash / 1004 RAM free; the app's flash floor was lowered from 40960 to 40448 for it, as offline mode's GATT service and its console command take about 4.5 KB of flash. 1.22.0 (golden image promotion, #216): app 38218 flash / 932 RAM free, mcuboot 12484 flash; the app's floors were lowered to 37888 flash and 900 RAM, and MCUboot's to 12288, for the promotion's job and report in the application (2.6 KB, 72 bytes of RAM, the record sharing the job's URL buffer) and the record's check, the state page and the golden key in the bootloader (2.7 KB). MCUboot's code must also end below 0xf000, where its state page is: its build checks that",
+    "_measured": "1.18.0, main e29e53a: app 45298 flash / 1100 RAM free, mcuboot 15212 flash, tfm 552 flash / 12532 RAM. 1.19.1 (offline Bluetooth mode, #127): app 40810 flash / 1004 RAM free; the app's flash floor was lowered from 40960 to 40448 for it, as offline mode's GATT service and its console command take about 4.5 KB of flash. 1.19.3 (golden image promotion, #216): app 38218 flash / 932 RAM free, mcuboot 12484 flash; the app's floors were lowered to 37888 flash and 900 RAM, and MCUboot's to 12288, for the promotion's job and report in the application (2.6 KB, 72 bytes of RAM, the record sharing the job's URL buffer) and the record's check, the state page and the golden key in the bootloader (2.7 KB). MCUboot's code must also end below 0xf000, where its state page is: its build checks that",
     "app": { "flash_free_min": 37888, "ram_free_min": 900 },
     "mcuboot": { "flash_free_min": 12288 },
     "tfm": { "flash_free_min": 500, "ram_free_min": 12288 }
   },
   "no Bluetooth": {
-    "_measured": "1.18.0, first run of this check (#189): app 128410 flash / 36104 RAM free, mcuboot 15212 flash, tfm 552 flash / 12532 RAM. MCUboot's floor lowered to 12288 in 1.22.0 as for default, the same bootloader",
+    "_measured": "1.18.0, first run of this check (#189): app 128410 flash / 36104 RAM free, mcuboot 15212 flash, tfm 552 flash / 12532 RAM. MCUboot's floor lowered to 12288 in 1.19.3 as for default, the same bootloader",
     "app": { "flash_free_min": 122880, "ram_free_min": 32768 },
     "mcuboot": { "flash_free_min": 12288 },
     "tfm": { "flash_free_min": 500, "ram_free_min": 12288 }
