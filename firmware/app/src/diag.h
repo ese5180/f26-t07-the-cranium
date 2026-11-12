@@ -13,6 +13,10 @@
  * board type and the flash layout number (CONFIG_APP_BOARD_TYPE, CONFIG_APP_IMAGE_LAYOUT,
  * docs/fleet.md), the same as its image carries. Nothing here is secret, and nothing names the
  * network.
+ *
+ * From 1.19.3, on a board with golden image promotion (CONFIG_APP_GOLDEN_PROMOTE), the same report
+ * also says which image is golden, next to "diag": "golden":{"version":"1.19.2+0","counter":1,
+ * "state":"sealed"} (src/ota/golden_promote.h).
  */
 
 #ifndef DIAG_H_
@@ -26,7 +30,9 @@
 /* The longest board type that goes into the report: lower-case letters and digits. */
 #define DIAG_BOARD_MAX 16
 /* What main.c holds the report in: the longest, with every number at its largest, fits. */
-#define DIAG_REPORT_MAX 224
+#define DIAG_REPORT_MAX 336
+/* The "golden" member, as golden_promote_report() writes it: empty on a board without it. */
+#define DIAG_GOLDEN_MAX 96
 
 struct diag_values {
 	char id[DEVICE_ID_MAX + 1];
@@ -37,6 +43,7 @@ struct diag_values {
 	uint32_t heap_size;
 	char board[DIAG_BOARD_MAX + 1];
 	uint32_t layout;
+	char golden[DIAG_GOLDEN_MAX];
 };
 
 /* Fill in what can be read now; what cannot is left as "unknown" or 0. */

@@ -105,6 +105,22 @@ bool bt_ota_is_open(void)
 	return bt.window_open;
 }
 
+/* bt_offline.h: a new passkey and name, as bt_offline.c draws them. */
+int bt_offline_new_passkey(uint32_t *passkey, uint16_t *tag)
+{
+	if (bt.window_open) {
+		return -EBUSY;
+	}
+	fake_note_op("bt-offline-new");
+	bt.stores++;
+	bt.passkey = 517294;
+	bt.tag = 0x2a7c;
+	bt.state = BT_PASSKEY_STATE_SET;
+	*passkey = bt.passkey;
+	*tag = bt.tag;
+	return 0;
+}
+
 /* ---- helpers, as test_console.c has them ----------------------------------------------- */
 
 static void feed(const char *text)
@@ -342,6 +358,43 @@ static void test_bt_passkey_stores_it_and_never_shows_it(void)
 	CHECK(bt.erases == 1 && bt.state == BT_PASSKEY_STATE_NONE);
 }
 
+/*
+ * A Bluetooth passkey changed at the serial console is an event for the console in the cloud, as every
+ * other change of the board is: never with the passkey, and in words that src/cloud/cloud_events.c and
+ * the cloud's own check send and store, which a line with "passkey" in it never is.
+ */
+static void test_bluetooth_passkey_changes_go_to_the_cloud(void)
+{
+	static const char *const stored = "CONSOLE|Bluetooth pairing code changed\n";
+
+	operating_board();
+	command("BT_PASSKEY|284913|3F9C");
+	CHECK_TEXT(fake.cloud_events, stored);
+
+	operating_board();
+	command("BT_PASSKEY|CLEAR");
+	CHECK_TEXT(fake.cloud_events, stored);
+
+	operating_board();
+	command("BT_OFFLINE|NEW");
+	CHECK(strncmp(final_line(), "OK passkey 517294", 17) == 0);
+	CHECK_TEXT(fake.cloud_events, stored);
+	CHECK(strstr(fake.cloud_events, "517294") == NULL);
+
+	/* What did not work changed nothing, and is no event. */
+	operating_board();
+	command("BT_PASSKEY|123456|3F9C");
+	CHECK_TEXT(fake.cloud_events, "");
+	operating_board();
+	bt.window_open = true;
+	command("BT_OFFLINE|NEW");
+	CHECK_TEXT(fake.cloud_events, "");
+	bt.window_open = false;
+
+	/* No word that the cloud refuses to store is in it. */
+	CHECK(strcasestr(stored, "passkey") == NULL);
+}
+
 static void test_bt_passkey_refuses_what_is_not_a_passkey(void)
 {
 	static const char *const lines[] = {
@@ -432,6 +485,7 @@ int main(void)
 	test_bt_passkey_stores_it_and_never_shows_it();
 	test_bt_passkey_refuses_what_is_not_a_passkey();
 	test_bt_passkey_waits_for_a_quiet_board();
+	test_bluetooth_passkey_changes_go_to_the_cloud();
 	test_a_factory_reset_takes_the_passkey_and_nothing_of_the_cloud();
 	test_what_every_board_has_is_still_there();
 

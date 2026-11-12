@@ -439,6 +439,7 @@ static const struct line firmware_lines[] = {
 	{ "CONSOLE", "stream aborted: idle timeout", NULL },
 	{ "CONSOLE", "migrated: device id set to ABC123", NULL },
 	{ "CONSOLE", "WIFI done on the serial console: save a WPA2 network and join it", NULL },
+	{ "CONSOLE", "Bluetooth pairing code changed", NULL },
 	/* command.c, from 1.13.0: the answers to the console's commands */
 	{ "CMD", "identify for 15 s (3f9c2a1b7d4e6f80)", NULL },
 	{ "CMD", "report: heartbeat, diagnostics and a location scan (a01b2c3d4e5f6789)", NULL },

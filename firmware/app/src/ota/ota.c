@@ -17,6 +17,9 @@
 #if defined(CONFIG_APP_BT_OTA)
 #include "bt_ota.h"
 #endif
+#if defined(CONFIG_APP_GOLDEN_PROMOTE)
+#include "golden_promote.h"
+#endif
 #include "identity.h"
 #include "health.h"
 #include "image_compat.h"
@@ -722,6 +725,27 @@ static void on_job(const struct ota_job *incoming)
 		return;
 	}
 
+	/*
+	 * A golden image promotion (golden_promote.h) is not an update, and needs an idle board: one
+	 * that waits for its restart starts nothing else.
+	 */
+#if defined(CONFIG_APP_GOLDEN_PROMOTE)
+	if (incoming->golden || golden_promote_busy()) {
+		if (incoming->golden && ota.state == OTA_IDLE) {
+			golden_promote_on_job(incoming);
+			close_job(incoming->id);
+		}
+		return;
+	}
+#else
+	if (incoming->golden) {
+		if (ota.state == OTA_IDLE) {
+			refuse_job(incoming->id, incoming->in_progress, "unsupported");
+		}
+		return;
+	}
+#endif
+
 	if (ota.state == OTA_REBOOTING && same_job) {
 		/* The last look: still in progress after the settle time means go. */
 		if (ota.last_look && incoming->in_progress) {
@@ -822,6 +846,9 @@ int ota_init(void)
 	int err;
 
 	strcpy(ota.last_result, "none");
+#if defined(CONFIG_APP_GOLDEN_PROMOTE)
+	golden_promote_init();
+#endif
 
 	/*
 	 * REVERT means: this image runs on trial and is swapped out again at the next restart unless
@@ -1170,6 +1197,11 @@ void ota_on_tick(void)
 	    ++ota.seconds_since_report >= REPORT_RETRY_SECONDS) {
 		send_final_report();
 	}
+
+#if defined(CONFIG_APP_GOLDEN_PROMOTE)
+	/* Idle: no update and no Bluetooth session, which is a state of its own here. */
+	golden_promote_on_tick(ota.state == OTA_IDLE);
+#endif
 }
 
 enum ota_state ota_state(void)

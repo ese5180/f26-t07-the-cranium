@@ -7,6 +7,36 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.19.3
+
+Golden image promotion, not yet tried on a board: the golden image can be replaced over the air with a record signed by the offline golden key, from the console's Make golden. The board seals only a release it runs and has confirmed, and never an older golden image. Needs this version's bootloader, which takes one debug-port flash; the gesture works as before.
+
+The bootloader (`sysbuild/mcuboot/golden/src/golden.c`, `golden_record.c`): at every start it reads one word of
+external flash at 0x7e4100 (the request sector, right after `golden_partition` and in no partition, so the flash
+layout and its number are unchanged). A pending record is checked: format, ECDSA P-256 signature with the golden
+public key compiled in (tinycrypt, which checks every image already), counter above the stored floor, and the image in
+the primary slot validated and equal in hash, size and version, and confirmed (image_ok set, or no trailer). Then it
+copies that image into `golden_partition`, checks the copy, appends the new pin to the last 4 KiB page of its own
+partition (64-byte entries, magic written last; that page is write-protected with the rest before the application
+starts), writes a copy of the record to the info sector at 0x7e5000, answers in the request sector and restarts. A
+refusal is answered there too, with its reason. Before any promotion the pin is the one compiled in, as before, with
+counter 0. The bootloader is built with promotion only when `firmware/keys/golden_promote_pub.pem` (or the file
+`CRANIUM_GOLDEN_PROMOTE_KEY` names) exists; its build stops if its code reaches 0xf000.
+
+The application (`src/ota/golden_promote.c`, `src/policy/golden_job_policy.c`): a `golden_promote` job is checked
+(format, the running version, confirmed, counter above the golden one), written to the request sector and answered
+IN_PROGRESS; the board restarts after 10 s with no update and no Bluetooth session. After the restart the job ends
+SUCCEEDED, or FAILED with the bootloader's reason, or `bootloader_unsupported` on a bootloader without promotion. The
+diagnostics report carries `"golden":{"version","counter","state"}`. The record shares the job's URL buffer, so a job
+takes no more RAM.
+
+Memory (nRF7002 DK, default, with a throwaway golden key): MCUboot 53,052 bytes (50,324 before), 12,484 free of 64 KiB
+and 8,388 below its state page; application 38,154 bytes of flash and 932 of RAM free with #235 in (38,218 without it) (40,810 and 1,004 in 1.19.1).
+The floors in `tools/memory_budgets.json` were lowered to 37,888 / 900, and MCUboot's to 12,288. Tests:
+`firmware/tests/host/test_golden_record.c`, `firmware/tests/hil/test_golden_promote.py`.
+
+A Bluetooth passkey set, erased or drawn at the serial console (BT_PASSKEY, BT_OFFLINE|NEW) now leaves a 'Bluetooth pairing code changed' line in the board log, never the passkey (#235).
+
 ## 1.19.2
 
 Three fixes, not yet tried on a board. The board's own Bluetooth passkey is read at every start again, so it no longer shows as unset after a restart or an update. A Bluetooth window closes when its time is up unless an image is still arriving. Memfault gets this firmware's metrics under the right names, with no more "Invalid type" errors every minute.

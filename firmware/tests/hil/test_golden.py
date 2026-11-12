@@ -818,7 +818,8 @@ class SettingsTest(unittest.TestCase):
         self.assertIn("CONFIG_BOOT_FLASH_AREA_HOOKS=y\n", text)
         cmake = (FIRMWARE / "sysbuild/mcuboot/golden/CMakeLists.txt").read_text()
         self.assertRegex(cmake, r"(?m)^zephyr_library_sources\(src/image_number_guard\.c\)$")
-        self.assertRegex(cmake, r"(?m)^zephyr_library_sources_ifdef\(CONFIG_CRANIUM_GOLDEN src/golden\.c src/golden_policy\.c\)$")
+        self.assertRegex(cmake, r"(?m)^zephyr_library_sources_ifdef\(CONFIG_CRANIUM_GOLDEN src/golden\.c src/golden_policy\.c "
+                                r"src/golden_record\.c\)$")
 
     def test_the_readme_warns_before_it_teaches_the_gesture(self):
         readme = (REPO / "firmware/README.md").read_text()
