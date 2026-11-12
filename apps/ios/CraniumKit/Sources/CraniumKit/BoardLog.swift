@@ -12,7 +12,7 @@ public struct BoardLine: Decodable, Equatable, Sendable, Identifiable {
     /// The sources on the board's console the API sends (lib/lines.mjs `TAGS`). `CMD`, a board's answer
     /// to a command from the console, comes from firmware 1.13.0.
     public static let tags = ["BT", "WIFI", "STUCK", "CONSOLE", "CMD",
-                              "app", "boot_diary", "bt_ota", "cloud", "factory", "health", "identity", "net", "ota", "store", "stuck", "ui"]
+                              "app", "boot_diary", "bt_ota", "cloud", "factory", "health", "identity", "location", "net", "ota", "store", "stuck", "ui"]
     /// How long a line can be: the board cuts its own at 160 characters.
     public static let textLimit = 160
 

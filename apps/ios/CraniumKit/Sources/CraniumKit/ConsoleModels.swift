@@ -183,7 +183,7 @@ public struct Device: Decodable, Equatable, Sendable, Identifiable {
         }
 
         static let results: Set<String> = ["pending", "succeeded", "rolled_back", "not_installed", "trial_lost",
-                                           "superseded", "flash_error"]
+                                           "superseded", "flash_error", "incompatible_board", "incompatible_layout"]
         private enum CodingKeys: String, CodingKey { case from, to, result, proof, count }
 
         public init(from decoder: Decoder) throws {

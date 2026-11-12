@@ -47,7 +47,7 @@ object BoardLog {
     val TAGS = listOf(
         "BT", "WIFI", "STUCK", "CONSOLE",
         "CMD",
-        "app", "boot_diary", "bt_ota", "cloud", "factory", "health", "identity", "net", "ota", "store", "stuck", "ui",
+        "app", "boot_diary", "bt_ota", "cloud", "factory", "health", "identity", "location", "net", "ota", "store", "stuck", "ui",
     )
 
     /** The board cuts its own lines at 160 characters. */

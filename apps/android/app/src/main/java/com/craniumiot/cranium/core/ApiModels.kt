@@ -319,7 +319,8 @@ object ApiJson {
         "pin", "software", "brownout", "power_on", "watchdog", "debugger", "security", "wake", "lockup",
         "parity", "pll", "clock", "hardware", "user", "temperature", "unknown",
     )
-    val BT_RESULTS = listOf("pending", "succeeded", "rolled_back", "not_installed", "trial_lost", "superseded", "flash_error")
+    val BT_RESULTS = listOf("pending", "succeeded", "rolled_back", "not_installed", "trial_lost", "superseded", "flash_error",
+        "incompatible_board", "incompatible_layout")
     val EVENT_KINDS = listOf("connection", "firmware", "update", "restart", "bluetooth", "health")
 
     private fun root(text: String): JsonObject =
