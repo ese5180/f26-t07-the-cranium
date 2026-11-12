@@ -25,6 +25,11 @@ target_sources(app PRIVATE
   src/matter/mt_ble.c
   src/matter/mt_ble_adv.c
   src/matter/mt_commission.c
+  src/matter/mt_der.c
+  src/matter/mt_cert.c
+  src/matter/mt_attest.c
+  src/matter/mt_test_paa.c
+  src/matter/mt_fabric.c
 )
 target_include_directories(app PRIVATE src src/policy src/matter)
 

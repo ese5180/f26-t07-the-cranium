@@ -6,6 +6,7 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/settings/settings.h>
 
 #include "matter_policy.h"
 #include "ot_leader.h"
@@ -36,6 +37,9 @@ static void thread_up(struct k_work *work)
 int main(void)
 {
 	LOG_INF("Cranium Matter commissioner and Thread border router");
+	if (settings_subsys_init() != 0) {
+		LOG_ERR("settings could not start: the fabric cannot be kept");
+	}
 
 	int err = bt_enable(NULL);
 
