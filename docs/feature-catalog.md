@@ -161,7 +161,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
-| 2026-11-11 | Board log keeps location lines; refused Bluetooth and cloud updates for another board shown, warned and alerted | console 2.27.6 | #NEW |
+| 2026-11-11 | Board log keeps location lines; refused Bluetooth and cloud updates for another board shown, warned and alerted | console 2.27.6 | #241 |
 | 2026-11-11 | Customer site: a reassigned board's health, like its activity and sessions, covers only the new owner's time | console 2.27.5 | #227 |
 | 2026-11-11 | Update over Bluetooth: Look for boards stays in reach after choosing a release | console 2.27.5 | #227 |
 | 2026-11-11 | A Bluetooth passkey set at the serial console (`BT_PASSKEY`, `BT_OFFLINE\|NEW`) goes on record, never the passkey | console 2.27.5 | #227 |
