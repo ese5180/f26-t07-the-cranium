@@ -225,10 +225,12 @@ static void tell_the_cloud(const struct console_command *command)
 	 * with "passkey" in it is never sent or stored (cloud_events.c never_anywhere[]), and their names
 	 * and descriptions have it: they are told in words of their own, never with what was typed.
 	 */
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
 	if (command->section == SECTION_BLUETOOTH) {
 		cloud_only_event("Bluetooth pairing code changed");
 		return;
 	}
+#endif
 
 	for (size_t i = 0; i < ARRAY_SIZE(commands_that_change_the_board); i++) {
 		if (strcmp(command->name, commands_that_change_the_board[i]) == 0) {
