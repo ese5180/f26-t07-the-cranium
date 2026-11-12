@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.27.5
+
+A board taken back from one customer and given to another no longer shows the new owner its earlier owner's restarts and updates either. The board's health on the customer site (its summary, such as "Recovered from a problem on Tue 3 Nov", the week's strip of restarts and their times, and the last update) still counted the whole week, the earlier owner's days included; it now counts only the time since the board was given to this customer. A board just handed over shows no restarts until it restarts for its new owner.
+
+`healthOf` (cloud/api/src/customer/app.mjs) keeps reading and caching the board's week per board, and clips its events at `ownedSince` before `boardHealth` sees them. Tests: the hand-over test in customers.test.mjs checks the new owner's health has no restarts; customer-health.test.mjs gives the board to Ada more than a week before the events it reads. docs/customer-site.md says health is clipped too, and that a board given back to its first owner shows only what it did since then.
+
 ## 2.27.4
 
 A board taken back from one customer and given to another no longer shows the new owner what it did for the old one. The customer site's activity (a board's page and the overview) and its sessions, tracks and now playing (Mixes) were read for the last 30 days of the board, whoever owned it then: the next owner of a board saw the earlier owner's sessions and track names, and its restarts and updates. Each is now read from the time the board was given to this customer only. The board's health stays the board's own.

@@ -152,18 +152,21 @@ function putEvent(w, atMs, fields) {
 }
 
 async function boardWorld() {
-  const w = createCustomerWorld({ startMs: NOW });
+  // Ada has had the board for longer than the week its health covers.
+  const w = createCustomerWorld({ startMs: NOW - 8 * DAY });
   const admin = w.addStaff('admin', ['release-managers']);
   const ada = w.addCustomer('ada', { name: 'Ada' });
   w.fake.addThing(BOARD);
+  const assigned = await w.console('POST', `/api/customers/${ada.sub}/boards`, { as: admin, body: { thing: BOARD } });
+  assert.equal(assigned.status, 200);
+  w.advance(8 * DAY);
+  // The board is on line now, with the week being read in each test.
   w.fake.device(BOARD).connect();
   w.fake.device(BOARD).report({
     fw: { version: '1.15.0+0', confirmed: true },
     uptime: 600,
     diag: { id: 'CRADA01', mac: 'f4:ce:36:12:34:56', channel: 6, heap: { free: 21000, least: 9000, size: 44000 } },
   });
-  const assigned = await w.console('POST', `/api/customers/${ada.sub}/boards`, { as: admin, body: { thing: BOARD } });
-  assert.equal(assigned.status, 200);
   return { w, ada };
 }
 
