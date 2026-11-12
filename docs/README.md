@@ -51,4 +51,5 @@ the firmware is described in [`firmware/README.md`](../firmware/README.md) and t
 | [`ci.md`](ci.md) | Continuous integration: what runs, what it proves and what it does not |
 | [`test-results.md`](test-results.md) | Test results |
 | [`roadmap.md`](roadmap.md) | What was done lately, what is in progress, what is planned next, and what is on hold |
+| [`feature-catalog.md`](feature-catalog.md) | Every feature of the platform in one place, with where it lives and how to reuse it on another IoT device; updated as features merge |
 | [`versions.md`](versions.md) | Versions of the firmware, console and apps, and the rule for raising them |
