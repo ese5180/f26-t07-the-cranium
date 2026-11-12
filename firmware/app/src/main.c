@@ -45,6 +45,10 @@
 #include "net.h"
 #include "ota.h"
 #include "ota_job.h"
+#if defined(CONFIG_APP_STACK_WATCH)
+#include "stack_policy.h"
+#include "stack_watch.h"
+#endif
 #include "stuck.h"
 #include "ui.h"
 #include "version.h"
@@ -287,19 +291,41 @@ static void report_changes(void)
 /* The device ID the console last heard, so that a new one (SET_ID, INIT) goes out at once. */
 static char reported_id[DEVICE_ID_MAX + 1];
 
-static void publish_diag(void)
+#if defined(CONFIG_APP_STACK_WATCH)
+/* Its own report, after the diagnostics, as the two do not fit one shadow document. Neither is
+ * inlined, so that their buffers are never on the main stack at the same time.
+ */
+static __noinline void publish_stacks(void)
+{
+	char stacks[STACK_REPORT_MAX];
+
+	if (stack_watch_report(stacks, sizeof(stacks)) > 0) {
+		(void)cloud_shadow_report(stacks);
+	}
+}
+#endif
+
+static __noinline void publish_diag_values(void)
 {
 	struct diag_values values;
 	char reported[DIAG_REPORT_MAX];
-
-	if (!cloud_is_connected()) {
-		return;
-	}
 
 	diag_collect(&values);
 	if (diag_format(&values, reported, sizeof(reported)) > 0 && cloud_shadow_report(reported) == 0) {
 		strncpy(reported_id, values.id, sizeof(reported_id) - 1);
 	}
+}
+
+static void publish_diag(void)
+{
+	if (!cloud_is_connected()) {
+		return;
+	}
+
+	publish_diag_values();
+#if defined(CONFIG_APP_STACK_WATCH)
+	publish_stacks();
+#endif
 	seconds_since_diag = 0;
 }
 

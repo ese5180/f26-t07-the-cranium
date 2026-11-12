@@ -83,6 +83,11 @@ target_sources(app PRIVATE
   src/ota/ota_outcome.c
 )
 
+target_sources_ifdef(CONFIG_APP_STACK_WATCH app PRIVATE
+  src/stack_watch.c
+  src/policy/stack_policy.c
+)
+
 target_sources_ifdef(CONFIG_APP_CONSOLE app PRIVATE
   src/console.c
   src/console_cmd.c
