@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""The seven changes to nRF Connect SDK v3.4.0 that the Matter commissioner needs (docs/matter-thread.md, "SDK changes").
+"""The nine changes to nRF Connect SDK v3.4.0 that the Matter commissioner needs (docs/matter-thread.md, "SDK changes").
 
     python3 -I firmware/matter/sdk/patch_sdk.py <SDK workspace> [--check]
 
 1-3 let the Matter controller library build and plug this project's Bluetooth central into the SDK's Bluetooth
 manager; 4-6 fix the SPAKE2+ prover side (the commissioner's side of PASE), which no Nordic sample uses; 7 lets
 the certificate code that reads a device's public key build with mbedTLS 4, which SDK v3.4.0 has (only a
-commissioner reads other devices' certificates, so no Nordic build compiles it). Each patch
+commissioner reads other devices' certificates, so no Nordic build compiles it); 8 makes Matter's own Wi-Fi
+support follow CONFIG_CHIP_WIFI rather than the presence of the nRF70 chip, so that a board can run Matter over
+Thread with Wi-Fi as the border router's backbone (CHIP_WIFI selects WIFI_NRF70, so Matter-over-Wi-Fi builds are
+unchanged); 9 lets Zephyr's OpenThread border router build against the OpenThread in this SDK, which is older
+than the one it was written for (no otMdnsSetLocalHostName(), and a border agent that starts by itself). Each patch
 is guarded by a marker, so running it twice changes nothing, and every anchor is checked: an SDK whose code moved
 fails here, not later in the build. --check only says whether each file is patched, unpatched, or cannot be.
 
@@ -31,6 +35,8 @@ SPAKE = os.path.join(M, "src/crypto/PSASpake2p.cpp")
 OB_CORE = os.path.join(OB, "core/psa_crypto.c")
 OB_DRV = os.path.join(OB, "oberon/drivers/oberon_spake2p.c")
 CERT = os.path.join(M, "src/crypto/CHIPCryptoPALmbedTLSCert.cpp")
+NRFC = os.path.join(M, "src/platform/nrfconnect")
+OTBR = os.path.join(NCS, "zephyr/subsys/net/l2/openthread/openthread_border_router.c")
 
 rc = 0
 
@@ -263,6 +269,55 @@ patch(CERT, 'mbedtls_pk_write_pubkey_psa', [
      '        mbedtls_ecp_point_write_binary(&keypair->CHIP_CRYPTO_PAL_PRIVATE(grp), &keypair->CHIP_CRYPTO_PAL_PRIVATE(Q),\n'
      '                                       MBEDTLS_ECP_PF_UNCOMPRESSED, &pubkey_size, Uint8::to_uchar(pubkey.Bytes()), pubkey.Length());\n'
      '#endif\n'),
+])
+
+# ---- 8) Matter's Wi-Fi support follows CONFIG_CHIP_WIFI, not the presence of the nRF70 ----
+# Stock, any build with the nRF70 driver compiles Matter's Wi-Fi network layer and minimal mDNS, even when Matter
+# runs over Thread and Wi-Fi only carries the border router's backbone.
+WIFI = "[on-device commissioner] Matter over Wi-Fi only when CHIP_WIFI"
+patch(CMAKE, WIFI, [
+    ('matter_add_gn_arg_bool  ("chip_enable_wifi"                       CONFIG_WIFI_NRF70)\n',
+     '# ' + WIFI + '\nmatter_add_gn_arg_bool  ("chip_enable_wifi"                       CONFIG_CHIP_WIFI)\n'),
+    ('matter_add_gn_arg_bool  ("chip_mdns_minimal"                      CONFIG_WIFI_NRF70)\n',
+     'matter_add_gn_arg_bool  ("chip_mdns_minimal"                      CONFIG_CHIP_WIFI)\n'),
+    ('if(CONFIG_WIFI_NRF70)\n    matter_add_gn_arg_string("chip_mdns" "minimal")',
+     'if(CONFIG_CHIP_WIFI)\n    matter_add_gn_arg_string("chip_mdns" "minimal")'),
+])
+patch(os.path.join(NRFC, "CHIPDevicePlatformConfig.h"), WIFI, [
+    ('#ifdef CONFIG_WIFI_NRF70\n#define CHIP_DEVICE_CONFIG_ENABLE_WIFI CONFIG_WIFI_NRF70\n',
+     '// ' + WIFI + '\n#ifdef CONFIG_CHIP_WIFI\n#define CHIP_DEVICE_CONFIG_ENABLE_WIFI CONFIG_CHIP_WIFI\n'),
+])
+patch(os.path.join(NRFC, "SystemPlatformConfig.h"), WIFI, [
+    ('#ifndef CHIP_SYSTEM_CONFIG_PACKETBUFFER_CAPACITY_MAX\n#ifdef CONFIG_WIFI_NRF70\n',
+     '#ifndef CHIP_SYSTEM_CONFIG_PACKETBUFFER_CAPACITY_MAX\n// ' + WIFI + '\n#ifdef CONFIG_CHIP_WIFI\n'),
+])
+patch(os.path.join(NRFC, "DiagnosticDataProviderImplNrf.h"), WIFI, [
+    ('#ifdef CONFIG_WIFI_NRF70\n', '// ' + WIFI + '\n#ifdef CONFIG_CHIP_WIFI\n'),
+])
+patch(os.path.join(NRFC, "DiagnosticDataProviderImplNrf.cpp"), WIFI, [
+    ('#ifdef CONFIG_WIFI_NRF70\n', '// ' + WIFI + '\n#ifdef CONFIG_CHIP_WIFI\n'),
+    ('#ifdef CONFIG_WIFI_NRF70\n', '#ifdef CONFIG_CHIP_WIFI\n'),
+])
+
+# ---- 9) Zephyr's OpenThread border router against this SDK's OpenThread ----
+# Zephyr's border router code calls otMdnsSetLocalHostName(), otBorderAgentIsEnabled() and
+# otBorderAgentSetEnabled(), which the OpenThread in nRF Connect SDK v3.4.0 does not have: there, mDNS needs no
+# local host name set and the border agent starts by itself once Thread is up.
+OTBR_MARK = "[on-device commissioner] OpenThread of SDK v3.4.0"
+patch(OTBR, OTBR_MARK, [
+    ('\tif (otMdnsSetLocalHostName(instance,\n'
+     '\t\t\t\t   create_base_name(instance, otbr_vendor_name)) != OT_ERROR_NONE) {\n'
+     '\t\terror = -EIO;\n'
+     '\t\tgoto exit;\n'
+     '\t}\n',
+     '\t/* ' + OTBR_MARK + ': no otMdnsSetLocalHostName(). */\n'
+     '\t(void)create_base_name;\n'),
+    ('\tif (!otBorderAgentIsEnabled(instance)) {\n'
+     '\t\totBorderAgentSetEnabled(instance, true);\n'
+     '\t}\n',
+     '\t/* ' + OTBR_MARK + ': the border agent starts by itself. */\n'),
+    ('\t\totBorderAgentSetEnabled(instance, false);\n',
+     '\t\t/* ' + OTBR_MARK + ': the border agent stops with Thread. */\n'),
 ])
 
 print("PATCH_RESULT:", "OK" if rc == 0 else "FAILED")

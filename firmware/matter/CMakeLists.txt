@@ -32,6 +32,12 @@ target_sources(app PRIVATE
 )
 target_sources_ifdef(CONFIG_CRANIUM_MATTER_BORDER_ROUTER app PRIVATE src/border_router.c)
 
+# Zephyr's OpenThread start-up code (modules/openthread/openthread.c) includes the border router's header from
+# subsys/net/l2/openthread, which in this SDK is not on its include path.
+if(CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER)
+  zephyr_include_directories(${ZEPHYR_BASE}/subsys/net/l2/openthread)
+endif()
+
 target_include_directories(app PRIVATE src src/policy ${ZAP_PARENT_DIR})
 zephyr_include_directories(src)
 

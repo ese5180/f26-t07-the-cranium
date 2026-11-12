@@ -31,3 +31,16 @@ OTARequestorInterface * GetRequestorInstance()
 }
 
 } // namespace chip
+
+// mbedTLS 4's headers say MBEDTLS_ERROR_C, so Matter's certificate code logs its errors through
+// mbedtls_strerror(), but the SDK does not build mbedTLS's error-string module. This stands in for it with the
+// number, which is what a build without that module would print anyway.
+#include <cstdio>
+
+extern "C" void mbedtls_strerror(int errnum, char * buffer, size_t buflen)
+{
+    if (buffer != nullptr && buflen > 0)
+    {
+        snprintf(buffer, buflen, "-0x%04X", static_cast<unsigned>(-errnum) & 0xFFFFu);
+    }
+}
