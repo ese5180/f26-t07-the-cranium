@@ -103,6 +103,16 @@ const WRITE_BODY_LIMIT = 1024;
 const LABEL_TEXT = /^[\x20-\x7e\u00a0-\u024f]+$/u;
 const WRITES = Object.freeze({ rename: 'customer_action.rename', preferences: 'customer_action.notifications' });
 
+/**
+ * The later of `fromMs` and the time a board was given to its owner: a customer reads nothing a board did
+ * before it was theirs, not even within the days asked for. An assignment with no time (none is written
+ * without one) limits nothing.
+ */
+export function ownedSince(ownership, fromMs) {
+  const since = typeof ownership?.assignedAt === 'string' ? Date.parse(ownership.assignedAt) : Number.NaN;
+  return Number.isFinite(since) ? Math.max(fromMs, since) : fromMs;
+}
+
 const unauthorized = () => new HttpError(401, 'unauthorized', 'Sign in to see your boards.');
 const unknownBoard = () => notFound('not_your_board', 'There is no board of yours at this address.');
 
@@ -258,13 +268,16 @@ export function createCustomerApp({
     });
   }
 
-  /** The events of some owned boards, newest first, as the customer sees them. */
+  /**
+   * The events of some owned boards, newest first, as the customer sees them: of each board, only those
+   * since it was given to this customer. What it did for an earlier owner is not theirs to see.
+   */
   async function activityOf(owned, days, limit) {
-    const range = eventRange(now() - days * DAY_MS, now());
     const nowSec = now() / 1000;
     const parts = await Promise.all(
-      owned.map(({ ownership }) =>
-        aws
+      owned.map(({ ownership }) => {
+        const range = eventRange(ownedSince(ownership, now() - days * DAY_MS), now());
+        return aws
           .queryEvents({
             thing: ownership.thing,
             low: range.low,
@@ -276,8 +289,8 @@ export function createCustomerApp({
             items
               .filter((item) => !(Number.isFinite(item?.ttl) && item.ttl <= nowSec))
               .map((item) => customerEvent(eventFromItem(item), ownership.ref))
-          )
-      )
+          );
+      })
     );
     return parts
       .flat()

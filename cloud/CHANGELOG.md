@@ -7,6 +7,10 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.27.4
+
+A board taken back from one customer and given to another no longer shows the new owner what it did for the old one. The customer site's activity (a board's page and the overview) and its sessions, tracks and now playing (Mixes) were read for the last 30 days of the board, whoever owned it then: the next owner of a board saw the earlier owner's sessions and track names, and its restarts and updates. Each is now read from the time the board was given to this customer only. The board's health stays the board's own.
+
 ## 2.27.0
 
 Offline mode is a page of the console now, in the iPhone, Android and Mac apps: **Offline**, in the sections (under More on a phone), and from the sign-in page when there is no network. It finds a board nearby over Bluetooth, pairs with the board's own passkey (the phone or the Mac asks for it), shows the board's firmware, uptime, Wi-Fi, cloud, update state and last restart, and accepts an update that has arrived at the board, after asking "Install version 1.20 on Cranium-3F9C?". In the apps it is easy to reach from where they open: an Offline mode row above the form on the customer site's sign-in page and on the console's, and in the customer site's sections and top bar. It needs firmware 1.19.0 and app 0.9.0 (Mac app 0.4.0).

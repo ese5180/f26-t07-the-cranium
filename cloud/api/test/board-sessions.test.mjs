@@ -168,7 +168,9 @@ const BOARD_A = 'cranium-00000000000000aa';
 const BOARD_B = 'cranium-00000000000000bb';
 
 async function world() {
-  const w = createCustomerWorld({ startMs: NOW });
+  // The boards are given to their owners before the session of 21:04, and the clock then moves on to NOW.
+  const GIVEN = Date.UTC(2026, 10, 9, 20, 0, 0);
+  const w = createCustomerWorld({ startMs: GIVEN });
   const admin = w.addStaff('admin', ['release-managers']);
   const ada = w.addCustomer('ada');
   const ben = w.addCustomer('ben');
@@ -183,6 +185,7 @@ async function world() {
     });
     assert.equal(response.status, 200, JSON.stringify(response.body));
   }
+  w.advance(NOW - GIVEN);
   const recorder = createRecorder({ store: w.fake.eventStore(), now: () => NOW, log: () => {} });
   const send = (thing, body) => recorder({ ...body, thing, channel: 'session', received: NOW - 100 });
   return { ...w, ada, ben, send };
@@ -270,4 +273,38 @@ test('the template: its own rule and topic, the policy lets a board publish only
   assert.match(template, /topic\/cranium\/\$\{!iot:Connection\.Thing\.ThingName\}\/session'/);
   assert.match(template, /SourceArn: !GetAtt BoardSessionRule\.Arn/);
   assert.ok(!/topic\/cranium\/\*/.test(template));
+});
+
+test('a board given to another customer shows them nothing that its earlier owner played', async () => {
+  const w = await world();
+  const { thing: _t, channel: _c, received: _r, ...body } = message();
+  await w.send(BOARD_A, body);
+  await w.send(BOARD_A, { v: 1, type: 'now', playing: true, title: 'Ada now', playedAt: '2026-11-09T23:29:00Z' });
+  assert.equal((await w.customer('/api/c/sessions', { as: w.ada })).body.sessions.length, 1);
+  const admin = w.addStaff('admin2', ['release-managers']);
+  const back = await w.console('POST', `/api/customers/${w.ada.sub}/boards/${BOARD_A}/remove`, { as: admin });
+  assert.equal(back.status, 200, JSON.stringify(back.body));
+  const given = await w.console('POST', `/api/customers/${w.ben.sub}/boards`, { as: admin, body: { thing: BOARD_A } });
+  assert.equal(given.status, 200, JSON.stringify(given.body));
+  const ben = (await w.customer('/api/c/sessions', { as: w.ben })).body;
+  assert.deepEqual(
+    ben.sessions.map((session) => session.title),
+    [],
+    "Ada's session on the board is not Ben's"
+  );
+  assert.deepEqual(ben.nowPlaying, []);
+  // What the board plays once it is Ben's is his.
+  w.advance(60_000);
+  await w.send(BOARD_A, {
+    ...body,
+    id: 'b2',
+    title: 'Ben on A',
+    startedAt: new Date(NOW + 30_000).toISOString(),
+    endedAt: new Date(NOW + 50_000).toISOString(),
+    tracks: [{ title: 'Mine', artist: 'Ben', playedAt: new Date(NOW + 31_000).toISOString(), durationS: 10 }],
+  });
+  assert.deepEqual(
+    (await w.customer('/api/c/sessions', { as: w.ben })).body.sessions.map((session) => session.title),
+    ['Ben on A']
+  );
 });

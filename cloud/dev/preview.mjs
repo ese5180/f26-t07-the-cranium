@@ -1482,6 +1482,9 @@ async function customerSite(stage) {
   await stage.assign(ada, first, 'Living room deck');
   await stage.assign(ada, second);
   await stage.assign(ben, third, 'Studio');
+  // A customer reads what a board did since it was theirs: Ada's living room deck restarts once after.
+  stage.ago('1m35s');
+  first.restart({ cause: '2' });
   stage.ago('1m30s');
   stage.signedInOnce(ada);
   stage.signedInOnce(ben);
