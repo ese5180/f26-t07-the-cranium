@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -144,7 +145,9 @@ class SerialRecordTest {
 
     @Test
     fun `only the commands the API records are put on record`() {
-        assertEquals(14, SerialRules.RECORDED.size)
+        assertEquals(16, SerialRules.RECORDED.size)
+        assertNotNull(SerialRules.record("BT_PASSKEY", null))
+        assertNotNull(SerialRules.record("BT_OFFLINE", null))
         assertNull(SerialRules.record("STATUS", null))
         assertEquals(SerialRecord("KEYGEN", "B1", null), SerialRules.record("KEYGEN", SerialSession.BoardId("B1", "1.12")))
     }
