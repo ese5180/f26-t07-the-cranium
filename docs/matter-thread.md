@@ -80,9 +80,34 @@ and the border router need several hundred KB of each, so they cannot be added t
 separate application, `firmware/matter/`, built for the same boards:
 
 ```sh
+cp -c -R /opt/nordic/ncs/v3.4.0 ~/ncs-matter                     # a copy-on-write copy of the SDK (macOS)
+python3 -I firmware/matter/sdk/patch_sdk.py ~/ncs-matter          # the six SDK changes, below
+export ZEPHYR_BASE=~/ncs-matter/zephyr
 west build -b nrf7002dk/nrf5340/cpuapp --sysbuild firmware/matter   # Wi-Fi backbone
 west build -b nrf5340dk/nrf5340/cpuapp --sysbuild firmware/matter   # Thread only
 ```
+
+Without the patched SDK the build stops at once and says so. `firmware/matter/VERSION` is a link to
+`firmware/app/VERSION`, so both images carry the same version number.
+
+### Using it
+
+Over the serial console (the DK's first virtual COM port, 115200 baud), with the Matter shell:
+
+```
+wifi cred add -s "<network>" -k 1 -p "<password>"     # nRF7002 DK only, once; then restart
+matter controller pairing code <node id> <manual code or MT:... QR payload>
+matter controller invoke-cmd <node id> <endpoint> 6 2  # On/Off cluster, Toggle
+```
+
+At start-up the board forms a Thread network if it has none (random keys and PAN ID, channel
+`CONFIG_CRANIUM_THREAD_CHANNEL`, 25 by default), becomes leader, turns the SRP server on and starts the
+commissioner. On the nRF7002 DK it joins the stored Wi-Fi network, and the border router starts once Wi-Fi is
+up; the log warns when the Thread channel overlaps the Wi-Fi channel and names one that does not. A setup code
+is checked (length, check digit, passcode rules) before anything starts.
+
+The data model in `src/default_zap` is the Matter code generator's root node, the smallest it makes; the
+commissioner serves nothing from it yet (`src/empty_provider.cpp` answers every request).
 
 It shares the signing key, MCUboot and the version number with the main firmware. A board runs one or the
 other; switching between them is a flash over the debug port, because the flash layouts differ (below).
@@ -96,11 +121,12 @@ other; switching between them is a flash over the debug port, because the flash 
 | The serial console's provisioning commands, the golden image | the Matter shell takes the console | flashing the main image |
 | Firmware update from the cloud | it rides on the AWS IoT jobs above | Matter OTA and Bluetooth stay |
 
-**Kept:** MCUboot with the team's signature check and swap with revert, firmware update over Bluetooth (SMP),
-and the LEDs.
+**Kept:** MCUboot with the team's signature check and swap with revert. Firmware update over Bluetooth (SMP)
+and over Matter are the next steps (see [Order of work](#order-of-work)): until then the variant is installed and
+updated over the debug port.
 
-The flash layout is this variant's own (the same split Matter devices on the nRF5340 commonly use): MCUboot 32 KB, the application 956 KB, factory data
-4 KB and settings 32 KB in internal flash, and the second image slot in the DK's external flash. It is not one
+The flash layout is this variant's own (`firmware/matter/boards/matter_partitions.dtsi`): MCUboot 32 KB, the
+application 956 KB and settings 36 KB in internal flash, and the second image slot in the DK's external flash. It is not one
 of the layouts in `firmware/app/flash_layouts.json`, so a board refuses to install a Matter image sent from the
 console as an update, and the other way round: changing between the two is a debug-port flash.
 
