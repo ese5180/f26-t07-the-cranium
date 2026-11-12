@@ -19,8 +19,8 @@
     "tfm": { "flash_free_min": 49152, "ram_free_min": 18432 }
   },
   "Matter (nRF7002 DK)": {
-    "_measured": "1.21.0, the Matter variant (firmware/matter), first build: app 114634 flash / 205896 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 12824 flash",
-    "app": { "flash_free_min": 106496, "ram_free_min": 196608 },
+    "_measured": "1.21.0, the Matter variant (firmware/matter) with Wi-Fi and the border router, before the commissioner library: app 141338 flash / 146448 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 11480 flash",
+    "app": { "flash_free_min": 131072, "ram_free_min": 139264 },
     "ipc_radio": { "flash_free_min": 65536, "ram_free_min": 6144 },
     "mcuboot": { "flash_free_min": 10240 }
   },

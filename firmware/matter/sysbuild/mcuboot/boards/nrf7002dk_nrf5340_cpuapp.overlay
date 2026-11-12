@@ -1,5 +1,6 @@
 /* MCUboot's view of the Matter variant's flash layout: the application's (boards/matter_partitions.dtsi). */
 #include "../../../boards/matter_partitions.dtsi"
+#include "../../../boards/nrf70_patch_partitions.dtsi"
 
 / {
 	chosen {
