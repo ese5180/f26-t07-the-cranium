@@ -838,6 +838,30 @@ const pages = {
     },
     interval: () => (memfaultScript ? memfaultScript.MEMFAULT_REFRESH_MS : 0),
   },
+  // Our own issues (issues-page.js, docs/own-observability.md): the boards' crashes grouped by signature,
+  // and one issue's boards and timeline. Under Memfault in the sections.
+  issues: {
+    title: 'Issues',
+    view: (ctx) =>
+      issuesScript ? issuesScript.issuesView(ctx) : scriptPending(ctx, 'issues', 'Issues', { tabs: false }),
+    resources: () => issuesScript?.issuesResources(state) ?? [],
+    async refresh() {
+      if (await issuesReady()) await issuesScript.refreshIssues();
+      draw();
+    },
+    interval: () => (issuesScript ? issuesScript.ISSUES_REFRESH_MS : 0),
+  },
+  'own-issue': {
+    title: () => 'Issue',
+    view: (ctx) =>
+      issuesScript ? issuesScript.ownIssueView(ctx) : scriptPending(ctx, 'issues', 'Issue', { tabs: false }),
+    resources: () => issuesScript?.ownIssueResources(state) ?? [],
+    async refresh() {
+      if (await issuesReady()) await issuesScript.refreshOwnIssue();
+      draw();
+    },
+    interval: () => (issuesScript ? issuesScript.ISSUES_REFRESH_MS : 0),
+  },
   // The weekly fleet report (reports.js, docs/reports.md): the weeks, and a week's printable page.
   reports: {
     title: 'Reports',
@@ -1192,6 +1216,7 @@ let customersScript = null;
 let teamScript = null;
 let dbScript = null;
 let memfaultScript = null;
+let issuesScript = null;
 let labelsScript = null;
 let compareScript = null;
 let reportsScript = null;
@@ -1324,6 +1349,15 @@ async function memfaultReady() {
     memfaultScript?.connect({ state, api, load, draw, now: () => clock.now() });
   }
   return memfaultScript;
+}
+
+/** issues-page.js, fetched once, when the Issues page or an issue is first opened. */
+async function issuesReady() {
+  if (!issuesScript) {
+    issuesScript = await pageScript(() => import('./issues-page.js'));
+    issuesScript?.connect({ state, api, load, draw, now: () => clock.now() });
+  }
+  return issuesScript;
 }
 
 /** The script of Events and Diagnostics, fetched once and handed what it needs to load and draw. */

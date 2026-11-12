@@ -22,6 +22,7 @@ the firmware is described in [`firmware/README.md`](../firmware/README.md) and t
 | [`search-filters.md`](search-filters.md) | Search and filters on the console's long lists, kept in the page's address |
 | [`audit-diff.md`](audit-diff.md) | What each activity entry changed, before and after, and what is never recorded |
 | [`memfault.md`](memfault.md) | Memfault: crashes, reboots and fleet metrics, sent over the AWS IoT connection |
+| [`own-observability.md`](own-observability.md) | Our own Memfault: Issues built from the boards' events, and the plan for coredumps, metrics, vitals, logs and the rest |
 | [`raspberry-pi-ota.md`](raspberry-pi-ota.md) | The Raspberry Pi's operating system and its over-the-air updates |
 
 ## Boards

@@ -161,6 +161,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-12 | Our own Issues: crashes, faults and stuck restarts grouped by signature, with boards, versions and regressions | console 2.27.9 | draft |
 | 2026-11-11 | Board log keeps location lines; refused Bluetooth and cloud updates for another board shown, warned and alerted | console 2.27.6 | #241 |
 | 2026-11-11 | Customer site: a reassigned board's health, like its activity and sessions, covers only the new owner's time | console 2.27.5 | #227 |
 | 2026-11-11 | Update over Bluetooth: Look for boards stays in reach after choosing a release | console 2.27.5 | #227 |
