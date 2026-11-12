@@ -281,7 +281,8 @@ const BEFORE_SECRET = { WIFI: 1, WIFI_SEC: 2 };
 
 // The commands that change a board, which the activity log hears of once the board said OK
 // (cloud/api/src/handlers/serial.mjs): those that firmware 1.12.0 also reports to the cloud itself,
-// the two that erase it, and the two that restart it, one of them into its bootloader.
+// the two that erase it, the two that restart it, one of them into its bootloader, and the two that
+// set its own Bluetooth passkey. Only the name goes on record, never the passkey.
 export const RECORDED = new Set([
   'INIT',
   'SET_ID',
@@ -297,6 +298,8 @@ export const RECORDED = new Set([
   'BUTTON',
   'REBOOT',
   'ENTER_BOOTLOADER',
+  'BT_PASSKEY',
+  'BT_OFFLINE',
 ]);
 const VERSION = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,4})\+(0|[1-9]\d{0,9})$/;
 

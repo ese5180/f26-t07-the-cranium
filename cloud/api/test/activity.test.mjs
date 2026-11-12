@@ -284,3 +284,42 @@ test(`at most ${SERIAL_PER_MINUTE} a minute per person; one more is refused with
   advance(31_000);
   assert.equal((await post(manager)).status, 201);
 });
+
+// Every command of the firmware's serial console either goes on record once the board answers OK, or is one
+// that only asks, belongs to a tool or a test build, or is the page's own. A command added to the firmware
+// that changes the board, and is in neither list, fails here until it is recorded.
+test('every serial console command of the firmware that changes the board is recorded', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../../../firmware/app/src/console_cmd.c', import.meta.url), 'utf8');
+  const table = source.slice(source.indexOf('static const struct console_command commands[]'));
+  const names = new Set([...table.matchAll(/^\s*\{\s*"([A-Z_]+)",/gm)].map((match) => match[1]));
+  const notRecorded = new Set([
+    // They only ask.
+    'HELP',
+    'GET_ID',
+    'THING',
+    'NET',
+    'MQTT',
+    'STATS',
+    'STATUS',
+    'STREAM_STATUS',
+    // The page's own, sent before anything else.
+    'ECHO',
+    // A certificate sent in pieces by tools/provision_device.py, which the page does not send.
+    'STREAM_START',
+    'STREAM_CHUNK',
+    'STREAM_CANCEL',
+    // Test builds only.
+    'SESSION_TEST',
+    'TEST_WIFI_DEAD',
+  ]);
+  assert.ok(names.has('BT_PASSKEY') && names.has('BT_OFFLINE') && names.has('WIFI'), [...names].join(' '));
+  for (const name of names) {
+    assert.ok(SERIAL_COMMANDS.includes(name) !== notRecorded.has(name), `${name}: recorded, or listed as not`);
+  }
+  const { call, manager, session } = setup();
+  for (const command of ['BT_PASSKEY', 'BT_OFFLINE']) {
+    const answer = await call('POST', '/api/serial/commands', { claims: session(manager), body: { command } });
+    assert.equal(answer.status, 201, command);
+  }
+});
