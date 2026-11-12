@@ -285,10 +285,86 @@ test('events a few pixels apart are one spot with a count; zooming in or a wider
   );
   assert.equal(narrow[0].lead.text, 'mid');
   assert.equal(narrow[0].at, events[1].at);
-  assert.ok(narrow[0].x > 99 && narrow[0].x < 100);
+  // Its number is kept inside the plot: the spot is drawn half its pill's width in from the right end.
+  assert.ok(narrow[0].x < 100 - (telemetry.spotWidth(3) / 2 / 358) * 100 + 1e-9 && narrow[0].x > 94);
   // Ten minutes on the same width (zoomed in): a minute is 36 px, so each stands alone (the far one is cut to the edge).
   assert.equal(telemetry.spotsOf(events, { fromMs: NOW - 10 * MINUTE, toMs: NOW }, 358).length, 4);
   assert.deepEqual(telemetry.spotsOf([], day), []);
+});
+
+test('a crowded week on a phone: no two spots touch, each count is the sum, every number stays inside the plot', () => {
+  const week = { fromMs: NOW - 7 * DAY, toMs: NOW };
+  // Bursts like the boards' real ones: 58 and 80 events an hour apart, 36 and 69, 20 and 3, and a scatter between.
+  const bursts = [
+    [6 * DAY, 58],
+    [6 * DAY - HOUR, 80],
+    [4 * DAY, 36],
+    [4 * DAY - 2 * HOUR, 69],
+    [2 * DAY, 20],
+    [2 * DAY - 30 * MINUTE, 3],
+    [10 * MINUTE, 51],
+    [0, 10],
+  ];
+  const events = [];
+  for (const [ago, count] of bursts)
+    for (let index = 0; index < count; index += 1)
+      events.push(event(A, ago + index * 1000, 'connection', 'connected', `e${events.length}`));
+  for (let hour = 0; hour < 7 * 24; hour += 5)
+    events.push(event(A, hour * HOUR + 7 * MINUTE, 'health', 'memory', `s${hour}`));
+  for (const width of [328, 342, 1000]) {
+    const spots = telemetry.spotsOf(events, week, width);
+    const px = (spot) => (spot.x / 100) * width;
+    assert.equal(
+      spots.reduce((sum, spot) => sum + spot.events.length, 0),
+      events.length,
+      'every event is in exactly one spot'
+    );
+    assert.equal(new Set(spots.flatMap((spot) => spot.events.map((item) => item.text))).size, events.length);
+    for (const spot of spots) {
+      const half = telemetry.spotWidth(spot.events.length) / 2;
+      assert.ok(px(spot) >= half - 1e-9 && px(spot) <= width - half + 1e-9, `${width}: a number half outside the plot`);
+    }
+    // Newest first, so each spot is to the left of the one before it, with room for both and a gap.
+    for (let index = 1; index < spots.length; index += 1) {
+      const room =
+        (telemetry.spotWidth(spots[index - 1].events.length) + telemetry.spotWidth(spots[index].events.length)) / 2;
+      assert.ok(
+        px(spots[index - 1]) - px(spots[index]) >= room + 4 - 1e-9,
+        `${width}: spots ${index - 1} and ${index} overlap`
+      );
+    }
+    // The bursts an hour apart cannot both have a number on a phone's week: they are one spot with the sum.
+    if (width < 400) assert.ok(spots.some((spot) => spot.events.length >= 58 + 80));
+  }
+});
+
+test("a spot's number: up to 99, then 99+, in a pill wide enough for it and never narrower than 18 px", () => {
+  assert.equal(telemetry.countWords(7), '7');
+  assert.equal(telemetry.countWords(99), '99');
+  assert.equal(telemetry.countWords(100), '99+');
+  assert.equal(telemetry.countWords(4321), '99+');
+  assert.equal(telemetry.spotWidth(1), 16, 'a lone event is its marker only');
+  assert.equal(telemetry.spotWidth(5), 18);
+  assert.ok(telemetry.spotWidth(42) > telemetry.spotWidth(5));
+  assert.ok(telemetry.spotWidth(500) > telemetry.spotWidth(42));
+  assert.equal(telemetry.spotWidth(500), telemetry.spotWidth(100));
+});
+
+test('spots on a plot narrower than one number, and events at the same instant, still make one sensible spot', () => {
+  const day = { fromMs: NOW - DAY, toMs: NOW };
+  const same = [1, 2, 3].map((index) => event(A, HOUR, 'connection', 'connected', `same${index}`));
+  const spots = telemetry.spotsOf(same, day, 10);
+  assert.equal(spots.length, 1);
+  assert.equal(spots[0].events.length, 3);
+  assert.equal(spots[0].x, 50, 'centred when the plot is narrower than the number');
+  // Two events at the very ends of a wide plot stay two spots, each drawn inside it.
+  const ends = [event(A, 0, 'connection', 'connected', 'now'), event(A, DAY, 'connection', 'connected', 'then')];
+  const apart = telemetry.spotsOf(ends, day, 1000);
+  assert.deepEqual(
+    apart.map((spot) => spot.events.length),
+    [1, 1]
+  );
+  assert.ok(apart[0].x <= 99.2 && apart[1].x >= 0.8);
 });
 
 test('every kind the API knows has a look, three hues by family and a shape of its own', () => {

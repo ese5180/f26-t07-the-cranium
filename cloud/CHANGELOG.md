@@ -9,7 +9,9 @@ were given later, from the history; each names its commit.
 
 ## 2.27.7
 
-Make golden: on the Firmware page a release manager uploads a release's golden promotion record, signed offline with the golden key, and makes that release the golden image on one board, a group or every board that runs it. Each board's page shows its golden image and what came of the last promotion. It needs firmware 1.19.3 and its bootloader, which takes one debug-port flash. Until a board has them, Make golden does not offer it, and the API refuses it by name.
+Two changes. **Make golden** on the Firmware page, and the Events timeline's numbers are readable again.
+
+**Make golden.** Make golden: on the Firmware page a release manager uploads a release's golden promotion record, signed offline with the golden key, and makes that release the golden image on one board, a group or every board that runs it. Each board's page shows its golden image and what came of the last promotion. It needs firmware 1.19.3 and its bootloader, which takes one debug-port flash. Until a board has them, Make golden does not offer it, and the API refuses it by name.
 
 `POST /api/firmware/{version}/golden` keeps a record only if its signature is good with the stack's golden public key
 (`GOLDEN_PUBLIC_KEY_B64`, the template's `GoldenPublicKey`, which `deploy.sh` reads from
@@ -21,7 +23,13 @@ A board that reports no golden image, so firmware before 1.19.3, is refused with
 made. `GET /api/golden/promotions` lists the latest. Both writes are on the activity log (`firmware.golden_record`,
 `golden.promote`), from the website only. A board's report beside `diag` gives `golden: {version, counter, state}`, and
 a device carries it where it is reported. The apps host the console, so they have it with this version. Tests:
-cloud/api/test/golden.test.mjs, cloud/web/test/golden.test.mjs.
+cloud/api/test/golden.test.mjs, cloud/web/test/golden.test.mjs. (#216)
+
+**Timeline counts.** The Events timeline's numbers are readable again. Groups of events closer together than their numbers are wide are now one group with the sum, so no two numbers overlap ("58" next to "80" no longer reads "5880"), each number sits in a pill above its marker instead of on it, and every pill stays inside its lane and the plot, also on a phone. Past 99 a group says "99+"; hovering or picking it still lists what is inside.
+
+- `telemetry.js` `spotsOf(events, span, widthPx, gapPx)`: starts from one spot per event and merges the two neighbours that overlap most, until every pair is apart by half of each one's width plus 4 px; a spot's place is the middle of its events, kept half its width in from both ends. `spotWidth()` and `countWords()` give the pill's width (18 px, plus about 7.5 px a character) and its words.
+- The marker of a group drops 7 px and its number is a 16 px pill 10 px above the lane's middle, clear of the glyph and inside the track; the label reads "<board>: N events, <from> to <to>".
+- Tests: a crowded week at 328, 342 and 1000 px (no two spots touch, every event counted once, every pill inside), "99+", and plots narrower than one number. (#248)
 
 ## 2.27.6
 
