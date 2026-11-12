@@ -50,7 +50,16 @@ void stack_report_begin(struct stack_report *report, char *buf, size_t len)
 	}
 }
 
-void stack_report_add(struct stack_report *report, const char *name, size_t size, size_t unused)
+void stack_report_note(struct stack_report *report, size_t size, size_t unused)
+{
+	unsigned int pct = stack_used_pct(size, unused);
+
+	if (pct > report->max_pct) {
+		report->max_pct = pct;
+	}
+}
+
+bool stack_report_add(struct stack_report *report, const char *name, size_t size, size_t unused)
 {
 	unsigned int pct = stack_used_pct(size, unused);
 	size_t used = unused >= size ? 0 : size - unused;
@@ -68,22 +77,23 @@ void stack_report_add(struct stack_report *report, const char *name, size_t size
 	}
 	clean[n] = '\0';
 	if (n == 0) {
-		snprintf(clean, sizeof(clean), "t%u", report->count + report->more);
+		snprintf(clean, sizeof(clean), "t%u", report->base + report->count + report->more);
 	}
 
 	if (report->buf == NULL || report->at + TAIL_RESERVE >= report->len) {
 		report->more++;
-		return;
+		return false;
 	}
 	size_t room = report->len - TAIL_RESERVE - report->at;
 	int written = snprintf(report->buf + report->at, room, ",\"%s\":%u", clean, (unsigned int)used);
 
 	if (written < 0 || (size_t)written >= room) {
 		report->more++;
-		return;
+		return false;
 	}
 	report->at += (size_t)written;
 	report->count++;
+	return true;
 }
 
 int stack_report_end(struct stack_report *report)
@@ -112,4 +122,30 @@ int stack_report_end(struct stack_report *report)
 		return -ENOSPC;
 	}
 	return (int)(at + (size_t)tail);
+}
+
+int heap_report_format(const struct heap_use *heaps, size_t n, char *buf, size_t len)
+{
+	size_t at = 0;
+	int written = snprintf(buf, len, "{\"heaps\":[");
+
+	if (written < 0 || (size_t)written >= len) {
+		return -ENOSPC;
+	}
+	at = (size_t)written;
+	for (size_t i = 0; i < n; i++) {
+		size_t peak = heaps[i].peak > heaps[i].size ? heaps[i].size : heaps[i].peak;
+
+		written = snprintf(buf + at, len - at, "%s[%u,%u]", i == 0 ? "" : ",",
+				   (unsigned int)heaps[i].size, (unsigned int)peak);
+		if (written < 0 || (size_t)written >= len - at) {
+			return -ENOSPC;
+		}
+		at += (size_t)written;
+	}
+	written = snprintf(buf + at, len - at, "]}");
+	if (written < 0 || (size_t)written >= len - at) {
+		return -ENOSPC;
+	}
+	return (int)(at + (size_t)written);
 }

@@ -5,6 +5,7 @@
  * document it goes in.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -141,6 +142,60 @@ static void test_the_longest_report_fits_the_shadow_document(void)
 	CHECK(len + (int)strlen("{\"state\":{\"reported\":}}") + 1 <= 512);
 }
 
+/* The next report of the same walk: the threads the first had only count towards max_pct, and an
+ * unnamed thread keeps its place in the whole walk.
+ */
+static void test_a_second_report_goes_on_where_the_first_stopped(void)
+{
+	char buf[STACK_REPORT_MAX];
+	struct stack_report report;
+
+	stack_report_begin(&report, buf, sizeof(buf));
+	report.base = 2;
+	stack_report_note(&report, 1000, 50);  /* 95 %, sent before */
+	stack_report_note(&report, 1000, 900);
+	CHECK(stack_report_add(&report, NULL, 1000, 500));
+	CHECK(stack_report_end(&report) > 0);
+	CHECK(strcmp(buf, "{\"stacks\":{\"max_pct\":95,\"t2\":500}}") == 0);
+}
+
+static void test_add_says_when_the_report_is_full(void)
+{
+	char buf[STACK_REPORT_MAX];
+	struct stack_report report;
+	unsigned int added = 0;
+
+	stack_report_begin(&report, buf, sizeof(buf));
+	for (int i = 0; i < 40; i++) {
+		added += stack_report_add(&report, "abcdefghijklmnop", 4096, 0) ? 1U : 0U;
+	}
+	CHECK(added == report.count);
+	CHECK(report.count > 0 && report.more == 40 - report.count);
+}
+
+static void test_the_heap_report(void)
+{
+	char buf[HEAP_REPORT_MAX];
+	const struct heap_use heaps[] = { { 44048, 28832 }, { 20000, 9120 }, { 59856, 70000 } };
+
+	CHECK(heap_report_format(heaps, 3, buf, sizeof(buf)) > 0);
+	/* A peak is never more than the heap. */
+	CHECK(strcmp(buf, "{\"heaps\":[[44048,28832],[20000,9120],[59856,59856]]}") == 0);
+	CHECK(heap_report_format(heaps, 0, buf, sizeof(buf)) > 0);
+	CHECK(strcmp(buf, "{\"heaps\":[]}") == 0);
+	CHECK(heap_report_format(heaps, 3, buf, 20) == -ENOSPC);
+
+	/* Eight heaps of the largest sizes still fit. */
+	struct heap_use many[8];
+
+	for (int i = 0; i < 8; i++) {
+		many[i].size = 4294967295U;
+		many[i].peak = 4294967295U;
+	}
+	CHECK(heap_report_format(many, 8, buf, sizeof(buf)) > 0);
+	CHECK(strlen(buf) + strlen("{\"state\":{\"reported\":}}") + 1 <= 512);
+}
+
 static void test_a_buffer_too_small_is_an_error(void)
 {
 	char buf[16];
@@ -163,6 +218,9 @@ int main(void)
 	test_names_are_made_safe_for_json();
 	test_a_report_too_long_is_cut_and_says_so();
 	test_the_longest_report_fits_the_shadow_document();
+	test_a_second_report_goes_on_where_the_first_stopped();
+	test_add_says_when_the_report_is_full();
+	test_the_heap_report();
 	test_a_buffer_too_small_is_an_error();
 
 	printf("stack_policy: %d checks, %d failures\n", checks, failures);

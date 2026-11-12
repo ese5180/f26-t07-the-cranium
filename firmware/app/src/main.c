@@ -46,7 +46,6 @@
 #include "ota.h"
 #include "ota_job.h"
 #if defined(CONFIG_APP_STACK_WATCH)
-#include "stack_policy.h"
 #include "stack_watch.h"
 #endif
 #include "stuck.h"
@@ -292,16 +291,12 @@ static void report_changes(void)
 static char reported_id[DEVICE_ID_MAX + 1];
 
 #if defined(CONFIG_APP_STACK_WATCH)
-/* Its own report, after the diagnostics, as the two do not fit one shadow document. Neither is
- * inlined, so that their buffers are never on the main stack at the same time.
+/* The stack and heap reports (src/stack_watch.h), after the diagnostics, as they do not fit one shadow
+ * document together. Neither is inlined, so that their buffers are never on the main stack at once.
  */
 static __noinline void publish_stacks(void)
 {
-	char stacks[STACK_REPORT_MAX];
-
-	if (stack_watch_report(stacks, sizeof(stacks)) > 0) {
-		(void)cloud_shadow_report(stacks);
-	}
+	stack_watch_publish(cloud_shadow_report);
 }
 #endif
 

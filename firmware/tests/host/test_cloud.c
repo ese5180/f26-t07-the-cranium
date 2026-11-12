@@ -357,6 +357,15 @@ static void test_the_topics_listed_are_the_ones_subscribed_to(void)
 	/* The library takes eight at most in one SUBSCRIBE, and AWS IoT as many. */
 	CHECK(ARRAY_SIZE(expected) <= 8);
 	CHECK(strlen(topic_commands) == COMMANDS_TOPIC_LENGTH);
+	/* Each jobs topic fills its buffer exactly: none is cut short, and none has room to spare. */
+	CHECK(strlen(topic_notify_next) == sizeof(topic_notify_next) - 1);
+	CHECK(strlen(topic_get_accepted) == sizeof(topic_get_accepted) - 1);
+	CHECK(strlen(topic_get_rejected) == sizeof(topic_get_rejected) - 1);
+	CHECK(strlen(topic_update_accepted) == sizeof(topic_update_accepted) - 1);
+	CHECK(strlen(topic_update_rejected) == sizeof(topic_update_rejected) - 1);
+	CHECK(strlen(topic_get_next) == sizeof(topic_get_next) - 1);
+	CHECK_TEXT(topic_get_next, "$aws/things/" THING "/jobs/$next/get");
+	CHECK(strlen(topic_events) == sizeof(topic_events) - 1);
 }
 
 static void test_a_connection_is_counted_as_it_happens(void)
