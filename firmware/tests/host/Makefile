@@ -41,7 +41,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/matter_policy_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/matter_policy_tests $(BUILD)/matter_lib_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -80,6 +80,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/bt_only_leds_tests
 	./$(BUILD)/sessions_tests
 	./$(BUILD)/matter_policy_tests
+	./$(BUILD)/matter_lib_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -95,6 +96,15 @@ MATTER_POLICY := ../../matter/src/policy
 $(BUILD)/matter_policy_tests: test_matter_policy.c $(MATTER_POLICY)/matter_policy.c $(MATTER_POLICY)/matter_policy.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -I$(MATTER_POLICY) -o $@ test_matter_policy.c $(MATTER_POLICY)/matter_policy.c
+
+# The Matter commissioner library (firmware/matter/src/matter): TLV, BTP, message headers, the counter window,
+# Interaction Model and PASE message bodies. Plain C; its crypto runs through PSA on the board and is not here.
+MATTER_LIB := ../../matter/src/matter
+MATTER_LIB_SOURCES := $(MATTER_LIB)/mt_tlv.c $(MATTER_LIB)/mt_btp.c $(MATTER_LIB)/mt_msg.c $(MATTER_LIB)/mt_im.c \
+	$(MATTER_LIB)/mt_pase_msg.c
+$(BUILD)/matter_lib_tests: test_matter_lib.c $(MATTER_LIB_SOURCES) $(wildcard $(MATTER_LIB)/*.h)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -I$(MATTER_LIB) -o $@ test_matter_lib.c $(MATTER_LIB_SOURCES)
 
 # The listening sessions' JSON and times (src/cloud/sessions.c): what is refused, what is escaped, the
 # dates, and that nothing is written past the buffer. It needs nothing but the C library and a fake publish.
