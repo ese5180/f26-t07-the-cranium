@@ -19,16 +19,16 @@
     "tfm": { "flash_free_min": 49152, "ram_free_min": 18432 }
   },
   "Matter (nRF7002 DK)": {
-    "_measured": "1.21.0, the Matter variant (firmware/matter): Wi-Fi, the border router, the commissioner and OTA provider, and the board as a device a phone commissions with its own OTA requestor: with the light on endpoint 1, subscriptions and matter selftest: app 65770 flash / 89024 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 11464 flash. The target is at least 40960 / 8192",
+    "_measured": "1.21.0, the Matter variant (firmware/matter): Wi-Fi, the border router, the commissioner and OTA provider, and the board as a device a phone commissions with its own OTA requestor: with the light on endpoint 1, subscriptions and matter selftest: app 65770 flash / 89024 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 7064 flash (with its log on the UART, so a refused image says why). The target is at least 40960 / 8192",
     "app": { "flash_free_min": 61440, "ram_free_min": 81920 },
     "ipc_radio": { "flash_free_min": 65536, "ram_free_min": 6144 },
-    "mcuboot": { "flash_free_min": 10240 }
+    "mcuboot": { "flash_free_min": 6144 }
   },
   "Matter (nRF5340 DK)": {
-    "_measured": "1.21.0, the Matter variant without Wi-Fi: app 516050 flash / 252152 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 16728 flash",
+    "_measured": "1.21.0, the Matter variant without Wi-Fi: app 516050 flash / 252152 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot about 12300 flash with its log on the UART",
     "app": { "flash_free_min": 507904, "ram_free_min": 245760 },
     "ipc_radio": { "flash_free_min": 65536, "ram_free_min": 6144 },
-    "mcuboot": { "flash_free_min": 14336 }
+    "mcuboot": { "flash_free_min": 10240 }
   },
   "Pi image updates": {
     "_measured": "the firmware job's configuration 'Pi image updates', which comes with the Raspberry Pi work (#165); not built on main yet",

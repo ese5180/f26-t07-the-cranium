@@ -114,7 +114,9 @@ prefix delegation. Logs are warnings and errors except this project's own.
 **Flash layout** (`boards/matter_partitions.dtsi`, `boards/nrf70_patch_partitions.dtsi`): MCUboot 48 KB, the
 application 940 KB, settings 36 KB in internal flash; in the external flash the second application slot, the
 nRF70 firmware (128 KB, MCUboot's second image) and a slot for updating it. It is not a layout the main image's
-updates accept, so switching between the two images is a debug-port flash.
+updates accept, so switching between the two images is a debug-port flash. The nRF70 patches start 0x200 bytes into their slot, after MCUboot's header
+(`nrf70_fw_partition` inside `slot2_partition`); MCUboot logs to the application core's UART, so a refused image
+says why. From the main image: `west flash -d <build> --ext-erase-mode all` (clears the whole external flash).
 
 ### SDK changes
 
