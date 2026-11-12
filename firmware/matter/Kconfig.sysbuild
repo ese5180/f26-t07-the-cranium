@@ -17,9 +17,16 @@ config NETCORE_IPC_RADIO_BT_HCI_IPC
 
 config CRANIUM_BORDER_ROUTER
 	bool "Thread border router with Wi-Fi as its backbone (nRF7002 DK)"
+	default y if BOARD_NRF7002DK
 	help
-	  Adds Wi-Fi and Zephyr's OpenThread border router to the application (border_router.conf). Off by
-	  default: it does not fit in the nRF5340's flash yet (docs/matter-thread.md).
+	  Adds Wi-Fi and Zephyr's OpenThread border router to the application (border_router.conf). On by default
+	  on the nRF7002 DK, which has the Wi-Fi chip.
+
+# The nRF70's firmware patches live in external flash and are loaded into the chip from there: 88 KB of internal
+# flash the application needs.
+choice WIFI_PATCHES_EXT_FLASH_SUPPORT
+	default WIFI_PATCHES_EXT_FLASH_STORE if CRANIUM_BORDER_ROUTER
+endchoice
 
 # The Wi-Fi chip, only for the border router.
 config WIFI_NRF70

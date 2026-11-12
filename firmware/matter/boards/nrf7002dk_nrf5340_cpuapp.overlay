@@ -3,6 +3,7 @@
  * 802.15.4 frames from the network core are not held up.
  */
 #include "matter_partitions.dtsi"
+#include "nrf70_patch_partitions.dtsi"
 #include <zephyr/dt-bindings/ipc_service/static_vrings.h>
 
 &ipc0 {
