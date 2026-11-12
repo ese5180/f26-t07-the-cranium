@@ -801,3 +801,40 @@ test('the cards of the page: a board is picked by its signal, and a run has the 
   assert.match(page, /"role":"status","aria-live":"polite"/);
   assert.match(page, /Newest/);
 });
+
+test('the next step is in reach once a release is chosen: a bar at the card foot, kept above the tab bar on a phone', async () => {
+  const flow = { step: 'release', releases: RELEASES, release: '1.12.5+0', boards: [], running: null, problem: null };
+  const view = bt.bluetoothView({
+    state: { app: { ble: true, device: 'phone' }, me: { canWrite: true }, now: 0 },
+    bluetooth: { flow },
+  });
+  const card = view.children.flat(Infinity).find((node) => node?.props?.class?.includes('bt-pick'));
+  const parts = card.children.flat(Infinity).filter(Boolean);
+  const bar = parts.at(-1);
+  // After the columns, not at the end of the second one: where the columns stack it follows the whole list.
+  assert.equal(bar.props.class, 'actions bt-next');
+  assert.match(textOf(bar), /Look for boards/);
+  assert.match(textOf(bar), /Release.*1\.12\.5\+0/);
+  assert.doesNotMatch(textOf(parts.find((node) => node.props?.class === 'bt-columns')), /Look for boards/);
+  // No release: the bar says so, and the button stays (it reports the problem when pressed).
+  const none = textOf(
+    bt.bluetoothView({
+      state: { app: { ble: true, device: 'phone' }, me: { canWrite: true }, now: 0 },
+      bluetooth: { flow: { ...flow, releases: [], release: null } },
+    })
+  );
+  assert.match(none, /No release chosen/);
+
+  // The bar is sticky where the columns stack, above the tab bar and the home indicator on a phone.
+  const { readFile } = await import('node:fs/promises');
+  const css = await readFile(new URL('../src/site/assets/app.css', import.meta.url), 'utf8');
+  const block = (media) => {
+    const at = css.indexOf(`${media} {\n  .bt-next {`);
+    assert.notEqual(at, -1, `${media} styles .bt-next`);
+    return css.slice(at, css.indexOf('\n  }', at));
+  };
+  assert.match(block('@media (max-width: 1100px)'), /position: sticky;/);
+  assert.match(block('@media (max-width: 1100px)'), /bottom: max\(var\(--space-3\), var\(--safe-bottom-bar\)\);/);
+  assert.match(block('@media (max-width: 1100px)'), /background: var\(--surface\);/);
+  assert.match(block('@media (max-width: 860px)'), /bottom: calc\(var\(--tabbar\) \+ var\(--safe-bottom-bar\)\);/);
+});
