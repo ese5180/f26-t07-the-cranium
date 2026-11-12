@@ -7,6 +7,33 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.19.2
+
+Three fixes, not yet tried on a board. The board's own Bluetooth passkey is read at every start again, so it no longer shows as unset after a restart or an update. A Bluetooth window closes when its time is up unless an image is still arriving. Memfault gets this firmware's metrics under the right names, with no more "Invalid type" errors every minute.
+
+The passkey (#199): `bt_passkey_init()`, which reads the record from protected storage, was only called by the
+Bluetooth-only main loop (`src/bt_only/bt_only_main.c`). On the nRF7002 DK nothing read it, so after every restart
+`STATUS` said `bt passkey unset` with 0 failures and each window drew a one-time passkey, though the record was still
+stored. `main.c` now reads it right after the mode is decided. Offline mode (1.19.0) is what turned the board's own
+passkey on for this board, so 1.19.0 and 1.19.1 had the fault.
+
+The window (#204): a phone on an authenticated link kept a window open until the 900-s session limit, as long as it
+sent anything (a status read every few seconds, image-list polls) or came back within a second of being dropped for
+being quiet, which the main loop never saw as a lost link. Once the window's time is up, a link now keeps it only
+while an upload is under way and pieces of it keep coming: `BT_OTA_OVERTIME_QUIET_SECONDS` (15) without one closes it,
+as "its time is up". A proof window that is trying its proof is unchanged. Host tests: `test_bt_ota_policy.c`.
+
+Memfault (#200): Memfault's `memfault/ports/zephyr/version.h` includes `<version.h>`, which in `src/mflt/mflt.c`
+found `src/ota/version.h` (on the app's include path first) instead of Zephyr's. `KERNEL_VERSION_MAJOR` was then
+undefined, the SDK's metric list left out `cpu_usage_pct` and `memory_pct_max` in that file only, and every metric
+of this firmware's own was two keys off from the SDK's table: `wifi_sta_rssi`, set every minute, landed on key 18,
+`wifi_connected_time_ms`, a timer. Earlier releases sent their own metrics under the wrong names. `mflt.c` now
+includes `<zephyr/version.h>` first and stops the build if the kernel version is missing there.
+
+Flash 753,968 of 794,474 bytes (40,506 free, over the 40,448 floor; 1.19.1: 40,810 free, the passkey's start-up
+read is most of the difference); RAM 404,500 of 405,504 (1,004 free, as in 1.19.1); signed image 885,213 bytes, built
+with `--keep --no-upload`. Host tests: all, with the new window and passkey tests.
+
 ## 1.19.1
 
 Offline Bluetooth mode, as 1.19.0, together with listening sessions (1.18.0): 1.19.0 was built and uploaded from a source that did not have 1.18.0 yet, so this build, from the same source on top of 1.18.0, takes the next number. The phone and Mac apps show offline mode on the console's Offline page from console 2.27.0. Not yet used from a phone against a board.

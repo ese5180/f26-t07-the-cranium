@@ -11,6 +11,15 @@
 
 #include <string.h>
 
+/*
+ * Zephyr's version.h before any of Memfault's headers (#200). The SDK's metric list leaves keys out
+ * by MEMFAULT_ZEPHYR_VERSION_GT(), from <version.h>, and src/ota/version.h is on this app's include
+ * path first: without Zephyr's, KERNEL_VERSION_MAJOR is 0 here and cpu_usage_pct and memory_pct_max
+ * are left out of this file's list, but not the SDK's. Every metric of this firmware was then two
+ * keys off, wifi_sta_rssi landing on wifi_connected_time_ms: "Invalid type (1 vs 2) for key: 18".
+ */
+#include <zephyr/version.h>
+
 #include <memfault/core/data_packetizer.h>
 #include <memfault/core/reboot_tracking.h>
 #include <memfault/core/trace_event.h>
@@ -46,6 +55,10 @@
 #include "version.h"
 #endif
 #include "stuck.h"
+
+#if !defined(KERNEL_VERSION_MAJOR) || KERNEL_VERSION_MAJOR < 3
+#error "Memfault's metric keys need Zephyr's version.h here, or they differ from the SDK's (#200)"
+#endif
 
 /* Not "mflt": the SDK has a log module of that name. */
 LOG_MODULE_REGISTER(memfault_link, CONFIG_APP_LOG_LEVEL);

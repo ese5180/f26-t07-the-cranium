@@ -258,7 +258,8 @@ $(BUILD)/console_bt_tests: test_console.c $(CONSOLE_SOURCES) $(BUILD)/base64.o $
 $(BUILD)/app_bt_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/stuck.c $(SRC)/policy/stuck_policy.c $(SRC)/policy/join_policy.c \
 		$(CONSOLE_HEADERS)
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) $(BT_DEFINES) -o $@ test_app.c $(SRC)/policy/stuck_policy.c $(SRC)/policy/join_policy.c
+	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) $(BT_DEFINES) -DCONFIG_APP_BT_STATIC_PASSKEY=1 -o $@ test_app.c \
+		$(SRC)/policy/stuck_policy.c $(SRC)/policy/join_policy.c
 
 $(BUILD)/ui_bt_tests: test_ui.c $(SRC)/ui.c $(SRC)/ui.h $(SRC)/app_events.h
 	@mkdir -p $(BUILD)

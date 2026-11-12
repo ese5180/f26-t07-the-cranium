@@ -1822,6 +1822,7 @@ void bt_ota_on_tick(void)
 		.commands = (uint32_t)atomic_get(&commands),
 		.list_reads = (uint32_t)atomic_get(&list_reads),
 		.upload_done = atomic_get(&upload_done) != 0,
+		.receiving = (atomic_get(&upload_state) & 0xff) == BT_STATUS_IMAGE_RECEIVING,
 	};
 
 #if defined(CONFIG_APP_BT_ONLY)
