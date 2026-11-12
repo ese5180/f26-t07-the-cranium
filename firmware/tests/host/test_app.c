@@ -715,7 +715,15 @@ static struct {
 	bool last_long;
 	int ticks;
 	enum ui_state ui;
+	int passkey_inits;
 } bt;
+
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+void bt_passkey_init(void)
+{
+	bt.passkey_inits++;
+}
+#endif
 
 bool bt_ota_on_button(uint8_t button, bool long_press, bool physical)
 {
@@ -1216,6 +1224,24 @@ static void test_a_button_goes_to_bluetooth_first(void)
 	CHECK(bt.buttons == 2);
 	CHECK(board.factory_resets == 1);
 }
+
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+/* #199: the stored passkey was never read at boot, so STATUS said "unset" after every restart. */
+static void test_every_boot_reads_the_board_s_own_passkey(void)
+{
+	memset(&bt, 0, sizeof(bt));
+
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	CHECK(bt.passkey_inits == 1);
+
+	boot_again();
+	CHECK(bt.passkey_inits == 2);
+
+	/* In factory mode as well: BT_PASSKEY can be stored before INIT. */
+	boot(DEVICE_BOOT_OPERATING, true, false, false);
+	CHECK(bt.passkey_inits == 3);
+}
+#endif
 
 static void test_what_the_tick_and_led1_do_for_bluetooth(void)
 {
@@ -3420,6 +3446,9 @@ int main(void)
 	test_button_2();
 #if defined(CONFIG_APP_BT_OTA)
 	test_a_button_goes_to_bluetooth_first();
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+	test_every_boot_reads_the_board_s_own_passkey();
+#endif
 	test_what_the_tick_and_led1_do_for_bluetooth();
 	test_the_wifi_stack_answers_or_it_does_not();
 	test_associated_is_what_the_wifi_stack_says_now();

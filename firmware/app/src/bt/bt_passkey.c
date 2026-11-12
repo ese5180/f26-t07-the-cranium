@@ -88,11 +88,14 @@ void bt_passkey_init(void)
 	(void)atomic_set(&window_passkey, 0);
 
 	if (err == -ENOENT) {
+		LOG_INF("No passkey of the board's own is stored: each pairing shows a new one");
 		set_state(BT_PASSKEY_STATE_NONE);
 		return;
 	}
 
 	if (err != 0) {
+		/* -EIO: protected storage answered with an error; -EBADMSG: the record is not one. */
+		LOG_WRN("The board's passkey is stored but not usable: %d", err);
 		wipe(&stored);
 		set_state(BT_PASSKEY_STATE_UNREADABLE);
 		console_event("BT", "the board's passkey cannot be read: each pairing shows a new passkey here");
@@ -111,6 +114,7 @@ void bt_passkey_init(void)
 		say_locked();
 	} else {
 		set_state(BT_PASSKEY_STATE_SET);
+		LOG_INF("The board's passkey is stored, %u failures", (unsigned int)kept.failures);
 	}
 }
 
