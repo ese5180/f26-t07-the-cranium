@@ -303,6 +303,8 @@ object AuditText {
         "BUTTON" to "pressed a button of {} over USB",
         "REBOOT" to "restarted {} over USB",
         "ENTER_BOOTLOADER" to "restarted {} into its bootloader over USB",
+        "BT_PASSKEY" to "set or erased the Bluetooth passkey of {} over USB",
+        "BT_OFFLINE" to "made a new Bluetooth passkey for {} over USB",
     )
 
     // What scripts/firmware/ota.sh without an API token, and the test bench, call their requests.

@@ -169,7 +169,7 @@ import Testing
                 == "a@b tried to put on record a command on CRVIHAAN01 over USB")
         #expect(Words.auditSentence(command("WIFI", "", "denied")) == "a@b tried to put on record a command run over USB")
         for name in ["INIT", "SET_ID", "RESET_CONFIG", "FACTORY_RESET", "WIFI", "WIFI_SEC", "CLEAR_WIFI", "CLOUD", "KEYGEN",
-                     "MQTT_HOST", "MQTT_RECONNECT", "BUTTON", "REBOOT", "ENTER_BOOTLOADER"] {
+                     "MQTT_HOST", "MQTT_RECONNECT", "BUTTON", "REBOOT", "ENTER_BOOTLOADER", "BT_PASSKEY", "BT_OFFLINE"] {
             #expect(Words.serialWords[name]?.contains("{}") == true, "\(name)")
         }
         let wifi = Words.describeAudit(command("WIFI", "CRVIHAAN01", "ok", [("from", "phone")]))
