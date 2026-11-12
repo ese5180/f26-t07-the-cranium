@@ -41,7 +41,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/matter_policy_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -80,6 +80,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/console_bt_only_tests
 	./$(BUILD)/bt_only_leds_tests
 	./$(BUILD)/sessions_tests
+	./$(BUILD)/matter_policy_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -88,6 +89,13 @@ $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 $(BUILD)/base64.o: $(ZEPHYR_BASE)/lib/utils/base64.c
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+# The Matter commissioner's rules (firmware/matter/src/policy): setup codes, back-off, reconnect versus
+# commission, and the Thread channel next to Wi-Fi. Plain C, nothing else.
+MATTER_POLICY := ../../matter/src/policy
+$(BUILD)/matter_policy_tests: test_matter_policy.c $(MATTER_POLICY)/matter_policy.c $(MATTER_POLICY)/matter_policy.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -I$(MATTER_POLICY) -o $@ test_matter_policy.c $(MATTER_POLICY)/matter_policy.c
 
 # The listening sessions' JSON and times (src/cloud/sessions.c): what is refused, what is escaped, the
 # dates, and that nothing is written past the buffer. It needs nothing but the C library and a fake publish.
