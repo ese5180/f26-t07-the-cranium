@@ -28,6 +28,7 @@
  * too, in `testing`, for the swap back, and offline is what that should look like.
  */
 
+import { readGolden } from './golden.mjs';
 import { BLUETOOTH_NAME, parseJobId, strictVersion } from './validate.mjs';
 
 export const ONLINE_WINDOW_MS = 90_000;
@@ -247,6 +248,9 @@ export function readReported(reported, metadata) {
   result.diag = readDiag(reported, metadata);
   result.diary = readDiary(reported);
   result.bt = readBt(reported);
+  // From firmware 1.22.0, on a board that reports it (lib/golden.mjs): only then is it there at all.
+  const golden = readGolden(reported);
+  if (golden !== null) result.golden = golden;
   return result;
 }
 

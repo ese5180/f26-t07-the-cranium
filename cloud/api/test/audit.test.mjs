@@ -142,6 +142,8 @@ test('an audit item carries who, what, when and how it ended', () => {
     'schedule.start',
     'device.seen',
     'firmware.notes',
+    'firmware.golden_record',
+    'golden.promote',
     'app.upload',
     'app.publish',
     'app.download',

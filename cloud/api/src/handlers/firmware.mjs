@@ -120,6 +120,15 @@ function instant(value) {
  * is not exactly "active" is treated as revoked, and a revocation counts as completed
  * only if the record says when.
  */
+/** What a release says of its promotion record: never the record's bytes, which the job carries. */
+function goldenOfItem(value) {
+  if (value === null || typeof value !== 'object') return null;
+  const counter = value.counter;
+  if (!Number.isInteger(counter) || counter < 1 || counter > 0xffffffff || typeof value.record !== 'string')
+    return null;
+  return { counter, uploadedBy: person(value.uploadedBy), uploadedAt: text(value.uploadedAt, 40) };
+}
+
 export function releaseFromItem(item) {
   if (item === null || typeof item !== 'object') return null;
   const version = strictVersion(item.version);
@@ -127,7 +136,10 @@ export function releaseFromItem(item) {
   if (!Number.isInteger(item.size) || item.size <= 0) return null;
   const uploadedAt = text(item.uploadedAt, 40);
   const active = item.status === 'active';
+  // A golden image promotion record (handlers/golden.mjs), from console 2.27.5: only on a release that has one.
+  const golden = goldenOfItem(item.golden);
   return {
+    ...(golden === null ? {} : { golden }),
     version: version.text,
     size: item.size,
     sha256: item.sha256,

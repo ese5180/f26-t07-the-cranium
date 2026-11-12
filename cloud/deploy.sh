@@ -235,6 +235,20 @@ signing_public_key() {
   printf '%s\n' "$key"
 }
 
+# golden_public_key: the golden image's public key (firmware/keys/golden_promote_pub.pem, from console
+# 2.27.5) as base64 DER, or nothing when the file is not there yet: the console then accepts no
+# promotion record (cloud/api/src/handlers/golden.mjs). Its private half is kept offline.
+golden_public_key() {
+  local file="$CLOUD_DIR/../firmware/keys/golden_promote_pub.pem" key
+  [ -f "$file" ] || return 0
+  key="$(openssl pkey -pubin -in "$file" -outform DER | base64 | tr -d '\r\n')" ||
+    die "firmware/keys/golden_promote_pub.pem is not a public key in PEM form"
+  if [[ ! "$key" =~ ^MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE[A-Za-z0-9+/]{86}==$ ]]; then
+    die "firmware/keys/golden_promote_pub.pem is not an ECDSA P-256 public key"
+  fi
+  printf '%s\n' "$key"
+}
+
 # key_fingerprint <base64 DER public key>: SHA-256 of the DER public key, which is what
 # the console shows as the key fingerprint.
 key_fingerprint() {
@@ -663,7 +677,10 @@ main() {
     --template-file "$CLOUD_DIR/infra/template.yaml" \
     --s3-bucket "$artifacts_bucket" --s3-prefix "$STACK" \
     --output-template-file "$DEPLOY_DIR/packaged.yaml" > /dev/null
-  local overrides=("SigningPublicKey=$signing_key" "DeployedCommit=$commit" "DeployedTree=$tree"
+  local golden_key
+  golden_key="$(golden_public_key)" || exit 1
+  local overrides=("SigningPublicKey=$signing_key" "GoldenPublicKey=$golden_key"
+    "DeployedCommit=$commit" "DeployedTree=$tree"
     ${creation[@]+"${creation[@]}"} ${extra[@]+"${extra[@]}"})
   deploy_stack "$STACK" "$DEPLOY_DIR/packaged.yaml" \
     --s3-bucket "$artifacts_bucket" --s3-prefix "$STACK" \

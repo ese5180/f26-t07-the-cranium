@@ -3888,7 +3888,35 @@ function deviceFacts(device, ctx, { offer = openOffer(device, ctx), withScale = 
     ['Update', updateFact(device, offer)],
     ['Signal', signalFact(device, withScale)],
     ['Uptime', uptimeFact(device)],
+    // From firmware 1.22.0 (firmware/README.md, "Golden image"): only for a board that reports it.
+    device.golden ? ['Golden image', goldenFact(device.golden)] : null,
   ]);
+}
+
+// What a board's bootloader said of the last promotion record it was given.
+const GOLDEN_STATE_WORDS = Object.freeze({
+  none: 'No promotion yet',
+  pending: 'Promotion waiting for a restart',
+  sealed: 'Sealed',
+  bad_record: 'Last promotion refused: the record is damaged',
+  bad_signature: 'Last promotion refused: not signed with the golden key',
+  not_newer: 'Last promotion refused: its counter is not above the last one',
+  not_running: 'Last promotion refused: the board does not run that release',
+  not_confirmed: 'Last promotion refused: the release was still on trial',
+  flash_error: 'Last promotion failed: flash error',
+  unknown: 'Unknown',
+});
+
+/** A board's golden image: the version a gesture restores, and what came of the last promotion. */
+export function goldenFact(golden) {
+  const sealed = golden.state === 'sealed';
+  return h(
+    'span',
+    { class: 'golden-fact' },
+    golden.version ? mono(golden.version) : h('span', { class: 'quiet' }, 'The one its bootloader was built with'),
+    golden.counter > 0 ? h('span', { class: 'quiet' }, ` (counter ${golden.counter})`) : null,
+    golden.state === 'none' || sealed ? null : factNote(GOLDEN_STATE_WORDS[golden.state] ?? 'Unknown')
+  );
 }
 
 /**
@@ -5176,6 +5204,20 @@ function releaseRow(release, ctx) {
             'Deploy'
           )
         : null,
+      // Golden image promotion (console 2.27.5): a release of a board whose bootloader has the golden image.
+      overTheAir && actions.openGolden
+        ? h(
+            'button',
+            {
+              type: 'button',
+              class: 'ui-btn btn is-small is-quiet',
+              'aria-label': `Make ${release.version} golden`,
+              onClick: () => actions.openGolden(release),
+            },
+            icon('shield'),
+            'Make golden'
+          )
+        : null,
       h(
         'button',
         {
@@ -5211,6 +5253,9 @@ function releaseRow(release, ctx) {
           { class: 'release-title' },
           mono(release.version, 'release-version'),
           releaseBadge(release),
+          release.golden
+            ? badge('info', 'shield', `Golden record, counter ${release.golden.counter}`, GOLDEN_RECORD_TITLE)
+            : null,
           // What the image is built for: its board type and flash layout (docs/fleet.md, Compatibility).
           release.board
             ? h(
@@ -7383,6 +7428,114 @@ export function revokeDialog(model, ctx) {
  * shown, only the dialog's own buttons close it: Escape or a click beside it would lose
  * a token that cannot be shown again.
  */
+const GOLDEN_RECORD_TITLE =
+  'A promotion record, signed offline with the golden key, is uploaded: this release can be made the golden image.';
+
+/**
+ * Making a release the golden image (console 2.27.5, firmware/README.md "Golden image"). First its
+ * promotion record, which tools/golden_promote.py signed offline; then the boards: one, a group's or
+ * every board that runs the release. Only a board that runs it, confirmed, seals it: its bootloader
+ * checks the record again, and it restarts once when it is idle.
+ */
+export function goldenDialog(model) {
+  const { release } = model;
+  const hasRecord = Boolean(release.golden);
+  const chosen = model.targets();
+  let body;
+  let foot;
+  if (!hasRecord) {
+    body = [
+      h(
+        'p',
+        { class: 'dialog-lede', key: 'lede' },
+        'First its promotion record: the file ',
+        mono('tools/golden_promote.py sign'),
+        ' wrote for this release with the offline golden key. The console checks its signature and that it names ',
+        mono(release.version),
+        '.'
+      ),
+      h(
+        'label',
+        { class: 'field', key: 'file' },
+        h('span', { class: 'field-label' }, 'Promotion record (.golden, 130 bytes)'),
+        h('input', {
+          type: 'file',
+          class: 'input',
+          accept: '.golden,application/octet-stream',
+          onChange: (event) => model.setFile(event.target.files?.[0] ?? null),
+        })
+      ),
+    ];
+    foot = dialogButton(
+      { key: 'upload', className: 'is-primary', submit: true, sending: model.sending, disabled: !model.bytes },
+      icon('upload'),
+      model.sending ? 'Checking…' : 'Upload record'
+    );
+  } else {
+    body = [
+      h(
+        'p',
+        { class: 'dialog-lede', key: 'lede' },
+        'Counter ',
+        String(release.golden.counter),
+        '. A board seals ',
+        mono(release.version),
+        ' as its golden image only if it runs it and has confirmed it; its bootloader checks the record again, ' +
+          'and the board restarts once when it is idle. A gesture at the board then restores this release.'
+      ),
+      h(
+        'label',
+        { class: 'field', key: 'scope' },
+        h('span', { class: 'field-label' }, 'Boards'),
+        h(
+          'select',
+          { class: 'input', value: model.scope, onChange: (event) => model.setScope(event.target.value) },
+          h('option', { value: 'fleet' }, `Every board that runs ${release.version}`),
+          model.groups.map((group) =>
+            h('option', { value: `group:${group.id}`, key: group.id }, `Group: ${group.name}`)
+          ),
+          model.boards.map((device) =>
+            h(
+              'option',
+              { value: `board:${device.thing}`, key: device.thing },
+              `Board: ${device.label ?? device.name ?? device.thing}`
+            )
+          )
+        )
+      ),
+      h(
+        'ul',
+        { class: 'plain-list', key: 'boards', 'aria-label': 'The boards it goes to' },
+        chosen.length === 0
+          ? h('li', { class: 'quiet' }, `No board here runs ${release.version} yet: deploy it first.`)
+          : chosen.map((device) =>
+              h(
+                'li',
+                { key: device.thing },
+                mono(device.label ?? device.name ?? device.thing),
+                ' golden now: ',
+                device.golden?.version ? mono(device.golden.version) : h('span', { class: 'quiet' }, 'not reported')
+              )
+            )
+      ),
+    ];
+    foot = dialogButton(
+      { key: 'promote', className: 'is-primary', submit: true, sending: model.sending, disabled: chosen.length === 0 },
+      icon('shield'),
+      model.sending ? 'Starting…' : `Make golden on ${plural(chosen.length, 'board')}`
+    );
+  }
+  return dialogFrame({
+    title: ['Make ', mono(release.version), ' golden'],
+    busy: model.sending,
+    onClose: model.close,
+    onSubmit: model.submit,
+    body,
+    error: model.error ? failure('That did not work.', model.error, null, model.signIn) : null,
+    foot: [dialogButton({ key: 'cancel', disabled: model.sending, onClick: model.close }, 'Cancel'), SPACER(), foot],
+  });
+}
+
 // A release's note: what it changed, one line of up to 500 characters, for every release.
 const NOTES_LIMIT = 500;
 
