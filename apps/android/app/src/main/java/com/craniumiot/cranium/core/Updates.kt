@@ -176,7 +176,7 @@ object Updates {
 
     /** The version a deployment installs, recovered from its id. */
     fun versionOfDeployment(id: String?): String? {
-        val match = id?.let { Regex("^cranium-(\\d{1,3})-(\\d{1,3})-(\\d{1,5})-b(\\d{1,10})-\\d{8}T\\d{6}Z-[0-9a-f]{4}$").matchEntire(it) }
+        val match = id?.let { Regex("^cranium-(\\d{1,3})-(\\d{1,3})-(\\d{1,5})-b(\\d{1,10})(?:-pi)?-\\d{8}T\\d{6}Z-[0-9a-f]{4}$").matchEntire(it) }
             ?: return null
         val (major, minor, revision, build) = match.destructured
         val version = "${major.toInt()}.${minor.toInt()}.${revision.toInt()}+${build.toLong()}"
@@ -626,6 +626,15 @@ object Updates {
             "verifying" -> live(Tone.LIVE, Glyph.SHIELD, "Checking the download of $target", "")
             "rebooting" -> live(Tone.LIVE, Glyph.RESTART, "Restarting into $target", "")
             "testing" -> live(Tone.LIVE, Glyph.PULSE, "On trial: $target", "It is kept once the board has reconnected.", was = "on trial with $target")
+            // A job with board firmware and a Raspberry Pi image (console 2.26.0): the Pi's part.
+            "downloading_pi" -> live(
+                Tone.LIVE, Glyph.DOWNLOAD, "Downloading the Raspberry Pi image",
+                "Onto the board's SD card, with $target. Nothing is installed yet.", progress = ota.progress,
+            )
+            "flashing_pi" -> live(
+                Tone.LIVE, Glyph.UPLOAD, "Sending the Raspberry Pi its image",
+                "$target is installed; the board sends the image from its SD card.", progress = ota.progress,
+            )
             "bluetooth" -> live(
                 Tone.LIVE, Glyph.DOWNLOAD, "Open for an update over Bluetooth",
                 "A person at the board opened Bluetooth for a phone. Updates from here wait until it closes.",

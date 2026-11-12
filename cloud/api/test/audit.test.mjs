@@ -113,6 +113,9 @@ test('an audit item carries who, what, when and how it ended', () => {
   assert.deepEqual(ACTIONS, [
     'firmware.upload',
     'firmware.revoke',
+    'pi_image.upload',
+    'pi_image.complete',
+    'pi_image.revoke',
     'deployment.create',
     'deployment.cancel',
     'firmware.download',

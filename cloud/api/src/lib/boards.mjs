@@ -27,6 +27,10 @@
 
 export const BOARD_TLV = 0xa1;
 export const LAYOUT_TLV = 0xa2;
+// From firmware 1.20.0: what the image can do beyond the board's usual firmware, comma-separated ASCII
+// words. "pi" is a build with Raspberry Pi image updates (docs/pi-ota.md), the only one that may take
+// board firmware and a Pi image in one deployment.
+export const FEATURES_TLV = 0xa3;
 export const DEFAULT_LAYOUT = 1;
 // Far more than a product's partitions will ever be rearranged, and still a short word.
 const MAX_LAYOUT = 9999;
@@ -115,6 +119,16 @@ export function layoutOfImage(protectedTlvs) {
     );
   }
   return Number(text);
+}
+
+/**
+ * Whether an image is a build with Raspberry Pi image updates: its protected TLV 0xA3 names "pi".
+ * Any other content of that TLV is passed over, as is an image without it (every image before 1.20.0).
+ */
+export function isPiBuild(protectedTlvs) {
+  return (protectedTlvs ?? []).some(
+    (entry) => entry.type === FEATURES_TLV && asText(entry.data).split(',').includes('pi')
+  );
 }
 
 export function isLayout(value) {

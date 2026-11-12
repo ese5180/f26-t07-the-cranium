@@ -885,6 +885,13 @@ public enum Words {
         case "testing":
             return live(.live, "pulse", "On trial: \(target)", "It is kept once the board has reconnected.",
                         was: "on trial with \(target)")
+        // A job with board firmware and a Raspberry Pi image (console 2.26.0): the Pi's part.
+        case "downloading_pi":
+            return live(.live, "download", "Downloading the Raspberry Pi image",
+                        "Onto the board's SD card, with \(target). Nothing is installed yet.", progress: ota.progress)
+        case "flashing_pi":
+            return live(.live, "upload", "Sending the Raspberry Pi its image",
+                        "\(target) is installed; the board sends the image from its SD card.", progress: ota.progress)
         case "bluetooth":
             return live(.live, "download", "Open for an update over Bluetooth",
                         "A person at the board opened Bluetooth for a phone. Updates from here wait until it closes.",
@@ -1110,6 +1117,11 @@ public enum Words {
                                       tried: "could not carry out the scheduled start", triedAlone: "could not carry out a scheduled start", icon: "send"),
         "firmware.upload": AuditAction(done: "uploaded firmware", tried: "tried to upload", triedAlone: "tried to upload a file", icon: "upload"),
         "firmware.revoke": AuditAction(done: "revoked firmware", tried: "tried to revoke firmware", triedAlone: "tried to revoke a release", icon: "ban"),
+        // Raspberry Pi images (console 2.26.0).
+        "pi_image.upload": AuditAction(done: "began uploading Pi image", tried: "tried to upload Pi image", triedAlone: "tried to upload a Pi image", icon: "upload"),
+        "pi_image.complete": AuditAction(done: "finished uploading Pi image", tried: "tried to finish uploading Pi image",
+                                         triedAlone: "tried to finish a Pi image upload", icon: "check"),
+        "pi_image.revoke": AuditAction(done: "revoked Pi image", tried: "tried to revoke Pi image", triedAlone: "tried to revoke a Pi image", icon: "ban"),
         "deployment.create": AuditAction(done: "deployed", doneAlone: "started a deployment", tried: "tried to deploy",
                                          triedAlone: "tried to start a deployment", icon: "send"),
         "deployment.cancel": AuditAction(done: "cancelled the deployment of", tried: "tried to cancel the deployment of",
@@ -1281,6 +1293,9 @@ public enum Words {
         "version_zero": "Version 0.0.0+0 is never accepted",
         "device_busy": "A board had an unfinished update",
         "release_revoked": "The release is revoked",
+        "not_uploaded": "The file of that Pi image has not arrived",
+        "no_pi": "A board reports no Raspberry Pi",
+        "not_pi_build": "The release is not a build with Raspberry Pi updates",
         "invalid_token": "The API token was not valid, or had been revoked or had expired",
         "token_not_allowed": "An API token cannot be used for that",
         "phone_not_allowed": "The phone app’s sign-in cannot be used for that",

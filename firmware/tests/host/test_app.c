@@ -3189,7 +3189,7 @@ static void test_the_diagnostics_report_says_only_what_it_should(void)
 	CHECK(diag_format(&values, text, sizeof(text)) > 0);
 	CHECK(strcmp(text, "{\"diag\":{\"mac\":\"f4:ce:36:12:34:56\",\"channel\":6,"
 			   "\"heap\":{\"free\":21312,\"least\":9840,\"size\":44240},"
-			   "\"board\":\"nrf7002dk\",\"layout\":1}}") == 0);
+			   "\"board\":\"nrf7002dk\",\"layout\":1},\"pi\":null}") == 0);
 
 	/* Anything that is not an address does not go into the JSON. */
 	strcpy(values.mac, "\"},\"x\":\"1");
@@ -3213,16 +3213,16 @@ static void test_the_diagnostics_report_says_only_what_it_should(void)
 	for (size_t i = 0; i < ARRAY_SIZE(not_a_type); i++) {
 		strcpy(values.board, not_a_type[i]);
 		CHECK(diag_format(&values, text, sizeof(text)) > 0);
-		CHECK(strstr(text, ",\"board\":\"unknown\",\"layout\":1}}") != NULL);
+		CHECK(strstr(text, ",\"board\":\"unknown\",\"layout\":1},\"pi\":null}") != NULL);
 	}
 	/* With no end inside it: nothing past the field is read. */
 	memset(values.board, 'z', sizeof(values.board));
 	CHECK(diag_format(&values, text, sizeof(text)) > 0);
-	CHECK(strstr(text, ",\"board\":\"unknown\",\"layout\":1}}") != NULL);
+	CHECK(strstr(text, ",\"board\":\"unknown\",\"layout\":1},\"pi\":null}") != NULL);
 	strcpy(values.board, "nrf5340dk");
 	values.layout = 2;
 	CHECK(diag_format(&values, text, sizeof(text)) > 0);
-	CHECK(strstr(text, ",\"board\":\"nrf5340dk\",\"layout\":2}}") != NULL);
+	CHECK(strstr(text, ",\"board\":\"nrf5340dk\",\"layout\":2},\"pi\":null}") != NULL);
 
 	/* The longest one fits the buffer main.c gives it, and a short buffer is refused. */
 	char longest[DIAG_REPORT_MAX + 32];
@@ -3236,7 +3236,7 @@ static void test_the_diagnostics_report_says_only_what_it_should(void)
 	values.board[DIAG_BOARD_MAX] = '\0';
 	values.layout = 4294967295U;
 	CHECK(diag_format(&values, longest, DIAG_REPORT_MAX) > 0);
-	CHECK(strstr(longest, "\"board\":\"zzzzzzzzzzzzzzzz\",\"layout\":4294967295}}") != NULL);
+	CHECK(strstr(longest, "\"board\":\"zzzzzzzzzzzzzzzz\",\"layout\":4294967295},\"pi\":null}") != NULL);
 	CHECK(diag_format(&values, longest, 40) == -ENOSPC);
 
 	/* As it goes into the shadow, with what main.c's buffer gives the rest. */
@@ -3257,7 +3257,7 @@ static void test_the_diagnostics_report_says_the_board_type(void)
 	CHECK(app_event_post_simple(APP_EVENT_CLOUD_UP) == 0);
 	run_loop();
 	CHECK(board.diag_reports == 1);
-	CHECK(strstr(board.last_diag, "},\"board\":\"nrf7002dk\",\"layout\":1}}") != NULL);
+	CHECK(strstr(board.last_diag, "},\"board\":\"nrf7002dk\",\"layout\":1},\"pi\":null}") != NULL);
 }
 
 /* The console's report command (command.c) calls this: the heartbeat and the diagnostics, now. */

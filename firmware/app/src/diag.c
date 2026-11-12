@@ -76,6 +76,17 @@ void diag_collect(struct diag_values *values)
 #endif
 }
 
+/*
+ * From 1.20.0, a build without Raspberry Pi updates clears the shadow's "pi" object (AWS IoT deletes a
+ * key reported as null), which a Pi build reports and nothing else would take away: a board moved
+ * back to such a build is then no longer offered Pi images (docs/pi-ota.md, "Reports").
+ */
+#if defined(CONFIG_APP_PI_OTA)
+#define PI_CLEARED ""
+#else
+#define PI_CLEARED ",\"pi\":null"
+#endif
+
 int diag_format(const struct diag_values *values, char *buf, size_t len)
 {
 	const char *mac = is_mac_text(values->mac) ? values->mac : "unknown";
@@ -85,11 +96,11 @@ int diag_format(const struct diag_values *values, char *buf, size_t len)
 	int written = snprintf(buf, len,
 			       "{\"diag\":{%s%s%s\"mac\":\"%s\",\"channel\":%u,"
 			       "\"heap\":{\"free\":%u,\"least\":%u,\"size\":%u},\"board\":\"%s\","
-			       "\"layout\":%u}}",
+			       "\"layout\":%u}%s}",
 			       has_id ? "\"id\":\"" : "", has_id ? values->id : "", has_id ? "\"," : "",
 			       mac, values->channel, (unsigned int)values->heap_free,
 			       (unsigned int)values->heap_least, (unsigned int)values->heap_size, board,
-			       (unsigned int)values->layout);
+			       (unsigned int)values->layout, PI_CLEARED);
 
 	return (written < 0 || (size_t)written >= len) ? -ENOSPC : written;
 }

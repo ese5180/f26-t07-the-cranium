@@ -72,14 +72,34 @@ static char topic_location[LOCATION_TOPIC_LENGTH + 1];
 static char topic_memfault[MEMFAULT_TOPIC_LENGTH + 1];
 #endif
 
+#if defined(CONFIG_APP_PI_OTA)
+/* From 1.20.0: the list of pending jobs, for the order of a firmware and a Pi image (ota.c). */
+static char topic_get_list[TOPIC_MAX];
+static char topic_list_accepted[TOPIC_MAX];
+#endif
+
 /*
  * What is subscribed to, in this order. The console lists them from here as well. The commands
  * topic is the last, so that a connection without it takes one fewer: see cloud_subscription().
+ * From 1.20.0 the list of pending jobs comes right before it, and the guard drops the two
+ * together: both need the device policy of console 2.26.0, so a cloud that still has an older one ends
+ * the connection for either of them.
  */
 static char *const subscribed[] = {
 	topic_notify_next, topic_get_accepted, topic_get_rejected, topic_update_accepted,
-	topic_update_rejected, topic_commands,
+	topic_update_rejected,
+#if defined(CONFIG_APP_PI_OTA)
+	topic_list_accepted,
+#endif
+	topic_commands,
 };
+
+/* What the guard leaves out once it has given up. */
+#if defined(CONFIG_APP_PI_OTA)
+#define GUARDED_TOPICS 2
+#else
+#define GUARDED_TOPICS 1
+#endif
 
 static struct mqtt_topic subscriptions[ARRAY_SIZE(subscribed)];
 /* The topics are complete: before that the console must not read them. */
@@ -159,6 +179,14 @@ static enum ota_job_result job_result;
 static enum cloud_job_message job_kind;
 static atomic_t job_busy;
 static atomic_t job_overrun;
+#if defined(CONFIG_APP_PI_OTA)
+/* The URL of a job with both parts that the next reply keeps: an enum ota_job_part. */
+static atomic_t job_part;
+#define JOB_PART() ((enum ota_job_part)atomic_get(&job_part))
+#else
+/* Only a Pi build takes a job with both parts. */
+#define JOB_PART() OTA_JOB_PART_FIRMWARE
+#endif
 
 static bool ends_with(const char *text, size_t text_len, const char *suffix)
 {
@@ -273,7 +301,10 @@ static void queue_job_message(enum cloud_job_message kind, const char *payload, 
 	job_result = OTA_JOB_NONE;
 	memset(&job_read, 0, sizeof(job_read));
 	if (kind == CLOUD_JOB_GET_ACCEPTED) {
-		job_result = ota_job_parse(payload, len, connect_url_prefix, &job_read);
+		job_result = ota_job_parse_part(payload, len, connect_url_prefix, JOB_PART(),
+						&job_read);
+	} else if (kind == CLOUD_JOB_LIST) {
+		job_result = ota_job_list_parse(payload, len, &job_read);
 	}
 
 	if (app_event_post_simple(APP_EVENT_JOB_MESSAGE) != 0) {
@@ -298,6 +329,10 @@ static void on_message(const char *topic, size_t topic_len, const char *payload,
 		queue_job_message(CLOUD_JOB_GET_ACCEPTED, payload, len);
 	} else if (ends_with(topic, topic_len, "/jobs/$next/get/rejected")) {
 		queue_job_message(CLOUD_JOB_GET_REJECTED, payload, len);
+#if defined(CONFIG_APP_PI_OTA)
+	} else if (ends_with(topic, topic_len, "/jobs/get/accepted")) {
+		queue_job_message(CLOUD_JOB_LIST, payload, len);
+#endif
 	} else if (ends_with(topic, topic_len, "/update/accepted")) {
 		on_update_reply(true, payload, len);
 	} else if (ends_with(topic, topic_len, "/update/rejected")) {
@@ -407,7 +442,8 @@ static void connect_work_handler(struct k_work *work)
 
 	/* Every topic, or all but the last, the commands topic, which the guard has given up on. */
 	(void)aws_iot_application_topics_set(subscriptions,
-					     ARRAY_SIZE(subscriptions) - (with_commands ? 0 : 1));
+					     ARRAY_SIZE(subscriptions) -
+						     (with_commands ? 0 : GUARDED_TOPICS));
 	atomic_set(&attempt_refused, 0);
 
 	/* Blocks until the broker has acknowledged the subscriptions, or fails. */
@@ -458,6 +494,10 @@ int cloud_init(void)
 	err = err ? err : build_topic(topic_update_accepted, "+/update/accepted");
 	err = err ? err : build_topic(topic_update_rejected, "+/update/rejected");
 	err = err ? err : build_topic(topic_get_next, "$next/get");
+#if defined(CONFIG_APP_PI_OTA)
+	err = err ? err : build_topic(topic_get_list, "get");
+	err = err ? err : build_topic(topic_list_accepted, "get/accepted");
+#endif
 	if (err) {
 		return err;
 	}
@@ -559,7 +599,7 @@ void cloud_stats_get(struct cloud_stats *out)
 
 const char *cloud_subscription(size_t index)
 {
-	size_t count = ARRAY_SIZE(subscribed) - (atomic_get(&commands_off) ? 1 : 0);
+	size_t count = ARRAY_SIZE(subscribed) - (atomic_get(&commands_off) ? GUARDED_TOPICS : 0);
 
 	if (!atomic_get(&topics_ready) || index >= count) {
 		return NULL;
@@ -717,6 +757,31 @@ int cloud_jobs_request_next(void)
 {
 	return publish(topic_get_next, AWS_IOT_SHADOW_TOPIC_NONE, "{}");
 }
+
+void cloud_jobs_set_part(enum ota_job_part part)
+{
+#if defined(CONFIG_APP_PI_OTA)
+	atomic_set(&job_part, (atomic_val_t)part);
+#else
+	(void)part;
+#endif
+}
+
+#if defined(CONFIG_APP_PI_OTA)
+int cloud_jobs_request_list(void)
+{
+	if (!cloud_jobs_list_available()) {
+		return -ENOTSUP;
+	}
+
+	return publish(topic_get_list, AWS_IOT_SHADOW_TOPIC_NONE, "{}");
+}
+
+bool cloud_jobs_list_available(void)
+{
+	return !atomic_get(&commands_off);
+}
+#endif
 
 int cloud_jobs_update(const char *job_id, const char *body_json)
 {

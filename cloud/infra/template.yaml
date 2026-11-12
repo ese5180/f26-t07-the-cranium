@@ -1112,6 +1112,22 @@ Resources:
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerEnforced
+      # From console 2.26.0: a Raspberry Pi image goes from the Firmware page straight to S3, with a
+      # presigned PUT that the console signs for one key, one size, one SHA-256 and "only if new"
+      # (cloud/api/src/handlers/pi-images.mjs). A browser asks first whether it may (CORS). PUT only,
+      # with the two headers that URL signs; the URL is the permission, so any origin, as for the
+      # API: the console's own, and the apps' (cranium-app://bundle and the like). Nothing is read.
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods:
+              - PUT
+            AllowedOrigins:
+              - '*'
+            AllowedHeaders:
+              - if-none-match
+              - x-amz-checksum-sha256
+              - content-type
+            MaxAge: 600
 
   FirmwareBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -1298,6 +1314,8 @@ Resources:
             Resource:
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/shadow/update'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/$next/get'
+              # From 1.20.0: the list of pending jobs, so that firmware goes before a Pi image (docs/pi-ota.md).
+              - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/get'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/*/update'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/events'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/location'
@@ -1308,6 +1326,7 @@ Resources:
             Resource:
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/notify-next'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/$next/get/*'
+              - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/get/accepted'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/*/update/*'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/cranium/${!iot:Connection.Thing.ThingName}/commands'
           - Effect: Allow
@@ -1315,6 +1334,7 @@ Resources:
             Resource:
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/notify-next'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/$next/get/*'
+              - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/get/accepted'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/*/update/*'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/commands'
 
@@ -2613,6 +2633,8 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: !GetAtt RolloutTickLogGroup.Arn
+              # PIIMG (console 2.26.0): the Raspberry Pi images, which a stage of a rollout with one, and a
+              # scheduled deployment of one, look at before they start. Read only.
               - Sid: ReadReleasesAndFleet
                 Effect: Allow
                 Action:
@@ -2629,6 +2651,7 @@ Resources:
                       - ALR
                       - HEALTH
                       - SCH
+                      - PIIMG
               # A rollout moved on, and a scheduled start claimed and marked started (console 2.20.0,
               # src/handlers/schedules.mjs): conditional updates of those two partitions only.
               - Sid: WriteRollouts

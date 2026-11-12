@@ -76,6 +76,9 @@ const OTA_STATES = Object.freeze([
   'rebooting',
   'testing',
   'bluetooth',
+  // A job with board firmware and a Raspberry Pi image (firmware 1.20.0, docs/pi-ota.md).
+  'downloading_pi',
+  'flashing_pi',
 ]);
 
 // The fields an event may carry, each with the check that it passes on its way in and out.
@@ -206,6 +209,8 @@ const STEP_WORDS = Object.freeze({
   verifying: (version) => `Checking the download of ${version ?? 'an update'}`,
   rebooting: (version) => `Restarting into ${version ?? 'an update'}`,
   testing: (version) => `On trial: ${version ?? 'an update'}`,
+  downloading_pi: (version) => `Downloading the Raspberry Pi image onto the SD card, with ${version ?? 'an update'}`,
+  flashing_pi: (version) => `Sending the Raspberry Pi its image, after ${version ?? 'an update'}`,
   idle: () => 'Update stopped, with no result reported',
 });
 
@@ -376,7 +381,7 @@ export function changesBetween(previousReported, currentReported) {
     const fromNothing = was === null || was === 'idle' || was === 'bluetooth';
     if (is !== 'bluetooth' && !(is === 'idle' && (fromNothing || result !== null))) {
       changes.push(
-        change('update', 'step', STEP_WORDS[is](target(now.ota.job ?? before.ota?.job)), {
+        change('update', 'step', (STEP_WORDS[is] ?? STEP_WORDS.downloading)(target(now.ota.job ?? before.ota?.job)), {
           state: is,
           progress: now.ota.progress,
           ...jobField,

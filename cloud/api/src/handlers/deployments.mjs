@@ -20,24 +20,41 @@
  * seconds after it accepted it, and a job that was cancelled without force keeps the
  * boards that had started. So nothing here says that a deployment is over because the
  * job is cancelled: that is read from its executions.
+ *
+ * From console 2.26.0 a deployment brings board firmware, a Raspberry Pi image (handlers/pi-images.mjs),
+ * or both: POST /api/deployments takes `version`, `pi` (the Pi image's version), or both. With both, a
+ * board downloads the two, installs its firmware, and sends the Pi its image once that firmware is
+ * confirmed (docs/pi-ota.md, "Both at once"). A Pi image goes only to boards that report a "pi"
+ * object in their shadow, which only a build for a board wired to a Pi does (400 no_pi). Its time
+ * limit in AWS IoT is reckoned from its size (lib/jobs.mjs piTimeoutMinutes). Each execution says
+ * where its Pi part is (`pi`: { state, progress, version }) beside the firmware's phase.
+ *
+ * A deployment, of either kind, can be paced (`waves`: { perMinute, abortPercent }): AWS IoT then
+ * offers it to `perMinute` boards a minute, more as they succeed, and stops it by itself once failures
+ * reach `abortPercent` of the boards that have finished (lib/fleet.mjs rolloutConfigs).
  */
 
-import { conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
+import { HttpError, badRequest, conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
 import { boardsValue, change } from '../lib/audit.mjs';
+import { rolloutConfigs } from '../lib/fleet.mjs';
 import {
   EXECUTION_STATUSES,
   IN_PROGRESS_TIMEOUT_MIN,
   MAX_IN_FLIGHT,
   URL_EXPIRES_SEC,
+  buildBundleJobDocument,
   buildJobDescription,
   buildJobDocument,
   buildJobId,
+  buildPiJobDocument,
+  buildPiJobId,
   countExecutions,
   executionDetails,
   isActiveExecution,
   isSettled,
   isoTime,
   mapLimit,
+  piTimeoutMinutes,
   summarizeJob,
 } from '../lib/jobs.mjs';
 import { unknownDevice } from '../lib/shadow.mjs';
@@ -45,9 +62,10 @@ import { deriveTimeline } from '../lib/timeline.mjs';
 import {
   MAX_NOTE,
   isThing,
-  parseJobId,
+  parseDeploymentId,
   requireBoolean,
   requireJobId,
+  requirePiVersion,
   requireText,
   requireThings,
   requireVersion,
@@ -185,6 +203,48 @@ function firmwareOf(row, device) {
     : { ranAtEnd: null, reported: row.details.running ?? device.fw?.version ?? null };
 }
 
+/**
+ * Where the Pi part of a deployment is on one board, or null for a deployment without one:
+ * { state, progress, version }. `state` is one of
+ *
+ *   waiting       the board has not got to it: queued, or downloading its firmware first
+ *   downloading   onto the board's SD card
+ *   on_card       on the card, checked, while the board installs its new firmware and runs it on trial
+ *   flashing      on its way to the Pi, over SPI
+ *   flashed       the Pi verified it
+ *   failed        the Pi part failed (the board's firmware, if the deployment brought one, stayed)
+ *   not_flashed   it never went to the Pi: the deployment ended before, or its firmware did not stay
+ */
+export function piPartOf(summary, row, device) {
+  if (!summary.parts.includes('pi')) return null;
+  const { details } = row;
+  const piOnly = !summary.parts.includes('nrf');
+  const live = device?.pi?.job === summary.id ? device.pi : null;
+  const version = details.piVersion ?? summary.pi?.version ?? null;
+  const shown = (state, progress = null) => ({ state, progress, version });
+  switch (row.status) {
+    case 'QUEUED':
+      return shown('waiting');
+    case 'IN_PROGRESS': {
+      const step = details.step;
+      if (step === 'flashing_pi' || step === 'sending')
+        return shown('flashing', details.progress ?? live?.progress ?? null);
+      if (step === 'downloading_pi' || (piOnly && step !== 'rebooting')) {
+        return shown('downloading', details.progress ?? live?.progress ?? null);
+      }
+      if (step === 'rebooting') return shown('on_card');
+      return shown('waiting');
+    }
+    case 'SUCCEEDED':
+      return shown('flashed', 100);
+    case 'FAILED':
+      if (piOnly) return shown('failed');
+      return shown(details.piOutcome === 'failed' ? 'failed' : 'not_flashed');
+    default:
+      return shown('not_flashed');
+  }
+}
+
 /** The execution of a board that a new job names: queued since the job was created. */
 function queuedRow(thing, createdAt) {
   return {
@@ -198,7 +258,10 @@ function queuedRow(thing, createdAt) {
   };
 }
 
-export function createDeploymentHandlers({ aws, config, now, randomHex, log }, { devices, fleet = null }) {
+export function createDeploymentHandlers(
+  { aws, config, now, randomHex, log },
+  { devices, fleet = null, piImages = () => null }
+) {
   let listing = null; // { jobs, at }: the result of ListJobs
   const summaries = new Map(); // id -> { summary, settled, at }
   const details = new Map(); // id -> { detail, at }
@@ -283,12 +346,15 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
 
   /** An Execution as the API returns it. */
   function present(summary, row, device) {
+    const pi = piPartOf(summary, row, device);
     const { phase, progress } = deriveTimeline({
       status: row.status,
       reason: row.details.reason,
       step: row.details.step,
       jobId: summary.id,
       device,
+      progress: row.details.progress,
+      piOnly: !summary.parts.includes('nrf'),
     });
     const queuedAt = isoTime(row.queuedAt) ?? isoTime(row.lastUpdatedAt) ?? summary.createdAt;
     return {
@@ -299,6 +365,8 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
       reason: row.details.reason,
       detail: row.details.detail,
       ...firmwareOf(row, device),
+      // From 2.26.0: the Pi image's part, for a deployment that brings one (piPartOf).
+      ...(pi === null ? {} : { pi }),
       online: device.online,
       queuedAt,
       startedAt: isoTime(row.startedAt),
@@ -347,7 +415,7 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
   /** The jobs AWS lists that are deployments of this console. */
   async function listedJobs({ fresh = false } = {}) {
     if (!fresh && listing !== null && now() - listing.at < CACHE_MS) return listing.jobs;
-    const jobs = (await aws.listJobs()).filter((job) => parseJobId(job.jobId) !== null);
+    const jobs = (await aws.listJobs()).filter((job) => parseDeploymentId(job.jobId) !== null);
     listing = { jobs, at: now() };
     return jobs;
   }
@@ -432,7 +500,7 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
     const own = await summaryOf(id);
     const first = new Map(); // deployment -> whether it comes before this one
     for (const deployment of new Set(others.map((item) => item.deployment))) {
-      if (parseJobId(deployment) === null || own === null) {
+      if (parseDeploymentId(deployment) === null || own === null) {
         first.set(deployment, true);
       } else {
         const other = await summaryOf(deployment);
@@ -468,8 +536,28 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
    */
   async function cancelUnfinished(version, comment) {
     const jobs = (await listedJobs({ fresh: true }))
-      .filter((job) => parseJobId(job.jobId).version === version)
+      .filter((job) => parseDeploymentId(job.jobId)?.version === version)
       .sort((a, b) => (a.jobId < b.jobId ? -1 : 1));
+    return cancelJobs(jobs, 'RELEASE_REVOKED', comment);
+  }
+
+  /**
+   * The same for a Raspberry Pi image that is revoked (handlers/pi-images.mjs): every deployment that
+   * is not over and brings it, alone or with firmware. Its version is in the job's description.
+   */
+  async function cancelUnfinishedPi(piVersion, comment) {
+    const open = (await listedJobs({ fresh: true })).filter(
+      (job) =>
+        parseDeploymentId(job.jobId)?.withPi === true && !['COMPLETED', 'DELETION_IN_PROGRESS'].includes(job.status)
+    );
+    const summaries = await mapLimit(open, MAX_IN_FLIGHT, (job) => summaryOf(job.jobId, job));
+    const jobs = open
+      .filter((job, index) => summaries[index]?.pi?.version === piVersion)
+      .sort((a, b) => (a.jobId < b.jobId ? -1 : 1));
+    return cancelJobs(jobs, 'PI_IMAGE_REVOKED', comment);
+  }
+
+  async function cancelJobs(jobs, reasonCode, comment) {
     const cancelled = [];
     const failed = [];
     await mapLimit(jobs, MAX_IN_FLIGHT, async (job) => {
@@ -481,7 +569,7 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
         const result = await aws.cancelJob({
           jobId: job.jobId,
           force: true,
-          reasonCode: 'RELEASE_REVOKED',
+          reasonCode,
           comment,
         });
         forget(job.jobId);
@@ -521,7 +609,8 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
    * withdraw it again.
    */
   async function launch({
-    release,
+    release = null,
+    piImage = null,
     things,
     description,
     actorSub,
@@ -529,26 +618,51 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
     abort = null,
     onCreated = () => {},
   }) {
-    const { parts } = strictVersion(release.version);
-    const sortKey = releaseKey(parts);
-    const document = buildJobDocument({
-      version: release.version,
-      size: release.size,
-      sha256: release.sha256,
-      region: config.region,
-      bucket: config.firmwareBucket,
-    });
+    if (release === null && piImage === null) throw new TypeError('A deployment brings firmware, a Pi image or both');
+    const parts = release === null ? null : strictVersion(release.version).parts;
+    const sortKey = parts === null ? null : releaseKey(parts);
+    const where = { region: config.region, bucket: config.firmwareBucket };
+    const pi =
+      piImage === null
+        ? null
+        : {
+            version: piImage.version,
+            size: piImage.size,
+            sha256: piImage.sha256,
+            sig: piImage.sig,
+            ...(piImage.minFirmware === null ? {} : { minFirmware: piImage.minFirmware }),
+          };
+    let document;
+    if (release === null) {
+      document = buildPiJobDocument({ ...pi, ...where });
+    } else if (pi === null) {
+      document = buildJobDocument({ version: release.version, size: release.size, sha256: release.sha256, ...where });
+    } else {
+      document = buildBundleJobDocument({
+        version: release.version,
+        size: release.size,
+        sha256: release.sha256,
+        pi,
+        ...where,
+      });
+    }
+    const newId = (suffix) =>
+      release === null
+        ? buildPiJobId(piImage.version, now(), suffix)
+        : buildJobId(parts, now(), suffix, { withPi: pi !== null });
+    // A Pi image takes hours where firmware takes minutes (docs/pi-ota.md, "Speed").
+    const timeout = pi === null ? IN_PROGRESS_TIMEOUT_MIN : piTimeoutMinutes(pi.size);
 
     let id = null;
     for (let attempt = 0; attempt < 3 && id === null; attempt += 1) {
-      const candidate = buildJobId(parts, now(), String(randomHex(4)).slice(0, 4));
+      const candidate = newId(String(randomHex(4)).slice(0, 4));
       const created = await aws.createJob({
         jobId: candidate,
         things,
         document,
         description,
         urlExpiresInSec: URL_EXPIRES_SEC,
-        inProgressTimeoutMinutes: IN_PROGRESS_TIMEOUT_MIN,
+        inProgressTimeoutMinutes: timeout,
         // A wave of a staged rollout: AWS IoT paces it and stops it by itself (lib/fleet.mjs).
         ...(rollout === null ? {} : { rollout }),
         ...(abort === null ? {} : { abort }),
@@ -576,18 +690,37 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
     // The release may have been revoked while this request was running. Revoking
     // cancels the deployments it can see; this one may have appeared too late for that.
     let current = release;
-    try {
-      current = releaseFromItem(await aws.getRelease(sortKey));
-    } catch (error) {
-      // It was active a moment ago, and the bucket refuses a revoked image anyway.
-      warn('release_recheck_failed', { deployment: id }, error);
+    if (release !== null) {
+      try {
+        current = releaseFromItem(await aws.getRelease(sortKey));
+      } catch (error) {
+        // It was active a moment ago, and the bucket refuses a revoked image anyway.
+        warn('release_recheck_failed', { deployment: id }, error);
+      }
     }
-    if (current === null || current.status !== 'active') {
+    if (release !== null && (current === null || current.status !== 'active')) {
       await aws.cancelJob({ jobId: id, force: true, reasonCode: 'RELEASE_REVOKED', comment: actorSub });
       forget(id);
       throw conflict(
         'release_revoked',
         `Release ${release.version} was revoked just now; the deployment was cancelled.`
+      );
+    }
+    // The same for a Pi image.
+    let currentPi = piImage;
+    if (piImage !== null && piImages() !== null) {
+      try {
+        currentPi = await piImages().find(piImage.version);
+      } catch (error) {
+        warn('pi_image_recheck_failed', { deployment: id }, error);
+      }
+    }
+    if (piImage !== null && (currentPi === null || currentPi.status !== 'active')) {
+      await aws.cancelJob({ jobId: id, force: true, reasonCode: 'PI_IMAGE_REVOKED', comment: actorSub });
+      forget(id);
+      throw conflict(
+        'release_revoked',
+        `Pi image ${piImage.version} was revoked just now; the deployment was cancelled.`
       );
     }
 
@@ -630,13 +763,117 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
         counts: {},
       });
       const executions = things.map((thing) => present(summary, queuedRow(thing, createdAt), unknownDevice(thing)));
+      // Read back from what was sent: the Pi image is in the description, not yet in a summary of AWS's.
       detail = { ...summary, counts: countExecutions(executions), executions };
     }
     return { id, detail };
   }
 
+  /** A Pi image that may still be deployed now, or null: for each stage of a staged rollout. */
+  async function piImageNow(version) {
+    if (piImages() === null) return null;
+    const image = await piImages().find(version);
+    return image !== null && image.status === 'active' ? image : null;
+  }
+
+  /**
+   * Throws unless every board can take a Pi image: it reports a "pi" object (a build with Pi updates,
+   * for a board wired to a Pi, lib/shadow.mjs) and does not update over Bluetooth only.
+   */
+  async function requirePiTargets(things) {
+    const loaded = await devices.loadDevices(things, CACHE_MS);
+    const without = things.filter((thing, index) => loaded[index]?.pi === undefined || loaded[index]?.pi === null);
+    if (without.length > 0) {
+      throw new HttpError(
+        400,
+        'no_pi',
+        `${without.length === 1 ? `${without[0]} does` : `These boards do`} not report a Raspberry Pi: ` +
+          `${without.length === 1 ? 'it runs' : 'they run'} no Pi build, ` +
+          'or no Pi is wired.',
+        without.map((thing) => ({ thing }))
+      );
+    }
+  }
+
+  /**
+   * What a request asks to deploy, by its form only: { version, piVersion }, either null but not both.
+   * `version` is the board firmware's (as requireVersion gives it), `pi` the Pi image's version.
+   */
+  function parseParts(body) {
+    const versionValue = field(body, 'version');
+    const piValue = field(body, 'pi');
+    if (versionValue === undefined && piValue === undefined) {
+      throw badRequest('invalid_version', 'Choose board firmware ("version"), a Raspberry Pi image ("pi"), or both.');
+    }
+    return {
+      version: versionValue === undefined ? null : requireVersion(versionValue),
+      piVersion: piValue === undefined ? null : requirePiVersion(piValue),
+    };
+  }
+
+  /** The release and the Pi image that parsed parts name: { release, piImage }, each deployable now. */
+  async function loadParts({ version, piVersion }, entry = null) {
+    let release = null;
+    if (version !== null) {
+      if (entry) {
+        entry.target = version.text;
+        entry.detail.version = version.text;
+      }
+      release = releaseFromItem(await aws.getRelease(releaseKey(version.parts)));
+      if (release === null || release.version !== version.text) {
+        throw notFound('unknown_version', `There is no release ${version.text}.`);
+      }
+      if (release.status !== 'active') {
+        throw conflict('release_revoked', `Release ${version.text} is revoked and cannot be deployed.`);
+      }
+    }
+    let piImage = null;
+    if (piVersion !== null) {
+      if (entry) {
+        entry.detail.pi = piVersion;
+        if (release === null) entry.target = piVersion;
+      }
+      if (piImages() === null) throw notFound('unknown_version', `There is no Pi image ${piVersion}.`);
+      piImage = await piImages().requireActive(piVersion);
+    }
+    // Both at once: the firmware has to be a build with Pi updates, or the board would confirm it and
+    // then have nothing to send the Pi its image with. The release says so from its image's TLV 0xA3.
+    if (release !== null && piImage !== null && release.pi !== true) {
+      throw unprocessable(
+        'not_pi_build',
+        `Release ${release.version} is not a Pi build (a build with Raspberry Pi updates), ` +
+          'so it cannot go out with a Pi image. Deploy a Pi build, or the Pi image alone.'
+      );
+    }
+    return { release, piImage };
+  }
+
+  /** Both: for a scheduled start and a staged rollout, which check a request the same way. */
+  async function requireParts(body, entry = null) {
+    return loadParts(parseParts(body), entry);
+  }
+
+  /** `waves` of a request: null, or the pacing and stop of AWS IoT (lib/fleet.mjs rolloutConfigs). */
+  function requireWaves(body) {
+    const waves = field(body, 'waves');
+    if (waves === undefined || waves === null) return null;
+    const perMinute = field(waves, 'perMinute');
+    const abortPercent = field(waves, 'abortPercent');
+    if (!Number.isInteger(perMinute) || perMinute < 1 || perMinute > 100) {
+      throw badRequest('invalid_wave', 'waves.perMinute is a whole number of boards a minute, 1 to 100.');
+    }
+    if (!Number.isInteger(abortPercent) || abortPercent < 1 || abortPercent > 100) {
+      throw badRequest('invalid_wave', 'waves.abortPercent is a whole percentage, 1 to 100.');
+    }
+    return { perMinute, abortPercent };
+  }
+
   return {
     cancelUnfinished,
+    cancelUnfinishedPi,
+    requireParts,
+    requirePiTargets,
+    piImageNow,
     // For staged rollouts (handlers/rollouts.mjs).
     launch,
     unfinishedOn,
@@ -670,9 +907,14 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
 
     async create({ caller, actor, json, entry }) {
       const body = json();
-      const version = requireVersion(field(body, 'version'));
-      entry.target = version.text;
-      entry.detail.version = version.text;
+      const parsed = parseParts(body);
+      if (parsed.version !== null) {
+        entry.target = parsed.version.text;
+        entry.detail.version = parsed.version.text;
+      } else {
+        entry.target = parsed.piVersion;
+      }
+      const waves = requireWaves(body);
       const things = requireThings(field(body, 'things'));
       entry.detail.things = String(things.length);
       // Which boards, by thing name, as far as a detail holds them: eight, of the 25 a deployment may have.
@@ -681,15 +923,7 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
       const note = requireText(field(body, 'note'), 'note', { max: MAX_NOTE });
       // From the phone app: on record as such. Its recent sign-in is checked by the router.
       if (caller?.clientId !== undefined && caller.clientId === config.mobileClientId) entry.detail.from = 'phone';
-
-      const sortKey = releaseKey(version.parts);
-      const release = releaseFromItem(await aws.getRelease(sortKey));
-      if (release === null || release.version !== version.text) {
-        throw notFound('unknown_version', `There is no release ${version.text}.`);
-      }
-      if (release.status !== 'active') {
-        throw conflict('release_revoked', `Release ${version.text} is revoked and cannot be deployed.`);
-      }
+      const { release, piImage } = await loadParts(parsed, entry);
 
       const members = new Set(await devices.groupThings());
       const strangers = things.filter((thing) => !members.has(thing));
@@ -703,23 +937,35 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
       }
 
       // Of the release's board type, and able to take a job at all (docs/fleet.md, Board types).
-      if (fleet !== null) await fleet.requireJobTargets(things, release);
+      if (fleet !== null && release !== null) await fleet.requireJobTargets(things, release);
+      // A Pi image: only to boards that report a Pi.
+      if (piImage !== null) await requirePiTargets(things);
 
       const busy = await unfinishedOn(things);
       if (busy.length > 0) throw deviceBusy(busy);
 
-      const description = buildJobDescription({ email: actor.email, sub: actor.sub, note });
+      const description = buildJobDescription({
+        email: actor.email,
+        sub: actor.sub,
+        note,
+        pi: piImage === null ? null : { version: piImage.version, sha256: piImage.sha256 },
+      });
+      const paced = waves === null ? {} : rolloutConfigs({ wave: waves.perMinute, abortPercent: waves.abortPercent });
       const { detail } = await launch({
         release,
+        piImage,
         things,
         description,
         actorSub: actor.sub,
+        ...paced,
         onCreated: (id) => {
           entry.target = id;
           change(entry, 'deployment', null, id);
         },
       });
-      change(entry, 'version', null, version.text);
+      if (release !== null) change(entry, 'version', null, release.version);
+      if (piImage !== null) change(entry, 'pi', null, piImage.version);
+      if (waves !== null) entry.detail.waves = `${waves.perMinute}/min, stop at ${waves.abortPercent}%`;
       change(entry, 'boards', null, boardsValue(things));
       return { status: 201, body: { deployment: detail } };
     },

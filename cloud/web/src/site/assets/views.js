@@ -16,6 +16,7 @@
  */
 
 import {
+  describePiPart,
   CODE_LENGTH,
   FIRST_WITH_NO_BUTTON,
   SESSION_WARNING_S,
@@ -1612,7 +1613,9 @@ function stepList(
     label = 'Steps of the update',
   } = {}
 ) {
-  const at = description.steps.findIndex((step) => step.state === 'failed');
+  // A Pi image alone (2.26.0) draws no way back: nothing on the board changed.
+  const at = description.noReturn ? -1 : description.steps.findIndex((step) => step.state === 'failed');
+  const drawn = description.marks ?? marks;
   const look = `is-${description.tone ?? 'idle'} ${compact ? 'is-compact' : ''} ${preview ? 'is-preview' : ''}`;
   // The mark of a step that failed takes the tone of the headline above it.
   return h(
@@ -1629,7 +1632,7 @@ function stepList(
         if (index === 0) path += ' is-return-start';
         if (index === at) path += ' is-return-end';
       }
-      let mark = state.icon ?? marks[index];
+      let mark = state.icon ?? drawn[index];
       if (failed) mark = failedMark(description);
       return h(
         'li',
@@ -1663,6 +1666,7 @@ function stepList(
  * in particular.
  */
 function returnPath(execution, description) {
+  if (description.noReturn) return null;
   const at = description.steps.findIndex((step) => step.state === 'failed');
   if (at < 1) return null;
   const { phase, ranAtEnd } = execution;
@@ -5335,7 +5339,168 @@ export function firmwareView(ctx) {
     timeline,
     canWrite ? null : h('section', { class: 'card upload is-readonly', key: 'upload' }, trustPanel(ctx)),
     h('h2', { class: 'section-title', key: 'title' }, 'Releases'),
-    releases
+    releases,
+    piImagesSection(ctx)
+  );
+}
+
+// Raspberry Pi images (console 2.26.0, docs/pi-ota.md): beside the board's own releases, and labelled
+// as the Pi's. A release manager picks the image and the .pi.json record that tools/pi_image.py signed;
+// the record goes to the API, which checks its signature, and the image straight to S3.
+
+const PI_STATUS = {
+  uploading: ['warn', 'upload', 'Uploading'],
+  active: ['good', 'check-circle', 'Active'],
+  revoked: ['bad', 'ban', 'Revoked'],
+};
+
+function piImageRow(image, ctx) {
+  const { now, me } = ctx.state;
+  const { actions } = ctx;
+  const [tone, iconName, label] = PI_STATUS[image.status] ?? PI_STATUS.revoked;
+  const controls =
+    me.canWrite && image.status === 'active'
+      ? [
+          button('is-small', () => actions.openDeploy(null, { pi: image.version }), icon('send'), 'Deploy'),
+          button(
+            'is-small is-danger-quiet',
+            () => actions.revokePiImage(image),
+            icon('ban'),
+            ctx.state.piRevoking === image.version ? 'Press again to revoke' : 'Revoke'
+          ),
+        ]
+      : null;
+  return h(
+    'li',
+    { key: image.version, class: `row release ${image.status === 'revoked' ? 'is-revoked' : ''}`.trim() },
+    h(
+      'div',
+      { class: 'row-main' },
+      h('span', { class: 'row-title' }, badge('idle', 'chip', 'Raspberry Pi'), ' ', mono(image.version, 'fact-strong')),
+      h(
+        'span',
+        { class: 'row-meta' },
+        `${fileSize(image.size)} · SHA-256 ${image.sha256.slice(0, 12)}… · `,
+        image.minFirmware ? `needs board firmware ${image.minFirmware} or newer · ` : '',
+        image.uploadedAt ? `uploaded ${timeAgo(image.uploadedAt, now)}` : '',
+        image.uploadedBy?.email ? ` by ${image.uploadedBy.email}` : ''
+      ),
+      image.notes ? h('span', { class: 'row-note' }, image.notes) : null,
+      image.revokedReason ? h('span', { class: 'row-note' }, `Revoked: ${image.revokedReason}`) : null
+    ),
+    badge(tone, iconName, label),
+    controls ? h('div', { class: 'row-actions' }, controls) : null
+  );
+}
+
+function piUploadForm(ctx) {
+  const { actions } = ctx;
+  const upload = ctx.state.piUpload ?? { stage: 'idle' };
+  const sending = upload.stage === 'sending' || upload.stage === 'checking' || upload.stage === 'asking';
+  return h(
+    'form',
+    {
+      class: 'pi-upload',
+      key: 'pi-upload',
+      onSubmit: (event) => {
+        event.preventDefault();
+        actions.uploadPiImage(event.currentTarget);
+      },
+    },
+    h(
+      'label',
+      { class: 'field' },
+      h('span', { class: 'field-label' }, 'Pi image'),
+      h('input', { class: 'input', type: 'file', name: 'image', required: true, disabled: sending })
+    ),
+    h(
+      'label',
+      { class: 'field' },
+      h(
+        'span',
+        { class: 'field-label' },
+        'Its record ',
+        h('span', { class: 'quiet' }, '(the .pi.json from tools/pi_image.py sign)')
+      ),
+      h('input', {
+        class: 'input',
+        type: 'file',
+        name: 'record',
+        accept: '.json,application/json',
+        required: true,
+        disabled: sending,
+      })
+    ),
+    h(
+      'label',
+      { class: 'field' },
+      h('span', { class: 'field-label' }, 'Note ', h('span', { class: 'quiet' }, '(optional)')),
+      h('input', { class: 'input', type: 'text', name: 'notes', maxLength: 500, disabled: sending })
+    ),
+    h(
+      'div',
+      { class: 'row-actions' },
+      h(
+        'button',
+        { type: 'submit', class: 'btn is-primary', disabled: sending },
+        icon('upload'),
+        'Upload to the console'
+      ),
+      upload.stage === 'sending' && upload.progress !== null
+        ? h('span', { class: 'quiet', role: 'status' }, `Sending to S3: ${upload.progress}%`)
+        : null,
+      upload.stage === 'asking' ? h('span', { class: 'quiet', role: 'status' }, 'Checking the signature…') : null,
+      upload.stage === 'checking' ? h('span', { class: 'quiet', role: 'status' }, 'Checking what arrived…') : null,
+      upload.stage === 'done'
+        ? h('span', { class: 'quiet', role: 'status' }, `${upload.version} is ready to deploy.`)
+        : null
+    ),
+    upload.error ? notice('bad', 'alert', sentence(upload.error)) : null
+  );
+}
+
+export function piImagesSection(ctx) {
+  const { state } = ctx;
+  const images = state.piImages?.value ?? null;
+  let body;
+  if (images === null) {
+    // Quietly: the releases above are what the page is for, and their own notice says when the API is away.
+    body = state.piImages?.error
+      ? h('p', { class: 'quiet', key: 'pi-unread' }, 'The Raspberry Pi images could not be read just now.')
+      : loading('Pi images');
+  } else if (images.length === 0) {
+    body = card(
+      { key: 'pi-none' },
+      empty({
+        iconName: 'chip',
+        title: 'No Raspberry Pi image has been uploaded yet.',
+        text: 'Sign one with tools/pi_image.py sign, then upload the image and its record here.',
+      })
+    );
+  } else {
+    body = card(
+      { key: 'pi-images', className: 'is-flush' },
+      h(
+        'ul',
+        { class: 'rows' },
+        images.map((image) => piImageRow(image, ctx))
+      )
+    );
+  }
+  return h(
+    'section',
+    { class: 'pi-images', key: 'pi-images' },
+    h('h2', { class: 'section-title' }, 'Raspberry Pi images'),
+    h(
+      'p',
+      { class: 'lede' },
+      'For the Raspberry Pi wired to a board, not for the board itself. The Pi has no network: a board downloads ' +
+        "the image onto its SD card and sends it to the Pi's spare partition, and what the console shows of a Pi is " +
+        'what its board reports. With board firmware in the same deployment, both download first, the firmware is ' +
+        'installed, and the Pi gets its image once that firmware is confirmed.'
+    ),
+    state.me.canWrite ? piUploadForm(ctx) : null,
+    body
   );
 }
 
@@ -5769,7 +5934,9 @@ function executionCard(execution, deployment, ctx, boards = 1) {
       : null,
     !execution.online && known?.lastSeen ? ['Board last seen ', when(known.lastSeen, now)] : null,
   ].filter(Boolean);
-  const flash = compact ? null : slotsOfExecution(execution, known, target, description, deployment.id);
+  // A Raspberry Pi image alone (2.26.0) leaves the board's flash as it was: no slots, no way back to draw.
+  const piAlone = Boolean(execution.pi) && !deployment.version;
+  const flash = compact || piAlone ? null : slotsOfExecution(execution, known, target, description, deployment.id);
 
   return h(
     'article',
@@ -5805,6 +5972,8 @@ function executionCard(execution, deployment, ctx, boards = 1) {
           )
         ),
         h('p', { class: 'execution-text' }, prose(description.text)),
+        // A deployment with a Raspberry Pi image (2.26.0): where this board's Pi part is.
+        execution.pi ? h('p', { class: 'execution-next' }, piPartBadge(execution)) : null,
         next ? h('p', { class: 'execution-next' }, next) : null,
         description.installedBy
           ? h(
@@ -5832,7 +6001,7 @@ function executionCard(execution, deployment, ctx, boards = 1) {
     h(
       'div',
       { class: 'pipeline', key: 'pipeline' },
-      returnPath(execution, description),
+      piAlone ? null : returnPath(execution, description),
       stepList(description, { compact, viewer: !ctx.state.me.canWrite })
     ),
     h(
@@ -5960,7 +6129,13 @@ export function deploymentView(ctx) {
   const head = pageHead({
     back: { href: '#/deployments', label: 'Deployments' },
     eyebrow: 'Deployment of',
-    title: [mono(version ?? 'unknown version'), summary ? badge(summary.tone, summary.icon, summary.label) : null],
+    // A Raspberry Pi image alone (2.26.0) has no board version: it is named by its own, and with board
+    // firmware both are named.
+    title: [
+      mono(version ?? (deployment?.pi ? `Pi image ${deployment.pi.version}` : 'unknown version')),
+      version && deployment?.pi ? [' + ', mono(`Pi image ${deployment.pi.version}`)] : null,
+      summary ? badge(summary.tone, summary.icon, summary.label) : null,
+    ],
     lede: deployment?.note || null,
     meta: deployment
       ? [
@@ -6706,13 +6881,26 @@ function wizardReview(model, release, chosen, now) {
   const offline = chosen.filter((device) => !device.online && device.lastSeen).length;
   const never = chosen.filter((device) => !device.online && !device.lastSeen).length;
   const asking = chosen.filter(asksForButton).length;
+  const piImage = (model.piImages ?? []).find((image) => image.version === model.pi) ?? null;
   return [
     facts([
-      [
-        'Release',
-        mono(model.version, 'fact-strong'),
-        release ? factNote(`${fileSize(release.size)} · SHA-256 ${release.sha256.slice(0, 12)}…`) : null,
-      ],
+      model.parts === 'pi'
+        ? null
+        : [
+            'Release',
+            mono(model.version, 'fact-strong'),
+            release ? factNote(`${fileSize(release.size)} · SHA-256 ${release.sha256.slice(0, 12)}…`) : null,
+          ],
+      piImage
+        ? [
+            'Raspberry Pi image',
+            mono(piImage.version, 'fact-strong'),
+            factNote(
+              `${fileSize(piImage.size)} · SHA-256 ${piImage.sha256.slice(0, 12)}…` +
+                (model.parts === 'both' ? ' · sent to the Pi once the new firmware is confirmed' : '')
+            ),
+          ]
+        : null,
       [
         'Boards',
         h(
@@ -6839,13 +7027,89 @@ function heldBy(entries, devices) {
   );
 }
 
+/** The Pi part of one board's execution, as a badge, for a deployment that brings a Pi image. */
+export function piPartBadge(execution) {
+  const said = describePiPart(execution?.pi ?? null);
+  return said ? badge(said.tone, said.icon, `Pi: ${said.label}`) : null;
+}
+
+/** What to deploy, in the dialog's first step: board firmware, a Raspberry Pi image, or both (2.26.0). */
+function wizardParts(model) {
+  const images = model.piImages ?? [];
+  // With no Raspberry Pi image to deploy, there is nothing to choose: board firmware, as always.
+  if (images.length === 0) return null;
+  const options = [
+    ['nrf', 'Board firmware'],
+    ['pi', 'Raspberry Pi image'],
+    ['both', 'Both: firmware first, then the Pi'],
+  ];
+  return h(
+    'fieldset',
+    { class: 'choices', key: 'parts' },
+    h('legend', null, 'What goes to the boards?'),
+    h(
+      'div',
+      { class: 'segments' },
+      options.map(([value, label]) =>
+        h(
+          'label',
+          { key: value, class: 'choice' },
+          h('input', {
+            type: 'radio',
+            name: 'parts',
+            value,
+            checked: (model.parts ?? 'nrf') === value,
+            disabled: value !== 'nrf' && images.length === 0,
+            onChange: () => model.setParts(value),
+          }),
+          label
+        )
+      )
+    ),
+    images.length === 0
+      ? h('p', { class: 'choice-hint' }, 'No Raspberry Pi image is active: upload one on the Firmware page first.')
+      : null,
+    (model.parts ?? 'nrf') !== 'nrf'
+      ? h(
+          'label',
+          { class: 'field', key: 'pi' },
+          h('span', { class: 'field-label' }, 'Which Pi image?'),
+          h(
+            'select',
+            { class: 'input', onChange: (event) => model.choosePi(event.currentTarget.value) },
+            h('option', { value: '', selected: !model.pi }, 'Choose one'),
+            images.map((image) =>
+              h(
+                'option',
+                { key: image.version, value: image.version, selected: model.pi === image.version },
+                `${image.version} · ${fileSize(image.size)}`
+              )
+            )
+          ),
+          (model.parts ?? 'nrf') === 'both'
+            ? h(
+                'span',
+                { class: 'quiet' },
+                'The release must be a Pi build, for a board wired to a Pi: the console refuses any other with a Pi image.'
+              )
+            : null
+        )
+      : null
+  );
+}
+
 export function deployDialog(model, ctx) {
   const { now } = ctx.state;
   const releases = model.releases ?? [];
   const release = releases.find((candidate) => candidate.version === model.version) ?? null;
   // Only the boards of the release's type that can take a job (docs/fleet.md); the others are counted.
-  const devices = offeredBoards(model.devices ?? [], model.types, release);
-  const notOffered = (model.devices ?? []).length - devices.length;
+  // A Raspberry Pi image goes only to boards that report a Pi (console 2.26.0), as app.js offers them.
+  const parts = model.parts ?? 'nrf';
+  const ofType = parts === 'pi' ? (model.devices ?? []) : offeredBoards(model.devices ?? [], model.types, release);
+  const devices = parts === 'nrf' ? ofType : ofType.filter((device) => device.pi);
+  // Left out for their type or layout, and (with a Pi image) for reporting no Raspberry Pi.
+  const notOffered = (model.devices ?? []).length - ofType.length;
+  const withoutPi = ofType.length - devices.length;
   model.staged = Boolean(ctx.fleet);
   const chosen = devices.filter((device) => model.things.has(device.thing));
   const free = devices.filter((device) => !model.busy.has(device.thing));
@@ -6873,6 +7137,8 @@ export function deployDialog(model, ctx) {
       [h('strong', null, 'Could not load what a deployment needs. '), sentence(model.loadError.message)],
       { more: problemRef(model.loadError), action: button('is-small', model.reload, 'Try again') }
     );
+  } else if (model.step === 0 && model.parts === 'pi') {
+    body = [gone, wizardParts(model)];
   } else if (model.step === 0 && releases.length === 0) {
     body = [
       gone,
@@ -6887,11 +7153,28 @@ export function deployDialog(model, ctx) {
   } else if (model.step === 0) {
     body = [
       gone,
+      wizardParts(model),
       h(
         'fieldset',
         { class: 'choices', key: 'releases' },
         h('legend', null, 'Which release?'),
         releases.map((candidate) => wizardRelease(candidate, model, now))
+      ),
+    ];
+  } else if (model.step === 1 && devices.length === 0 && withoutPi > 0) {
+    body = [
+      empty({
+        iconName: 'chip',
+        title: 'No board reports a Raspberry Pi.',
+        text:
+          'A Pi image goes only to a board that runs a Pi build and is wired to a Pi. ' +
+          'The Pi itself has no network; its board brings it the image.',
+      }),
+      h(
+        'details',
+        { class: 'more', key: 'pi-build' },
+        h('summary', null, 'Details'),
+        h('p', null, 'A Pi build is made with ', h('code', { class: 'code' }, 'scripts/firmware/build.sh --pi'), '.')
       ),
     ];
   } else if (model.step === 1 && devices.length === 0 && notOffered > 0) {
@@ -6909,7 +7192,22 @@ export function deployDialog(model, ctx) {
     body = h(
       'fieldset',
       { class: 'choices' },
-      h('legend', null, 'Which boards get ', mono(model.version), '?'),
+      h(
+        'legend',
+        null,
+        'Which boards get ',
+        mono(model.parts === 'pi' ? model.pi : model.version),
+        model.parts === 'both' ? [' and ', mono(model.pi)] : null,
+        '?'
+      ),
+      model.parts && model.parts !== 'nrf'
+        ? h(
+            'p',
+            { class: 'choice-hint', key: 'pi' },
+            'Only boards that report a Raspberry Pi are offered a Pi image',
+            withoutPi > 0 ? `: ${plural(withoutPi, 'board reports', 'boards report')} none.` : '.'
+          )
+        : null,
       notOffered > 0
         ? h(
             'p',
@@ -6942,10 +7240,15 @@ export function deployDialog(model, ctx) {
 
   const refusedBoards = model.error ? busyBoards(model.error) : [];
   const last = model.step === WIZARD_STEPS.length - 1;
-  const canGoOn = model.step === 0 ? release !== null : chosen.length > 0;
+  const needsRelease = model.parts !== 'pi';
+  const needsPi = model.parts === 'pi' || model.parts === 'both';
+  const canGoOn =
+    model.step === 0 ? (!needsRelease || release !== null) && (!needsPi || Boolean(model.pi)) : chosen.length > 0;
   // Why "Next" cannot be used yet, said next to it.
   let hint = null;
-  if (ready && model.step === 0 && releases.length > 0 && !release) {
+  if (ready && model.step === 0 && needsPi && !model.pi) {
+    hint = 'Choose a Pi image.';
+  } else if (ready && model.step === 0 && needsRelease && releases.length > 0 && !release) {
     hint = 'Choose a release.';
   } else if (ready && model.step === 1 && devices.length > 0 && chosen.length === 0) {
     hint = free.length === 0 ? 'Every board has an unfinished update.' : 'Choose at least one board.';

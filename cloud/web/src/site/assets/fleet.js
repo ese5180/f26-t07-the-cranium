@@ -315,6 +315,11 @@ function readRollout(raw) {
   return {
     id: isRolloutId(item.id) ? item.id : '',
     version: version(item.version) ?? '',
+    // A Raspberry Pi image that goes with the firmware in each stage's job (console 2.26.0), or null.
+    pi:
+      item.pi && typeof item.pi.version === 'string' && /^[A-Za-z0-9._+-]{1,31}$/.test(item.pi.version)
+        ? { version: item.pi.version }
+        : null,
     board: type(item.board),
     purpose: words(item.purpose, 32) || 'deploy',
     target: object(item.target),
@@ -633,8 +638,10 @@ export async function boardTypes() {
 
 /** A staged rollout of boards named one by one, from the New deployment dialog. */
 /** The body of a staged rollout of boards named one by one, as the New deployment dialog sends it. */
-export function rolloutBody({ version: release, things: boards, note, canary, abortPercent, ...plan }) {
+export function rolloutBody({ version: release, pi = null, things: boards, note, canary, abortPercent, ...plan }) {
   const body = { version: release, target: { kind: 'boards', things: boards }, canary, abortPercent };
+  // A Raspberry Pi image with the release (console 2.26.0): each board gets both, the Pi after its firmware.
+  if (pi) body.pi = pi;
   if (plan.stages !== undefined) Object.assign(body, stageBody({ unit: 'even', sizes: [], ...plan }));
   if (note) body.note = note;
   return body;
@@ -1500,7 +1507,7 @@ export function rolloutView(ctx) {
     { class: 'page' },
     pageHead({
       eyebrow: 'Staged rollout of',
-      title: mono(rollout.version),
+      title: [mono(rollout.version), rollout.pi ? [' + ', mono(`Pi image ${rollout.pi.version}`)] : null],
       back: { href: '#/fleet', label: 'Fleet' },
       lede: [
         targetWords(rollout, ctx),

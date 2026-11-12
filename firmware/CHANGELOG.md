@@ -7,6 +7,47 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.20.0
+
+A board wired to a Raspberry Pi updates the Pi: a signed image goes onto an SD card and over SPI to the Pi's partition
+B. One job can bring firmware and a Pi image: both download first, the firmware installs, and the Pi gets its image once
+that firmware is confirmed. The Pi has no network: the board downloads its image and reports its state. Only in a Pi
+build (build.sh --pi, no Bluetooth). Deploy console 2.26.0 first.
+
+Both at once (docs/pi-ota.md, "Both at once"): the job document `"op": "fw_pi_update"` carries both parts, and is parsed
+with the URL of the part being downloaded (ota_job_parse_part()). src/ota/ota.c adds OTA_STAGING_PI (the Pi image onto
+the card, after the firmware is in the slot and before the swap) and OTA_FLASHING_PI (after the confirmation); the update
+record keeps `with_pi` and `pi_step` in what was padding, so its size is unchanged. A firmware that does not stay leaves
+the Pi untouched (`"nrf":"not_installed","pi":"not_flashed"`); a Pi that fails leaves the confirmed firmware
+(`"nrf":"installed","pi":"failed"`); a build without Pi updates installed by such a job says `pi_unsupported`. A restart
+in each phase goes on, and so does a withdrawal. The Pi build's MQTT buffer is 6 KB, for a reply with two URLs; the
+shadow's `pi` object says whether a card is in (`card`).
+
+Memory (local builds without the signing key): the default build has flash 749,472 of 794,474 bytes (1.18.0: 749,176)
+and RAM 404,404 of 405,504 (1,100 free, as in 1.18.0); the Pi build flash 699,056 and RAM 380,848 (24,656 free); the
+nRF5340 DK build flash 196,360 and RAM 107,048 of 409,600, as in 1.18.0.
+
+Untested on hardware: docs/pi-ota.md has the design, the wiring, the SPI protocol for the Pi's side, the speeds and
+what has not run. The default build is as before, apart from refusing a Pi image job as `unsupported` and clearing the
+shadow's `pi`. Signed images: 880,716 bytes for the default build, 830,306 for the Pi build.
+
+The job document `"op": "pi_image"` (version, size, sha256, sig, url, optional minFirmware) and the list of pending
+jobs are parsed in src/ota/ota_job.c. src/ota/ota.c puts firmware first: a Pi image named while a firmware job is pending is
+left queued, the firmware job is marked in progress so that AWS IoT names it next, and the Pi image starts once the new
+firmware is confirmed, or after it failed or rolled back unless minFirmware says otherwise; the shadow's
+`pi.state` says `waiting_for_firmware`. The download is the firmware's own downloader with a custom DFU target that
+writes to the card (src/pi/pi_ota.c), with a checkpoint each MiB (src/pi/pi_dl.c). The SD card is FatFS on Zephyr's SD host
+over SPI (src/pi/pi_sd.c), sharing SPIM2 with the Pi's image receiver, each with its own chip select, on P0.04 to
+P0.07, P0.25, P1.04 and P1.05 (boards/pi_ota.overlay, which only a Pi build gets). The Pi's message link (src/pi/pi_link.c,
+pull request #58) keeps SPIS3 and P1.11 to P1.15: the two do not share pins, files or Kconfig symbols (docs/pi-ota.md,
+"Next to the message link"). The image transfer protocol (src/pi/pi_xfer.c, CONFIG_APP_PI_XFER_*) is tested against
+tools/pi_xfer_sim.py. tools/pi_image.py signs an image with the firmware signing key.
+
+From review: a Pi build's image carries the protected TLV 0xa3 `pi`, so the console sends firmware and a Pi image
+together only with a Pi build; any other build reports `"pi": null` in its diagnostics, which clears a `pi` left in the
+shadow; a Pi build reports `pi` on each new connection. The job record's Pi fields and the parser's Pi branches are only
+in a Pi build: any other build refuses a Pi image's job as `unsupported` from its `op` alone.
+
 ## 1.18.0
 
 The board can send listening sessions and what is on the decks to the cloud, for the customer site's Mixes pages and Now playing. Until the Raspberry Pi link is in the firmware, the console's SESSION_TEST command sends a made-up session to try it. Needs console 2.23.0 deployed first (the device policy). Tested on an nRF7002 DK: SESSION_TEST sends three messages that reach the cloud.

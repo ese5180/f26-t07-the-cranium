@@ -1,0 +1,7 @@
+# The Raspberry Pi on the SPI bus, with its own chip select (docs/pi-ota.md, "The SPI protocol").
+
+description: Raspberry Pi as an SPI peripheral, for its image update
+
+compatible: "cranium,pi-xfer"
+
+include: [spi-device.yaml]

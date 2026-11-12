@@ -221,9 +221,16 @@ import {
   ListThingsInThingGroupCommand,
 } from '@aws-sdk/client-iot';
 import { GetThingShadowCommand, IoTDataPlaneClient } from '@aws-sdk/client-iot-data-plane';
-import { GetObjectCommand, PutObjectCommand, PutObjectTaggingCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  PutObjectTaggingCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 
 import { AUDIT_PK, CUSTOMER_ACTIONS_PK } from './lib/audit.mjs';
+import { presignUrl } from './lib/presign.mjs';
 import { SAME_LINE_MS } from './lib/lines.mjs';
 import { searchSpellings } from './lib/validate.mjs';
 import { FACT_PARTITION, accountName, factPartition } from './lib/updates.mjs';
@@ -250,7 +257,8 @@ const POINTER_KEY = Object.freeze({ pk: { S: 'META' }, sk: { S: 'HIGHEST' } });
 const AUDIT_PKS = Object.freeze([AUDIT_PK, CUSTOMER_ACTIONS_PK]);
 const TOKEN_PK = 'TOK';
 // The partitions of the fleet's records (handlers/groups.mjs, handlers/rollouts.mjs, handlers/fleet.mjs).
-const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH', 'RPT', 'SCH', 'NAME']);
+// PIIMG: the Raspberry Pi images (console 2.26.0, lib/pi-images.mjs).
+const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH', 'RPT', 'SCH', 'NAME', 'PIIMG']);
 
 const THROTTLING = new Set([
   'ThrottlingException',
@@ -858,6 +866,51 @@ export function createAws(env) {
           return null;
         throw failure('GetObject', cause);
       }
+    },
+
+    /**
+     * A URL that a browser PUTs a Raspberry Pi image to (handlers/pi-images.mjs): signed for exactly
+     * that size, that SHA-256 and "only if new", which the bucket demands under firmware/. Signed with
+     * the function's own credentials, which may store an object there (StoreFirmware).
+     */
+    async presignFirmwareUpload({ key, size, sha256Base64, expiresIn }) {
+      const { AWS_ACCESS_KEY_ID: accessKeyId, AWS_SECRET_ACCESS_KEY: secretAccessKey } = env;
+      if (typeof accessKeyId !== 'string' || accessKeyId === '' || typeof secretAccessKey !== 'string') {
+        throw failure('PresignPutObject', new Error('the function has no credentials to sign with'));
+      }
+      const headers = {
+        'content-length': String(size),
+        'if-none-match': '*',
+        'x-amz-checksum-sha256': sha256Base64,
+      };
+      const signed = presignUrl({
+        method: 'PUT',
+        host: `${bucket}.s3.${region}.amazonaws.com`,
+        key,
+        region,
+        credentials: { accessKeyId, secretAccessKey, sessionToken: env.AWS_SESSION_TOKEN },
+        at: Date.now(),
+        expiresIn,
+        headers,
+      });
+      // content-length is the browser's to send; the others are the request's to carry.
+      const { 'content-length': length, ...send } = headers;
+      return { url: signed.url, headers: send, size: Number(length), expiresAt: signed.expiresAt };
+    },
+
+    /** What S3 holds under a key of firmware/: { size, sha256Base64 }, or null if nothing. */
+    async headFirmwareObject(key) {
+      let out;
+      try {
+        out = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key, ChecksumMode: 'ENABLED' }));
+      } catch (cause) {
+        if (nameOf(cause) === 'NotFound' || nameOf(cause) === 'NoSuchKey' || statusOf(cause) === 404) return null;
+        throw failure('HeadObject', cause);
+      }
+      return {
+        size: Number.isSafeInteger(out.ContentLength) ? out.ContentLength : -1,
+        sha256Base64: typeof out.ChecksumSHA256 === 'string' ? out.ChecksumSHA256 : null,
+      };
     },
 
     async tagFirmwareRevoked(key) {
