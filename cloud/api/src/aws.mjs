@@ -97,6 +97,11 @@
  *                                 -> { ok: true, release }  the item after the change
  *                                  | { ok: false, reason: "not_found" }  no such release
  *                                    replaces the note of a release, active or revoked; nothing else
+ *   setReleaseGolden({ sk, golden })
+ *                                 -> { ok: true, release }  the item after the change
+ *                                  | { ok: false, reason: "not_available" }  no such active release,
+ *                                    or it has a promotion record already
+ *                                    sets golden = { record, counter, uploadedBy, uploadedAt }, once
  *
  * API tokens (state table, pk "TOK"; sk is the SHA-256 of the token in hex, never the token)
  *   getToken(sk)                  -> object | null   consistent read
@@ -1008,6 +1013,27 @@ export function createAws(env) {
         return { ok: true, release: out.Attributes ? fromItem(out.Attributes) : null };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_pending' };
+        throw failure('UpdateItem', cause);
+      }
+    },
+
+    async setReleaseGolden({ sk, golden }) {
+      try {
+        const out = await dynamo.send(
+          new UpdateItemCommand({
+            TableName: stateTable,
+            Key: { pk: { S: RELEASE_PK }, sk: { S: sk } },
+            UpdateExpression: 'SET #golden = :golden',
+            // Once, and only on a release that is active.
+            ConditionExpression: 'attribute_exists(#pk) AND #status = :active AND attribute_not_exists(#golden)',
+            ExpressionAttributeNames: { '#golden': 'golden', '#pk': 'pk', '#status': 'status' },
+            ExpressionAttributeValues: { ':golden': toAttribute(golden), ':active': { S: 'active' } },
+            ReturnValues: 'ALL_NEW',
+          })
+        );
+        return { ok: true, release: out.Attributes ? fromItem(out.Attributes) : null };
+      } catch (cause) {
+        if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_available' };
         throw failure('UpdateItem', cause);
       }
     },

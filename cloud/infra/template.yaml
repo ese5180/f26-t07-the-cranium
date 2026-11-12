@@ -14,6 +14,16 @@ Parameters:
     AllowedPattern: '^MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE[A-Za-z0-9+/]{86}==$'
     ConstraintDescription: >-
       must be the base64 DER SubjectPublicKeyInfo of an ECDSA P-256 public key, on one line
+  GoldenPublicKey:
+    Type: String
+    Default: ''
+    Description: >-
+      The golden image's PUBLIC key (firmware/keys/golden_promote_pub.pem), base64 of the DER
+      SubjectPublicKeyInfo on one line, or empty while there is none: the console checks promotion
+      records with it and can never sign one. Its private half is kept offline.
+    AllowedPattern: '^(|MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE[A-Za-z0-9+/]{86}==)$'
+    ConstraintDescription: >-
+      must be empty, or the base64 DER SubjectPublicKeyInfo of an ECDSA P-256 public key, on one line
   SlotSize:
     Type: Number
     Default: 933888
@@ -2027,6 +2037,7 @@ Resources:
           USER_POOL_CLIENT_ID: !Ref UserPoolClient
           MOBILE_CLIENT_ID: !Ref MobileUserPoolClient
           SIGNING_PUBLIC_KEY_B64: !Ref SigningPublicKey
+          GOLDEN_PUBLIC_KEY_B64: !Ref GoldenPublicKey
           SLOT_SIZE: !Ref SlotSize
           LOAD_ADDRESS: !Ref LoadAddress
           ALERT_TOPIC_ARN: !Ref AlertTopic
@@ -2820,6 +2831,7 @@ Resources:
           FIRMWARE_DOWNLOAD_PREFIX: !Sub 'https://${FirmwareBucket}.s3.${AWS::Region}.amazonaws.com/firmware/'
           MOBILE_CLIENT_ID: !Ref MobileUserPoolClient
           SIGNING_PUBLIC_KEY_B64: !Ref SigningPublicKey
+          GOLDEN_PUBLIC_KEY_B64: !Ref GoldenPublicKey
           SLOT_SIZE: !Ref SlotSize
           LOAD_ADDRESS: !Ref LoadAddress
           # The alert of a rollout that stopped by itself: the topic, and the console's address for

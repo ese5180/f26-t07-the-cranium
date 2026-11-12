@@ -331,7 +331,7 @@ export const ACTIVITY_KINDS = Object.freeze([
   {
     id: 'deployments',
     label: 'Deployments and rollouts',
-    starts: ['deployment.', 'rollout.', 'group.', 'fleet.', 'schedule.'],
+    starts: ['deployment.', 'rollout.', 'group.', 'fleet.', 'schedule.', 'golden.'],
   },
   { id: 'boards', label: 'Boards', starts: ['board.', 'serial.', 'device.', 'setup.'] },
   { id: 'people', label: 'Sign-ins, tokens and alerts', starts: ['account.', 'token.', 'alert.'] },
@@ -880,6 +880,8 @@ function readDevice(raw) {
     // Where it is, from the Wi-Fi it hears (docs/fleet.md), and why it is not on the map if it is not.
     position: readPosition(item.position),
     location: readLocation(item.location),
+    // Its golden image, from firmware 1.22.0: only where the board reports one.
+    ...(item.golden ? { golden: readGolden(item.golden) } : {}),
   };
 }
 
@@ -1117,7 +1119,39 @@ function readRelease(raw) {
     ...(Object.hasOwn(item, 'board') ? { board: BOARD_TYPES.includes(item.board) ? item.board : 'nrf7002dk' } : {}),
     // And the flash layout it is built for, the same way.
     ...(Object.hasOwn(item, 'layout') ? { layout: whole(item.layout, 1, 9999) ?? 1 } : {}),
+    // Its golden image promotion record (console 2.27.5): only on a release that has one.
+    ...(item.golden && typeof item.golden === 'object' && whole(item.golden.counter, 1, 2 ** 32 - 1) !== null
+      ? {
+          golden: {
+            counter: whole(item.golden.counter, 1, 2 ** 32 - 1),
+            uploadedBy: person(item.golden.uploadedBy),
+            uploadedAt: instant(item.golden.uploadedAt),
+          },
+        }
+      : {}),
   };
+}
+
+// What a board's bootloader answered about its golden image (firmware/README.md, "Golden image").
+export const GOLDEN_STATES = Object.freeze([
+  'none',
+  'pending',
+  'sealed',
+  'bad_record',
+  'bad_signature',
+  'not_newer',
+  'not_running',
+  'not_confirmed',
+  'flash_error',
+  'unknown',
+]);
+
+/** A board's golden image, from firmware 1.22.0: { version (or null before any promotion), counter, state }. */
+export function readGolden(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const counter = whole(raw.counter, 0, 2 ** 32 - 1);
+  if (counter === null || !GOLDEN_STATES.includes(raw.state)) return null;
+  return { version: versionOrNull(raw.version), counter, state: raw.state };
 }
 
 // Board types (cloud/api/src/lib/boards.mjs): what an image is for, and what a board is.
@@ -2940,6 +2974,40 @@ export function createApi({
       if (version !== null) body.version = checked(isVersion, version);
       return record(await request('POST', '/api/serial/commands', body, { once: true })).recorded ?? null;
     },
+    /** A release's golden image promotion record (console 2.27.5): the 130-byte file, signed offline. */
+    async uploadGolden(version, bytes) {
+      const path = `/api/firmware/${encodeURIComponent(checked(isVersion, version))}/golden`;
+      return readRelease(record(await post(path, { record: toBase64(bytes) })).release);
+    },
+    /** Make a release the golden image on these boards: one job, which each board's bootloader checks again. */
+    async promoteGolden({ version, things, note }) {
+      const body = {
+        version: checked(isVersion, version),
+        things: things.map((thing) => checked(isThing, thing)),
+        note: note ?? '',
+      };
+      const promotion = record(record(await post('/api/golden/promotions', body)).promotion);
+      return { id: text(promotion.id, 64), things: texts(list(promotion.things)) };
+    },
+    /** The latest promotions, and whether this console has a golden key at all. */
+    async goldenPromotions() {
+      const reply = record(await get('/api/golden/promotions'));
+      return {
+        present: record(reply.goldenKey).present === true,
+        promotions: (Array.isArray(reply.promotions) ? reply.promotions : []).map((raw) => {
+          const item = record(raw);
+          return {
+            id: text(item.id, 64),
+            version: versionOrNull(item.version),
+            counter: whole(item.counter, 1, 2 ** 32 - 1),
+            status: text(item.status, 24),
+            createdAt: instant(item.createdAt),
+            things: Array.isArray(item.things) ? texts(item.things) : [],
+            counts: item.counts && typeof item.counts === 'object' ? item.counts : {},
+          };
+        }),
+      };
+    },
     /** A release's note, changed after its upload: the whole note, '' for none. */
     async setNotes(version, notes) {
       const path = `/api/firmware/${encodeURIComponent(checked(isVersion, version))}/notes`;
@@ -4421,6 +4489,20 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to say a phone saw a board',
     icon: 'chip',
   },
+  // Golden image promotion (console 2.27.5): a release's record, signed offline, and the promotion itself.
+  'firmware.golden_record': {
+    done: 'uploaded the golden record of',
+    tried: 'tried to upload the golden record of',
+    triedAlone: 'tried to upload a golden record',
+    icon: 'shield',
+  },
+  'golden.promote': {
+    done: 'made golden',
+    doneAlone: 'started a golden promotion',
+    tried: 'tried to make golden',
+    triedAlone: 'tried to start a golden promotion',
+    icon: 'shield',
+  },
   'firmware.notes': {
     done: 'changed the note of',
     tried: 'tried to change the note of',
@@ -4706,6 +4788,14 @@ export const REFUSAL_WORDS = {
   bad_signing_key: 'The server’s signing key cannot be read',
   cancel_refused: 'AWS IoT would not cancel it',
   forbidden: 'This account may not do that',
+  // Golden image promotion (handlers/golden.mjs).
+  golden_key_missing: 'This console has no golden key yet',
+  invalid_record: 'That is not a promotion record',
+  record_mismatch: 'The record is for another image',
+  golden_record_exists: 'That release has a golden record already',
+  counter_not_higher: 'The record’s counter is not above the last one',
+  no_golden_record: 'That release has no golden record yet',
+  golden_record_invalid: 'The release’s golden record no longer verifies',
   internal_error: 'Something went wrong on the server',
   invalid_body: 'The request could not be read',
   invalid_deployment: 'Not a valid deployment ID',
@@ -5067,6 +5157,8 @@ export const CHANGE_ACTIONS = Object.freeze([
   'firmware.upload',
   'firmware.revoke',
   'firmware.notes',
+  'firmware.golden_record',
+  'golden.promote',
   'deployment.create',
   'deployment.cancel',
   'token.create',

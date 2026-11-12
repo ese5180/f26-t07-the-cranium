@@ -394,13 +394,13 @@ static void test_job_document(void)
 	hex(bytes, sizeof(bytes), record_hex);
 
 	snprintf(json, sizeof(json),
-		 "{\"execution\":{\"jobId\":\"golden-1-19-2-b0-c4-x\",\"status\":\"QUEUED\","
+		 "{\"execution\":{\"jobId\":\"gold-1-19-2-b0-c4-x\",\"status\":\"QUEUED\","
 		 "\"jobDocument\":{\"op\":\"golden_promote\",\"v\":1,\"record\":\"%s\"}}}",
 		 record_hex);
 	CHECK(ota_job_parse(json, strlen(json), "https://example.com/firmware/", &job) == OTA_JOB_OK);
 	CHECK(job.golden);
 	CHECK(!job.in_progress);
-	CHECK(strcmp(job.id, "golden-1-19-2-b0-c4-x") == 0);
+	CHECK(strcmp(job.id, "gold-1-19-2-b0-c4-x") == 0);
 	CHECK(memcmp(job.golden_record, bytes, sizeof(bytes)) == 0);
 
 	/* The record has to be all there, in lower-case hex. */
