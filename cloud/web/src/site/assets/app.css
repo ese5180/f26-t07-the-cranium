@@ -10175,7 +10175,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 /* The timeline's group markers, its readout of a group, and its key. */
-.tl-count circle {
+.tl-count rect {
   fill: var(--ink);
   stroke: var(--surface);
   stroke-width: 1.5;
@@ -10242,7 +10242,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 @media (forced-colors: active) {
-  .tl-count circle {
+  .tl-count rect {
     fill: CanvasText;
     stroke: Canvas;
   }

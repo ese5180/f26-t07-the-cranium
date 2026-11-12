@@ -7,6 +7,14 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.27.7
+
+The Events timeline's numbers are readable again. Groups of events closer together than their numbers are wide are now one group with the sum, so no two numbers overlap ("58" next to "80" no longer reads "5880"), each number sits in a pill above its marker instead of on it, and every pill stays inside its lane and the plot, also on a phone. Past 99 a group says "99+"; hovering or picking it still lists what is inside.
+
+- `telemetry.js` `spotsOf(events, span, widthPx, gapPx)`: starts from one spot per event and merges the two neighbours that overlap most, until every pair is apart by half of each one's width plus 4 px; a spot's place is the middle of its events, kept half its width in from both ends. `spotWidth()` and `countWords()` give the pill's width (18 px, plus about 7.5 px a character) and its words.
+- The marker of a group drops 7 px and its number is a 16 px pill 10 px above the lane's middle, clear of the glyph and inside the track; the label reads "<board>: N events, <from> to <to>".
+- Tests: a crowded week at 328, 342 and 1000 px (no two spots touch, every event counted once, every pill inside), "99+", and plots narrower than one number. (#248)
+
 ## 2.27.6
 
 Six fixes. A board's Wi-Fi location lines (firmware 1.13.0 and later) were thrown away by the board log; they are kept now. An update over Bluetooth that a board refused because the image was for another board or flash layout left no record on its page, no event and no alert; it now shows as refused, warns and alerts. A cloud update refused for the same reason says so in words instead of a code. The Activity page's day filter keeps whole local days on the days the clocks change, and a scheduled start's default "tomorrow" is the next calendar day. A scheduled time that happens twice is the first of the two in every time zone, also where the clocks go back by half an hour. The Memfault page lists versions with as many boards newest first (1.10 above 1.9).
