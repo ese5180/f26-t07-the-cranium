@@ -13,5 +13,7 @@ int mt_ota_req_start(uint64_t provider_node, uint16_t endpoint);
 /* After a restart: confirms a new image and tells the provider. */
 void mt_ota_req_boot(void);
 const char *mt_ota_req_state(void);
+/* The phone opened a session: the moment to report an update that was applied. */
+void mt_ota_req_phone_seen(void);
 
 #endif /* MT_OTA_REQ_H_ */

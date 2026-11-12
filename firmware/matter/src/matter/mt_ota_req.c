@@ -302,13 +302,21 @@ void mt_ota_req_boot(void)
 			LOG_INF("new image confirmed");
 		}
 	}
-	if (boot_has_pending) {
-		(void)settings_delete("mtota/pending");
-		boot_has_pending = false;
-		if (boot_pending.version == mt_board_software_version()) {
-			(void)mt_ctl_invoke_phone(boot_pending.provider, NULL, boot_pending.endpoint, MT_CL_OTA_PROVIDER,
-						  MT_OTA_NOTIFY_APPLIED, notify_fields, NULL, NULL, notified);
-		}
+	/* NotifyUpdateApplied goes out when the phone next opens a session (mt_ota_req_phone_seen()). */
+}
+
+void mt_ota_req_phone_seen(void)
+{
+	struct sockaddr_in6 addr;
+
+	if (!boot_has_pending || !mt_server_phone_address(&addr)) {
+		return;
+	}
+	boot_has_pending = false;
+	(void)settings_delete("mtota/pending");
+	if (boot_pending.version == mt_board_software_version()) {
+		(void)mt_ctl_invoke_phone(boot_pending.provider, &addr, boot_pending.endpoint, MT_CL_OTA_PROVIDER,
+					  MT_OTA_NOTIFY_APPLIED, notify_fields, NULL, NULL, notified);
 	}
 }
 

@@ -24,6 +24,7 @@
 #include "mt_msg.h"
 #include "mt_ota.h"
 #include "mt_ota_store.h"
+#include "mt_ota_req.h"
 
 LOG_MODULE_REGISTER(mt_server, LOG_LEVEL_INF);
 
@@ -244,6 +245,13 @@ static void sigma1_in(const uint8_t *body, size_t len, uint16_t exchange, uint32
 	reset();
 }
 
+static void notify_fn(struct k_work *w)
+{
+	ARG_UNUSED(w);
+	mt_ota_req_phone_seen();
+}
+static K_WORK_DEFINE(notify_work, notify_fn);
+
 static void sigma3_in(const uint8_t *body, size_t len, uint16_t exchange, uint32_t ack)
 {
 	const uint8_t *enc;
@@ -303,6 +311,7 @@ static void sigma3_in(const uint8_t *body, size_t len, uint16_t exchange, uint32
 		phone_addr = peer;
 		have_phone_addr = true;
 		LOG_INF("the phone (node 0x%016llx) opened a session", (unsigned long long)node);
+		mt_ctl_submit(&notify_work);
 	} else {
 		LOG_INF("node 0x%016llx opened a session (OTA)", (unsigned long long)node);
 	}
