@@ -110,6 +110,14 @@ object Updates {
             3, "Not the announced version",
             "The image the board downloaded does not carry the version that was announced, so the board discarded it.",
         ),
+        "incompatible_board" to Failure(
+            3, "The image is for another board",
+            "The image the board downloaded is built for another kind of board, so the board discarded it.",
+        ),
+        "incompatible_layout" to Failure(
+            3, "The image is for another flash layout",
+            "The image the board downloaded is built for another flash layout, so the board discarded it.",
+        ),
         "flash_error" to Failure(null, "The board could not store the update", "Writing to the board’s flash memory failed."),
         "interrupted" to Failure(null, "Interrupted", "The board restarted before the update was complete."),
         "not_installed" to Failure(

@@ -227,11 +227,14 @@ public enum Telemetry {
         "pending": "Waiting to be proved", "succeeded": "Succeeded", "rolled_back": "Rolled back",
         "not_installed": "Not installed", "trial_lost": "Lost its trial", "superseded": "Replaced by a cloud update",
         "flash_error": "Could not be written to flash",
+        "incompatible_board": "Refused: the image is for another board",
+        "incompatible_layout": "Refused: the image is for another flash layout",
     ]
     public static let proofWords: [String: String] = [
         "person": "Kept by a person at the board", "cloud": "Proved by the cloud", "none": "Not proved",
     ]
-    public static let badBluetoothResults: Set<String> = ["rolled_back", "not_installed", "trial_lost", "flash_error"]
+    public static let badBluetoothResults: Set<String> = ["rolled_back", "not_installed", "trial_lost", "flash_error",
+                                                                  "incompatible_board", "incompatible_layout"]
 
     /// Why a boot ended, in words: "the watchdog", "a brownout and a CPU lockup".
     public static func causeWords(_ causes: [String]) -> String {
