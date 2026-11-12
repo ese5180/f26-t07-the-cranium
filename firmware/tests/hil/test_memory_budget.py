@@ -72,11 +72,11 @@ class Build(unittest.TestCase):
     def write_budgets(self, budgets):
         self.budgets.write_text(json.dumps(budgets))
 
-    def run_tool(self, configuration="default"):
+    def run_tool(self, configuration="default", extra=()):
         summary, numbers = self.root / "summary.md", self.root / "out" / "memory.json"
         result = subprocess.run(
             [sys.executable, "-I", str(TOOL), "--build", str(self.build), "--configuration", configuration,
-             "--budgets", str(self.budgets), "--summary", str(summary), "--json", str(numbers)],
+             "--budgets", str(self.budgets), "--summary", str(summary), "--json", str(numbers), *extra],
             capture_output=True, text=True)
         return result, summary, numbers
 
@@ -103,6 +103,22 @@ class Report(Build):
                                "ram": {"used": 404404, "total": 405504, "free": 1100},
                                "floors": {"flash_free_min": 40960, "ram_free_min": 1000}})
         self.assertNotIn("::error::", result.stdout)
+
+    def test_the_matter_variant_s_application_folder_is_measured_as_app(self):
+        # firmware/matter builds into build/matter, with ipc_radio on the network core and no TF-M.
+        self.write_build({"matter/zephyr/zephyr": image(800000, 978944, 300000, 524288),
+                          "mcuboot/zephyr/zephyr": image(30000, 32768, 20000, 458752),
+                          "ipc_radio/zephyr/zephyr": image(200000, 262144, 50000, 65536)})
+        self.write_budgets({"Matter": {"app": {"flash_free_min": 100000, "ram_free_min": 100000}}})
+        result, summary, _ = self.run_tool("Matter", ["--app-image", "matter"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        rows = [line.split("|")[1].strip() for line in summary.read_text().splitlines()
+                if re.match(r"\| [a-z_]+ \|", line)]
+        self.assertEqual(rows, ["app", "ipc_radio", "mcuboot"])
+        # Without the option there is no build/app: an error, not an empty report.
+        result, _, _ = self.run_tool("Matter")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("has no app/zephyr/zephyr.elf", result.stdout)
 
     def test_ram_under_its_floor_fails_with_a_line_that_says_which_image_how_much_and_where_the_floor_is(self):
         self.write_build({**DEFAULT, "app/zephyr/zephyr": image(749176, 794474, 404600, 405504)})

@@ -1,0 +1,56 @@
+/*
+ * The Matter variant's flash layout, the same for the application and MCUboot, on both boards
+ * (docs/matter-thread.md, "The build"). It is not one of firmware/app/flash_layouts.json: a board running the
+ * main image refuses this one as an update, and the other way round.
+ *
+ * Internal flash (1 MiB): MCUboot 32 KiB, the application 956 KiB, settings 36 KiB (Thread dataset, the Matter
+ * fabric and keys, Wi-Fi credentials). External flash: the second image slot.
+ */
+
+/delete-node/ &boot_partition;
+/delete-node/ &slot0_partition;
+/delete-node/ &slot1_partition;
+/delete-node/ &storage_partition;
+
+&flash0 {
+	partitions {
+		boot_partition: partition@0 {
+			compatible = "zephyr,mapped-partition";
+			label = "mcuboot";
+			reg = <0x00000000 DT_SIZE_K(32)>;
+		};
+
+		slot0_partition: partition@8000 {
+			compatible = "zephyr,mapped-partition";
+			label = "image-0";
+			reg = <0x00008000 DT_SIZE_K(956)>;
+		};
+
+		storage_partition: partition@f7000 {
+			compatible = "zephyr,mapped-partition";
+			label = "storage";
+			reg = <0x000f7000 DT_SIZE_K(36)>;
+		};
+	};
+};
+
+/ {
+	chosen {
+		nordic,pm-ext-flash = &mx25r64;
+	};
+};
+
+&mx25r64 {
+	status = "okay";
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		slot1_partition: partition@0 {
+			label = "image-1";
+			reg = <0x00000000 DT_SIZE_K(956)>;
+		};
+	};
+};
