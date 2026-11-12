@@ -115,13 +115,13 @@ static int hex_value(char c)
 	return -1;
 }
 
-static bool parse_sha256(const char *text, uint8_t *out)
+static bool parse_hex(const char *text, uint8_t *out, size_t size)
 {
-	if (text == NULL || strlen(text) != 2 * OTA_SHA256_SIZE) {
+	if (text == NULL || strlen(text) != 2 * size) {
 		return false;
 	}
 
-	for (size_t i = 0; i < OTA_SHA256_SIZE; i++) {
+	for (size_t i = 0; i < size; i++) {
 		int high = hex_value(text[2 * i]);
 		int low = hex_value(text[2 * i + 1]);
 
@@ -133,6 +133,11 @@ static bool parse_sha256(const char *text, uint8_t *out)
 	}
 
 	return true;
+}
+
+static bool parse_sha256(const char *text, uint8_t *out)
+{
+	return parse_hex(text, out, OTA_SHA256_SIZE);
 }
 
 /*
@@ -228,6 +233,16 @@ static enum ota_job_result parse_document(const cJSON *document, const char *all
 	}
 
 	operation = string_member(document, "op");
+	if (operation != NULL && strcmp(operation, "golden_promote") == 0 &&
+	    integer_member(document, "v", 1, 1, &document_version)) {
+		/* What the record says is for src/ota/golden_promote.c, and the bootloader, to judge. */
+		job->golden = true;
+		return parse_hex(string_member(document, "record"), job->golden_record,
+				 sizeof(job->golden_record))
+			       ? OTA_JOB_OK
+			       : OTA_JOB_BAD_DOCUMENT;
+	}
+
 	if (operation == NULL || strcmp(operation, "fw_update") != 0 ||
 	    !integer_member(document, "v", 1, 1, &document_version)) {
 		return OTA_JOB_UNSUPPORTED;

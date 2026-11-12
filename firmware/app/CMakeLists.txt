@@ -55,6 +55,13 @@ target_sources(app PRIVATE
   src/ui.c
   src/ota/version.c
 )
+# Golden image promotion (src/ota/golden_promote.h), with the record's format from the bootloader's
+# own code, so that the two read the same bytes.
+target_sources_ifdef(CONFIG_APP_GOLDEN_PROMOTE app PRIVATE
+  src/ota/golden_promote.c
+  src/policy/golden_job_policy.c
+  sysbuild/mcuboot/golden/src/golden_record.c
+)
 else()
 # A board with Bluetooth only: its own main loop and update manager, and no network or cloud at all.
 # src/bt_only/bt_only_stubs.c answers what the shared code asks of Wi-Fi and the cloud with "there is none".
@@ -190,4 +197,5 @@ target_include_directories(app PRIVATE
   src/mflt
   src/ota
   src/policy
+  sysbuild/mcuboot/golden/src
 )

@@ -16,6 +16,11 @@
  *       "url": "https://<host>/<path>?<query>"
  *     }
  *   }
+ *
+ * or, from 1.19.3, a golden image promotion (src/ota/golden_promote.c), whose record is the
+ * 130 bytes of sysbuild/mcuboot/golden/src/golden_record.h in lower-case hex:
+ *
+ *   { "op": "golden_promote", "v": 1, "record": "<260 hex digits>" }
  */
 
 #ifndef OTA_JOB_H_
@@ -33,6 +38,8 @@
 #define OTA_JOB_HOST_MAX 263
 /* Path and query string: the limit of the HTTP download client. */
 #define OTA_JOB_FILE_MAX 2047
+/* GOLDEN_RECORD_SIZE: golden_promote.c checks that they agree. */
+#define OTA_GOLDEN_RECORD_SIZE 130
 
 struct ota_job {
 	char id[OTA_JOB_ID_MAX + 1];
@@ -43,8 +50,14 @@ struct ota_job {
 	uint8_t sha256[OTA_SHA256_SIZE];
 	/* "https://" followed by the host name. */
 	char host[OTA_JOB_HOST_MAX + 1];
-	/* Everything after the slash that follows the host name. */
-	char file[OTA_JOB_FILE_MAX + 1];
+	/* A golden image promotion: only id, in_progress and golden_record are valid. */
+	bool golden;
+	/* A promotion has no download, so its record takes the place of the URL's path: no RAM more. */
+	union {
+		/* Everything after the slash that follows the host name. */
+		char file[OTA_JOB_FILE_MAX + 1];
+		uint8_t golden_record[OTA_GOLDEN_RECORD_SIZE];
+	};
 };
 
 enum ota_job_result {

@@ -1,5 +1,9 @@
 #include "diag.h"
 
+#if defined(CONFIG_APP_GOLDEN_PROMOTE)
+#include "golden_promote.h"
+#endif
+
 #include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -60,6 +64,11 @@ void diag_collect(struct diag_values *values)
 	values->channel = net_channel();
 	strncpy(values->board, CONFIG_APP_BOARD_TYPE, sizeof(values->board) - 1);
 	values->layout = CONFIG_APP_IMAGE_LAYOUT;
+#if defined(CONFIG_APP_GOLDEN_PROMOTE)
+	if (golden_promote_report(values->golden, sizeof(values->golden)) < 0) {
+		values->golden[0] = '\0';
+	}
+#endif
 
 #if defined(CONFIG_SYS_HEAP_RUNTIME_STATS)
 	extern struct k_heap _system_heap;
@@ -85,11 +94,12 @@ int diag_format(const struct diag_values *values, char *buf, size_t len)
 	int written = snprintf(buf, len,
 			       "{\"diag\":{%s%s%s\"mac\":\"%s\",\"channel\":%u,"
 			       "\"heap\":{\"free\":%u,\"least\":%u,\"size\":%u},\"board\":\"%s\","
-			       "\"layout\":%u}}",
+			       "\"layout\":%u}%s%s}",
 			       has_id ? "\"id\":\"" : "", has_id ? values->id : "", has_id ? "\"," : "",
 			       mac, values->channel, (unsigned int)values->heap_free,
 			       (unsigned int)values->heap_least, (unsigned int)values->heap_size, board,
-			       (unsigned int)values->layout);
+			       (unsigned int)values->layout, values->golden[0] != '\0' ? "," : "",
+			       values->golden);
 
 	return (written < 0 || (size_t)written >= len) ? -ENOSPC : written;
 }

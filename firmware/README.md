@@ -1773,13 +1773,19 @@ the debug port, and nRF Connect Device Manager:
 
 The golden image is one image a person can always go back to, at the board, with no laptop,
 no Wi-Fi and no cloud. It is sealed in external flash, and only the bootloader can restore it,
-only under a physical gesture, and only if it is the one image pinned by a digest compiled into
-the bootloader. There is no cloud, job, console, serial or automatic way to start this.
+only under a physical gesture, and only if it is the pinned image. There is no cloud, job, console,
+serial or automatic way to start a restore.
+
+The pin was a digest compiled into the bootloader up to 1.19.2. From 1.19.3 the bootloader also takes
+a **promotion record** signed with a separate golden key, sent as a job, and makes a new image the pin
+and the golden copy itself: [Promotion over the air](#promotion-over-the-air). The compiled-in digest
+stays the pin until a board's first promotion.
 
 `CONFIG_CRANIUM_GOLDEN` stays off in the bootloader's `prj.conf` until an image has been frozen, and
 is on now: firmware 1.5.0 is the frozen image. With it off nothing of this is built into the bootloader. The one
 trace is `golden_partition` in its devicetree, which adds one 16-byte entry to its flash map. With it
 on, the bootloader is 50,324 bytes of its 64 KiB in the 1.5.0, 1.6.0 and 1.7.0 builds, against 47,452 with it off.
+In 1.19.3, with promotion over the air, it is 53,052 bytes, and has to stay below 0xf000 (61,440).
 Both counts include the check on serial recovery's image number, described under
 [Who can change it](#who-can-change-it), which is built in either way.
 
@@ -1839,6 +1845,62 @@ certificates remain. There is no trailer and nothing in the secondary slot. `too
 goes through serial recovery instead, which writes the primary slot only: there is no trailer either,
 but the secondary slot stays as it was, and an image waiting there for a swap would still get it.
 
+### Promotion over the air
+
+From firmware 1.19.3 and console 2.27.7, to replace the golden image on many boards without a debug
+probe. The bootloader holds the golden **public** key (`firmware/keys/golden_promote_pub.pem`, compiled in
+by `golden/CMakeLists.txt`); the private key is kept offline, by whoever holds the signing key, never on a
+build machine, in CI or in this repository. A bootloader built without the file has the gesture only, and
+its build says so.
+
+1. Release the image as usual, deploy it, and let it confirm on the boards that will take it.
+2. On the offline machine: `python tools/golden_promote.py sign --key <golden private key> --image
+   binaries/cranium-<version>-0.signed.bin --counter <n> --out cranium-<version>.golden`. The counter has to be
+   above every counter used before; the console refuses one that is not above every other release's.
+   `golden_promote.py verify <record> --image <image>` checks it with the public key.
+3. On the Firmware page, the release's **Make golden** (release managers): upload the record, then choose one
+   board, a group or every board that runs the release. The console checks the record's signature with the
+   stack's copy of the public key and that it names that release's image hash, size and version.
+4. Each board checks the record (format, its own running version, confirmed, a counter above the one in its
+   info sector), writes it into the **request sector**, answers the job IN_PROGRESS and restarts when it has had
+   no update and no Bluetooth session for 10 s.
+5. At that start the bootloader checks it again: signature with the compiled-in key, counter above the floor it
+   keeps, and the image in the primary slot good, the one the record names, and confirmed (a trailer with
+   image_ok set, or none). It copies the image into `golden_partition`, checks the copy, stores the new pin and
+   counter, writes the record to the **info sector**, answers `sealed` and restarts. A refusal is answered with its
+   reason (`bad_signature`, `not_newer`, `not_running`, `not_confirmed`, `bad_record`, `flash_error`) and nothing
+   is written. The job ends SUCCEEDED, or FAILED with that reason, or `bootloader_unsupported` on a bootloader
+   without promotion. The board's page shows its golden version, counter and the last answer.
+
+| Where | What | Who writes it |
+| --- | --- | --- |
+| Last 4 KiB page of the bootloader's partition (0xf000) | The pin and the counter: 64-byte entries, appended, the newest counter wins, its magic written last | The bootloader only, before it write-protects its partition |
+| External flash 0x7e4000, after `golden_partition` | The request sector: the record (130 bytes) and, at 0x100, the bootloader's answer | The application the record, the bootloader the answer |
+| External flash 0x7e5000 | The info sector: the record that is golden now | The bootloader |
+
+The two external sectors are in no partition, so the flash layout, and its number, are those of 1.19.2. The
+record's format is in `golden/src/golden_record.h` (magic, format, counter, size, version, SHA-256, DER
+signature over the first 56 bytes). The bootloader's code has to end below 0xf000: its build checks that.
+
+What this guards against:
+
+- A stolen **image** signing key signs images, not records: it cannot change the golden image. Only the golden
+  key can, and only to an image the board already runs and has confirmed.
+- An older golden image never comes back: the counter only goes up, and a record already used is refused
+  (`not_newer`). A copy of an old record is worth nothing.
+- A compromised application can write any record, but the bootloader refuses any it did not sign for. It can
+  still erase the golden copy or the request sector, as before (see below).
+- Power lost in the middle: the copy is made before the pin is stored, so a cut-off promotion leaves the old pin,
+  which no longer matches the copy, and the request still pending: the next start does it again. Every 64th
+  promotion erases the state page first; cut off in that one erase, a board falls back to the compiled-in pin with
+  counter 0.
+- A bootloader flash over the debug port with a chip erase loses the state page, and the pin goes back to the
+  compiled-in one. That needs the probe and the board.
+
+**Boards from before 1.19.3 need one debug-port flash** of this bootloader, built with the golden public key, as
+under [Freezing an image](#freezing-an-image), step 6 (it keeps TF-M storage). After that, golden images change
+over the air. A board whose bootloader is older answers every promotion with `bootloader_unsupported`.
+
 ### Who can change it
 
 - Only the bootloader writes `golden_partition` in normal use, and only with the bytes of a primary
@@ -1852,9 +1914,11 @@ but the secondary slot stays as it was, and an image waiting there for a swap wo
 - The non-secure application owns the SPI bus of the external flash, so it can erase or damage the
   copy. That loses the way back, and the loss is only noticed at the next gesture, but nothing it
   writes there can be restored, because anything but the pinned image is refused.
-- The pin is in the bootloader's write-protected flash, so replacing the image takes a reviewed
-  commit and a debug-port flash of the bootloader. Over the air there is no way, and a leaked signing
-  key cannot change it.
+- The pin is in the bootloader's write-protected flash. Up to 1.19.2 replacing the image took a reviewed
+  commit and a debug-port flash of the bootloader. From 1.19.3 a record signed with the golden key also
+  replaces it, over the air, with the checks under [Promotion over the air](#promotion-over-the-air); a leaked
+  image signing key still cannot change it.
+- The gesture seals only the pinned image: after a promotion that is the promoted one.
 - The downgrade check does not apply to a restore, which is not a swap, so it is the pin and the
   gesture that close rollback at will. After a restore the version floor is the golden image's,
   and a signed release older than the one that was running becomes acceptable again: revoke a bad
