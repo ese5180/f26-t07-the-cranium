@@ -7,6 +7,17 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.27.6
+
+Six fixes. A board's Wi-Fi location lines (firmware 1.13.0 and later) were thrown away by the board log; they are kept now. An update over Bluetooth that a board refused because the image was for another board or flash layout left no record on its page, no event and no alert; it now shows as refused, warns and alerts. A cloud update refused for the same reason says so in words instead of a code. The Activity page's day filter keeps whole local days on the days the clocks change, and a scheduled start's default "tomorrow" is the next calendar day. A scheduled time that happens twice is the first of the two in every time zone, also where the clocks go back by half an hour. The Memfault page lists versions with as many boards newest first (1.10 above 1.9).
+
+- Board log (#231): `location` in the tags of `lib/lines.mjs` (kind `log`) and of `core.js`; `firmware-contract.test.mjs` reads the firmware's `cloud_events.c` sources[] so that a tag the board sends is never refused again.
+- Bluetooth record (#232): `incompatible_board` and `incompatible_layout` in `lib/shadow.mjs` BT_RESULTS, the event words and warn level (`lib/events.mjs`), the alert's bad results (`lib/alerts.mjs`), the board page (`telemetry.js`) and the Bluetooth summary (`updatewatch.js`, "refused: the image is for another board"). The test reads `bt_ota_result_text()`.
+- Cloud failure words (#233): both reasons in `core.js` FAILURES, failed at "Download checked".
+- Local days (#229): `core.js` `localDayBounds()`, used by the Activity filter (`app.js`) and by `scheduleModel` (`fleet.js`).
+- Repeated local time (#230): `zonedToUtc` reads the offset from three hours before instead of assuming an hour's change; a check of every quarter hour of 2026 in ten zones agrees.
+- Memfault versions (#234): `versionsOf` compares versions, newest first, anything else last.
+
 ## 2.27.5
 
 Three fixes. On the customer site, a board given to a new owner no longer shows them its earlier owner's restarts and updates. Update over Bluetooth keeps "Look for boards" in reach once a release is chosen. And a Bluetooth passkey set at a board's serial console goes into the activity log, never the passkey itself.

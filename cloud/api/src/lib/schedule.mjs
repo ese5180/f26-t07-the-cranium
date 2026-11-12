@@ -107,10 +107,13 @@ export function zonedToUtc(local, timeZone) {
   const at = guess - first;
   const second = offsetAt(at, timeZone);
   if (second === first) {
-    // Of a time that happens twice, the earlier: the one an hour before, if it reads the same.
-    const earlier = at - 3_600_000;
+    // Of a time that happens twice, the earlier: read with the offset of a few hours before, if that
+    // reads the same. Not always an hour earlier: Lord Howe Island goes back by half an hour.
+    const before = offsetAt(at - 3 * 3_600_000, timeZone);
+    if (before === first) return at;
+    const earlier = guess - before;
     const clock = wallClock(earlier, timeZone);
-    if (clock.hour === hour && clock.minute === minute && clock.day === day) return earlier;
+    if (earlier < at && clock.hour === hour && clock.minute === minute && clock.day === day) return earlier;
     return at;
   }
   const other = guess - second;

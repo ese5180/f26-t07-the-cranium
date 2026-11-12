@@ -456,6 +456,8 @@ const BT_WORDS = {
   trial_lost: 'Lost its trial',
   superseded: 'Replaced by a cloud update',
   flash_error: 'Could not be written to flash',
+  incompatible_board: 'Refused: the image is for another board',
+  incompatible_layout: 'Refused: the image is for another flash layout',
 };
 const PROOF_WORDS = { person: 'Kept by a person at the board', cloud: 'Proved by the cloud', none: 'Not proved' };
 
@@ -2398,7 +2400,14 @@ function btFacts(device) {
       'No update over Bluetooth recorded. Boards on 1.9.0 or later keep a record of the last one.'
     );
   }
-  const bad = ['rolled_back', 'not_installed', 'trial_lost', 'flash_error'].includes(record.result);
+  const bad = [
+    'rolled_back',
+    'not_installed',
+    'trial_lost',
+    'flash_error',
+    'incompatible_board',
+    'incompatible_layout',
+  ].includes(record.result);
   return facts([
     ['Update', [mono(record.from), ' to ', mono(record.to)]],
     ['Result', bad ? badge('warn', 'alert', BT_WORDS[record.result]) : BT_WORDS[record.result]],

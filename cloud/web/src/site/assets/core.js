@@ -485,6 +485,19 @@ export function timeOfDay(iso) {
   return then.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
+/**
+ * The first and the last millisecond of a local day ("2026-11-01"), on this computer's clock: { fromMs,
+ * toMs }, or null for no such day. A day on which the clocks change has 23 or 25 hours, not 24.
+ */
+export function localDayBounds(day) {
+  const match = typeof day === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(day) : null;
+  if (match === null) return null;
+  const [year, month, date] = match.slice(1).map(Number);
+  const start = new Date(year, month - 1, date);
+  if (start.getFullYear() !== year || start.getMonth() !== month - 1 || start.getDate() !== date) return null;
+  return { fromMs: start.getTime(), toMs: new Date(year, month - 1, date + 1).getTime() - 1 };
+}
+
 /** "Today", "Yesterday" or a date: the heading a log entry is filed under. */
 export function dayLabel(iso, nowMs) {
   const then = new Date(Date.parse(iso));
@@ -1353,6 +1366,7 @@ export const LINE_TAGS = Object.freeze([
   'factory',
   'health',
   'identity',
+  'location',
   'net',
   'ota',
   'store',
@@ -3389,6 +3403,17 @@ const FAILURES = {
     title: 'Not the announced version',
     text:
       'The image the board downloaded does not carry the version that was announced, so the board ' + 'discarded it.',
+  },
+  // From firmware 1.16.0 the board reads which board and flash layout an image is for, once it has it.
+  incompatible_board: {
+    at: 3,
+    title: 'The image is for another board',
+    text: 'The image the board downloaded is built for another kind of board, so the board discarded it.',
+  },
+  incompatible_layout: {
+    at: 3,
+    title: 'The image is for another flash layout',
+    text: 'The image the board downloaded is built for another flash layout, so the board discarded it.',
   },
   flash_error: {
     at: null,
