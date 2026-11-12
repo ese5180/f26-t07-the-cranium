@@ -30,6 +30,8 @@ target_sources(app PRIVATE
   src/matter/mt_attest.c
   src/matter/mt_test_paa.c
   src/matter/mt_fabric.c
+  src/matter/mt_case_msg.c
+  src/matter/mt_controller.c
 )
 target_include_directories(app PRIVATE src src/policy src/matter)
 
