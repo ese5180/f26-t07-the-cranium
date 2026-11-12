@@ -367,37 +367,68 @@ export function shownEvents(lanes, hidden) {
     .sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || (eventKey(a) < eventKey(b) ? 1 : -1));
 }
 
+/** What a spot's number says: up to 99, then "99+". */
+export function countWords(count) {
+  return count > 99 ? '99+' : String(count);
+}
+
+// A spot's number is a pill over its marker, at least 18 px wide; each character adds about 7.5 px.
+const MARK_PX = 16;
+const COUNT_PX = 18;
+const CHAR_PX = 7.5;
+const SPOT_GAP_PX = 4;
+
+/** How wide a spot is drawn, in pixels: its marker, or the pill with its number above it. */
+export function spotWidth(count) {
+  if (count < 2) return MARK_PX;
+  return Math.max(COUNT_PX, Math.round(10 + countWords(count).length * CHAR_PX));
+}
+
 /**
  * Events that would be drawn on top of each other become one spot. Each spot is
  * { key, at, ms, x, events, lead }: the newest event's key and time, where the spot is drawn
- * (the middle of its events, as a percentage), every event of it newest first, and the one
- * that stands for it (a warning first, else the newest). A spot takes in the events within
- * `reachPx` pixels of its first, on a plot `widthPx` wide; the spots are newest first.
+ * (the middle of its events, as a percentage, kept far enough in from the plot's ends for its
+ * number), every event of it newest first, and the one that stands for it (a warning first,
+ * else the newest). Two spots closer than their widths and `gapPx` (on a plot `widthPx` wide)
+ * become one, the closest first, until no two touch: no number covers another or a marker. The
+ * spots are newest first.
  */
-export function spotsOf(events, { fromMs, toMs }, widthPx = 1000, reachPx = 14) {
+export function spotsOf(events, { fromMs, toMs }, widthPx = 1000, gapPx = SPOT_GAP_PX) {
+  const width = Math.max(widthPx, 1);
   const oldestFirst = [...events].sort(
     (a, b) => Date.parse(a.at) - Date.parse(b.at) || (eventKey(a) < eventKey(b) ? -1 : 1)
   );
-  const groups = [];
-  let anchor = -Infinity;
-  for (const event of oldestFirst) {
-    const x = place(Date.parse(event.at), fromMs, toMs);
-    if (groups.length > 0 && ((x - anchor) / 100) * widthPx <= reachPx) groups[groups.length - 1].push(event);
-    else {
-      anchor = x;
-      groups.push([event]);
+  // Each spot keeps the sum of its events' places, to find its middle again after a merge.
+  const centre = (spot) => {
+    const half = spotWidth(spot.events.length) / 2;
+    const px = (spot.sum / spot.events.length / 100) * width;
+    return half * 2 >= width ? width / 2 : clamp(px, half, width - half);
+  };
+  const spots = oldestFirst.map((event) => ({ events: [event], sum: place(Date.parse(event.at), fromMs, toMs) }));
+  for (;;) {
+    let worst = -1;
+    let overlap = 0;
+    for (let index = 0; index + 1 < spots.length; index += 1) {
+      const [left, right] = [spots[index], spots[index + 1]];
+      const room = (spotWidth(left.events.length) + spotWidth(right.events.length)) / 2 + gapPx;
+      const short = room - (centre(right) - centre(left));
+      if (short > overlap) {
+        overlap = short;
+        worst = index;
+      }
     }
+    if (worst < 0) break;
+    const [left, right] = spots.splice(worst, 2);
+    spots.splice(worst, 0, { events: [...left.events, ...right.events], sum: left.sum + right.sum });
   }
-  return groups
-    .map((group) => {
-      const newestFirst = group.reverse();
-      const x =
-        newestFirst.reduce((sum, event) => sum + place(Date.parse(event.at), fromMs, toMs), 0) / newestFirst.length;
+  return spots
+    .map((spot) => {
+      const newestFirst = [...spot.events].reverse();
       return {
         key: eventKey(newestFirst[0]),
         at: newestFirst[0].at,
         ms: Date.parse(newestFirst[0].at),
-        x,
+        x: (centre(spot) / width) * 100,
         events: newestFirst,
         lead: newestFirst.find((event) => event.level === 'warn') ?? newestFirst[0],
       };
@@ -984,6 +1015,11 @@ const LANE_HEAD = 22;
 const TRACK = 44;
 const LANE_GAP = 16;
 const LANE = LANE_HEAD + TRACK + LANE_GAP;
+// A group's marker drops this far below the lane's middle; its number, COUNT_H tall, is centred COUNT_RISE above
+// the middle: the pill ends 2 px above the marker’s glyph (7 px at most) and starts 4 px inside the track.
+const GROUP_DROP = 7;
+const COUNT_RISE = 10;
+const COUNT_H = 16;
 
 /** Move the keyboard from one marker to the next: along a lane, or to the nearest in the next lane. */
 function markerKeys(event, lanes, laneIndex, index) {
@@ -1161,8 +1197,7 @@ function timeline(lanes, span, page, data) {
   const height = AXIS + lanes.length * LANE;
   const ticks = timeTicks(span.fromMs, span.toMs, 7);
   // Events close together are one marker; an event picked in the table lights the marker it is in.
-  const reach = Math.max(plotWidth - 12, 100);
-  for (const lane of lanes) lane.clusters = spotsOf(lane.shown, span, reach);
+  for (const lane of lanes) lane.clusters = spotsOf(lane.shown, span, Math.max(plotWidth, 100));
   const spotOf = new Map();
   for (const lane of lanes)
     for (const spot of lane.clusters) for (const event of spot.events) spotOf.set(eventKey(event), spot.key);
@@ -1208,14 +1243,15 @@ function timeline(lanes, span, page, data) {
             .filter(Boolean)
             .join(' '),
           x: percent(spot.x),
-          y: String(middle),
+          // A group's marker sits low in the lane and its number above it, both inside the lane.
+          y: String(count > 1 ? middle + GROUP_DROP : middle),
           overflow: 'visible',
           tabindex: key === reachable ? '0' : '-1',
           role: 'button',
           'aria-pressed': holdsSelected ? 'true' : 'false',
           'aria-label':
             count > 1
-              ? `${who}, ${count} events from ${exactTime(spot.events[count - 1].at)} to ${exactTime(spot.at)}, the newest: ${spot.events[0].text}` +
+              ? `${who}: ${count} events, ${exactTime(spot.events[count - 1].at)} to ${exactTime(spot.at)}. The newest: ${spot.events[0].text}` +
                 `${warns ? '. Includes a warning' : ''}`
               : `${who}, ${exactTime(event.at)}: ${event.text}${event.level === 'warn' ? '. Warning' : ''}`,
           'data-key': key,
@@ -1251,11 +1287,22 @@ function timeline(lanes, span, page, data) {
           ? h(
               'g',
               { class: 'tl-count' },
-              h('circle', { cx: '9', cy: '-10', r: '8' }),
+              h('rect', {
+                x: String(-spotWidth(count) / 2),
+                y: String(-GROUP_DROP - COUNT_RISE - COUNT_H / 2),
+                width: String(spotWidth(count)),
+                height: String(COUNT_H),
+                rx: String(COUNT_H / 2),
+              }),
               h(
                 'text',
-                { x: '9', y: '-10', 'text-anchor': 'middle', 'dominant-baseline': 'central' },
-                count > 99 ? '99+' : String(count)
+                {
+                  x: '0',
+                  y: String(-GROUP_DROP - COUNT_RISE),
+                  'text-anchor': 'middle',
+                  'dominant-baseline': 'central',
+                },
+                countWords(count)
               )
             )
           : null
@@ -1383,7 +1430,7 @@ function timelineKey(lanes) {
           focusable: 'false',
         },
         h('circle', { class: 'key-group', cx: '0', cy: '0', r: '6' }),
-        h('circle', { class: 'key-count', cx: '6', cy: '-6', r: '5' })
+        h('rect', { class: 'key-count', x: '-1', y: '-9', width: '12', height: '8', rx: '4' })
       ),
       'A number: that many events close together'
     ),
