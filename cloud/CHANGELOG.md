@@ -9,7 +9,7 @@ were given later, from the history; each names its commit.
 
 ## 2.25.17
 
-Shared components, the redesign's second step: the console's pieces under one set of names, so the pages that follow are built from them. Buttons are 40 px tall on a desk and 44 px on a phone, and their focus ring follows their corners; badges are 13 px, the floor for anything read as words; the filter bar and dialogs take the corners and the edge of the cards, and a toast the corners of a tile; a dialog dims the page in the light theme too, and its foot is a step down from its body. Nothing else on a page moves.
+Shared components, the redesign's second step: the console's pieces under one set of names, so the pages that follow are built from them. Buttons are 40 px tall on a desk and 44 px on a phone, and their focus ring follows their corners; badges are 13 px, the floor for anything read as words; the filter bar and dialogs take the corners and the edge of the cards, and a toast the corners of a tile; a dialog dims the page in the light theme too, and its foot is a step down from its body. The Diagnostics tables and the Memfault registers table take the new table look already (padding, middle-aligned cells, a sticky head, row hover); nothing else on a page moves.
 
 `app.css` names the components `ui-*`: page head, card (with `ui-card-title`), stat tile (`ui-stats.is-tiles`), table
 (`ui-table`, `ui-table-wrap`, a sortable heading, `.is-stacked` on a phone, `ui-board`: a board's label first and its ID

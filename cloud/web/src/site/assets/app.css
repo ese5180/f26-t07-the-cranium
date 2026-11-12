@@ -12980,6 +12980,9 @@ span.glance-item:hover {
   font-size: var(--type-large);
   font-weight: 600;
   letter-spacing: -0.012em;
+}
+
+.ui-card-title:not(.eyebrow) {
   line-height: var(--leading-title);
 }
 
