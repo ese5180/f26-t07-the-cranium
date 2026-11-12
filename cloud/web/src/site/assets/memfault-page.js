@@ -585,12 +585,12 @@ function issuesFiltered(ctx, issues) {
   ];
 }
 
-/** The Memfault page: the issues, newest first, then the fleet: reboots by reason, versions, latest metrics. */
+/** The Crashes page (named Memfault until console 2.28.0): the issues, newest first, then the fleet: reboots by reason, versions, latest metrics. */
 export function memfaultView(ctx) {
   const { state } = ctx;
   const target = state.memfault?.issues ?? resource();
   const head = pageHead({
-    title: 'Memfault',
+    title: 'Crashes',
     lede: 'Crashes and traces the boards sent to Memfault, grouped into issues.',
     how: {
       title: 'How Memfault works',
@@ -706,7 +706,7 @@ export function issueView(ctx) {
   const id = state.route.id;
   const target = state.memfault ? entry(state.memfault.issue, id) : resource();
   const data = target.value;
-  const back = { href: '#/memfault', label: 'Memfault' };
+  const back = { href: '#/memfault', label: 'Crashes' };
   if (!data) {
     return h(
       'div',

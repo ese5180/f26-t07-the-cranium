@@ -336,13 +336,13 @@ test('the frame is a tab bar on a phone and a sidebar from 861 px, around the pa
   // rest are under More, in a sheet. Each tab is a target of a finger's size, and they share the row.
   const phone = '@media (max-width: 860px)';
   assert.equal(declared('.nav', phone).get('position'), 'fixed');
-  assert.equal(declared('.nav', phone).get('bottom'), '0');
-  // Above the home indicator, and out of the screen's rounded corners (safe-area.test.mjs).
-  assert.match(declared('.nav', phone).get('padding'), /var\(--safe-bottom-bar\)/);
+  // A floating pill a gap in from the foot, concentric with the screen's corners (safe-area.test.mjs).
+  assert.equal(declared('.nav', phone).get('bottom'), 'var(--edge-gap)');
+  assert.equal(declared('.nav', phone).get('border-radius'), 'var(--radius-tabbar)');
   assert.equal(declared('.nav-item.is-secondary', phone).get('display'), 'none');
   assert.equal(declared('.nav-item', phone).get('flex'), '1 1 0');
   assert.equal(declared('.nav-item', phone).get('min-width'), '0');
-  assert.equal(declared('.nav-link', phone).get('min-height'), 'var(--tabbar)');
+  assert.equal(declared('.nav-link', phone).get('min-height'), 'calc(var(--tabbar) - 10px)');
   assert.equal(declared(':root').get('--tabbar'), '56px');
   assert.equal(declared(':root').get('--tap'), '44px');
   // The top bar keeps clear of the notch, and its title shows only once the large one has gone.
@@ -744,8 +744,12 @@ test('what the keyboard moves to stays in view and shows whole', () => {
   assert.match(phone.get('scroll-padding-bottom'), /var\(--tabbar\)/);
   // A dot list is clipped on the left only: a focus ring in it is not cut off on the other sides.
   assert.match(declared('.dotted').get('clip-path'), /^inset\(-\d+px -\d+px -\d+px 18px\)$/);
-  // A tab's focus ring is drawn inside it, where the edge of the screen cannot cut it off.
-  assert.equal(declared('.nav-link:focus-visible', '@media (max-width: 860px)').get('outline-offset'), '-4px');
+  // A tab's focus ring is drawn inside it, in the shape of its pill, where the edge of the screen cannot cut it off.
+  assert.equal(declared('.nav-link:focus-visible', '@media (max-width: 860px)').get('outline-offset'), '-2px');
+  assert.equal(
+    declared('.nav-link:focus-visible', '@media (max-width: 860px)').get('border-radius'),
+    'var(--radius-tab)'
+  );
 });
 
 test('at larger text the masthead wraps rather than laying one thing over another', () => {

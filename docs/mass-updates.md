@@ -24,7 +24,7 @@ The console already updates many boards at once ([`fleet.md`](fleet.md), "Groups
   warnings such as most of the group being offline. Any of it can be changed before starting.
 - **Each board is safe on its own.** MCUboot runs the new image on trial and puts the old one back unless the new one
   confirms itself (A/B).
-- **Roll back to last good** (from console 2.14.0). One button on a group, and one on the Fleet page for every board,
+- **Roll back to last good** (from console 2.14.0). One button on a group, and one on the Deployments page for every board,
   sends each board back to the last version it ran confirmed before the one it runs (from its update history). Boards
   are grouped by the release that takes them there, one staged rollout per release, with the health gate always on.
   The preview shows each board from → to, and who is left out and why (no known good version, revoked, no rebuild yet,
@@ -40,7 +40,7 @@ The console already updates many boards at once ([`fleet.md`](fleet.md), "Groups
 **The steps:**
 1. Upload the release on the Firmware page. `scripts/firmware/build.sh` builds the next version, uploads it there and gives
    Memfault its release and symbols.
-2. Put the boards in a group, under Fleet, Groups.
+2. Put the boards in a group, under Devices, Groups.
 3. Start a deployment or a staged rollout to the group, the type, or every board, now or scheduled for later (give
    the group a maintenance window to keep its stages inside it). For a group, look at the suggested
    stages, change them if needed, and start; the rollout's page shows each stage as it goes, and why it stopped if
@@ -53,7 +53,7 @@ Spare releases built ahead with `scripts/firmware/build.sh --no-upload` wait in 
 A board takes only a release newer than the one it runs, so use the spares in order.
 
 **Going back:** build the old source under the next free version, upload it with a note that begins
-`Rebuild of <old version>`, then press Roll back to last good on the group or the Fleet page, read the preview, and start.
+`Rebuild of <old version>`, then press Roll back to last good on the group or the Deployments page, read the preview, and start.
 
 ## 2. With Memfault deciding (not built)
 

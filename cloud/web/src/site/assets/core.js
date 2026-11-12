@@ -131,8 +131,6 @@ const SECTIONS = [
   // Every version of every product, a tab each (release-notes.js): #/release-notes/<product>.
   'release-notes',
   'tokens',
-  // Board types, groups and staged rollouts (fleet.js).
-  'fleet',
   // The map of the boards, and the Account page with its e-mail alerts (map.js, account.js).
   'map',
   'account',
@@ -194,7 +192,14 @@ export function parseRoute(hash) {
   return route;
 }
 
+/**
+ * Addresses of pages that have moved (console 2.28.0, #115): the Fleet page's groups are on Devices and its staged
+ * rollouts and "Update everything" on Deployments, where #/fleet now leads. app.js puts the new address in place.
+ */
+export const MOVED = Object.freeze({ fleet: 'deployments' });
+
 function routeOf(section, item) {
+  if (item === undefined && Object.hasOwn(MOVED, section)) return { view: MOVED[section], movedFrom: section };
   if (item === undefined) return SECTIONS.includes(section) ? { view: section } : null;
   if (section === 'devices' && isThing(item)) return { view: 'device', thing: item };
   if (section === 'deployments' && isDeploymentId(item)) return { view: 'deployment', id: item };

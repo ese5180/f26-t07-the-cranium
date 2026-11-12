@@ -633,7 +633,10 @@ const pages = {
     },
     interval() {
       const devices = state.devices.value?.devices ?? [];
-      return pollInterval((state.deployments.value ?? []).map((item) => summaryActivity(item, devices)));
+      const own = pollInterval((state.deployments.value ?? []).map((item) => summaryActivity(item, devices)));
+      // The staged rollouts are on this page too (console 2.28.0): read as often as their state asks.
+      const rollouts = fleetScript?.fleetInterval(state) ?? 0;
+      return own && rollouts ? Math.min(own, rollouts) : own || rollouts;
     },
   },
   deployment: {
@@ -815,9 +818,9 @@ const pages = {
   },
   // What Memfault knows of the boards: its issues, and an issue's traces (memfault-page.js).
   memfault: {
-    title: 'Memfault',
+    title: 'Crashes',
     view: (ctx) =>
-      memfaultScript ? memfaultScript.memfaultView(ctx) : scriptPending(ctx, 'memfault', 'Memfault', { tabs: false }),
+      memfaultScript ? memfaultScript.memfaultView(ctx) : scriptPending(ctx, 'memfault', 'Crashes', { tabs: false }),
     resources: () => memfaultScript?.memfaultResources(state) ?? [],
     async refresh() {
       if (await memfaultReady()) await memfaultScript.refreshMemfault();
@@ -874,18 +877,6 @@ const pages = {
       draw();
     },
     interval: () => IDLE_REFRESH_MS,
-  },
-  // Board types, groups, staged rollouts and "Update everything" (fleet.js).
-  fleet: {
-    title: 'Fleet',
-    view: (ctx) => (fleetScript ? fleetScript.fleetView(ctx) : scriptPending(ctx, 'fleet', 'Fleet', { tabs: false })),
-    resources: () => fleetScript?.fleetResources(state) ?? [],
-    async refresh(full) {
-      if (await fleetReady()) await fleetScript.refreshFleet(full);
-      draw();
-    },
-    interval: () => fleetScript?.fleetInterval(state) ?? 0,
-    holdStill: () => dialogOpen(),
   },
   rollout: {
     title: (route) => fleetScript?.rolloutTitle(route, state) ?? 'Staged rollout',
@@ -1380,8 +1371,7 @@ async function refreshNow(full) {
     pageReading -= 1;
   }
   // What the page shows of the fleet: once fleet.js is here, it reads that itself.
-  if (fleetScript && !['fleet', 'rollout'].includes(state.route.view))
-    await fleetScript.refreshFor(state.route.view, full);
+  if (fleetScript && state.route.view !== 'rollout') await fleetScript.refreshFor(state.route.view, full);
   // A board's page also shows where the board was (map.js).
   await boardLocation(full);
   if (mine !== turn) return;
@@ -1835,6 +1825,14 @@ function showRoute() {
     currentHash = location.hash;
   }
   let route = parseRoute(location.hash);
+  // A page that has moved (core.js MOVED): its new address in place of the old one, in the same history entry.
+  if (route?.movedFrom) {
+    const from = route.movedFrom;
+    delete route.movedFrom;
+    currentHash = routeHash(route);
+    history.replaceState(history.state, '', location.pathname + currentHash);
+    if (from === 'fleet') notify('The Fleet page is now part of Deployments; groups of boards are on Devices.');
+  }
   // A page this app cannot show (no serial port in the iPhone app) is not a page here.
   if (route && SERIAL_PAGES.includes(route.view) && serialPagesHidden(window)) route = null;
   if (!route) {
@@ -2861,7 +2859,7 @@ async function start() {
   startLive();
   // Once fleet.js is here, only what it shows is read, and only if no refresh under way will read it.
   fleetReady().then((module) => {
-    if (!module || ['fleet', 'rollout'].includes(state.route.view) || pageReading > 0) return;
+    if (!module || state.route.view === 'rollout' || pageReading > 0) return;
     module.refreshFor(state.route.view, false).then(draw);
   });
 }
