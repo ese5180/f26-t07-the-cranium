@@ -25,8 +25,8 @@
     "mcuboot": { "flash_free_min": 10240 }
   },
   "Matter (nRF5340 DK)": {
-    "_measured": "1.21.0, the Matter variant without Wi-Fi (no border router): app 572298 flash / 295776 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 16744 flash",
-    "app": { "flash_free_min": 565248, "ram_free_min": 286720 },
+    "_measured": "1.21.0, the Matter variant without Wi-Fi (no border router), before the commissioner's certificates: app 572298 flash / 295776 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 16744 flash; lowered with the commissioner's growth, as for the nRF7002 DK",
+    "app": { "flash_free_min": 491520, "ram_free_min": 262144 },
     "ipc_radio": { "flash_free_min": 65536, "ram_free_min": 6144 },
     "mcuboot": { "flash_free_min": 14336 }
   },
