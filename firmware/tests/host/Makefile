@@ -41,13 +41,14 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
 	./$(BUILD)/app_tests
 	./$(BUILD)/ui_tests
 	./$(BUILD)/golden_policy_tests
+	./$(BUILD)/golden_record_tests
 	./$(BUILD)/bt_ota_policy_tests
 	./$(BUILD)/bt_status_tests
 	./$(BUILD)/bt_offline_tests
@@ -201,6 +202,15 @@ $(BUILD)/golden_policy_tests: test_golden_policy.c $(GOLDEN_SRC)/golden_policy.c
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -I$(GOLDEN_SRC) -o $@ test_golden_policy.c $(GOLDEN_SRC)/golden_policy.c \
 		$(GOLDEN_SRC)/image_number_guard.c
+
+# Golden image promotion: the record's format, the bootloader's decision and its state page, and the
+# application's decision on a job and its job document.
+$(BUILD)/golden_record_tests: test_golden_record.c $(GOLDEN_SRC)/golden_record.c $(GOLDEN_SRC)/golden_record.h \
+		$(SRC)/policy/golden_job_policy.c $(SRC)/policy/golden_job_policy.h $(SRC)/ota/ota_job.c $(SRC)/ota/version.c \
+		$(BUILD)/cJSON.o
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -I$(GOLDEN_SRC) -o $@ test_golden_record.c $(GOLDEN_SRC)/golden_record.c \
+		$(SRC)/policy/golden_job_policy.c $(SRC)/ota/ota_job.c $(SRC)/ota/version.c $(BUILD)/cJSON.o -lm
 
 # Firmware update over Bluetooth: what it is allowed to do, then src/bt/bt_ota.c on a fake of the
 # Bluetooth host, MCUmgr and the bootloader's API. The last three are the same tests as above

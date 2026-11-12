@@ -421,6 +421,16 @@ config APP_TEST_GOLDEN_FLIP_OFFSET
 	help
 	  `tools/golden.py offsets` gives one in the image's body and one in its signature.
 
+config APP_GOLDEN_PROMOTE
+	bool "Golden image promotion from a job"
+	default y if (BOARD_NRF7002DK_NRF5340_CPUAPP_NS || BOARD_NRF7002DK_NRF5340_CPUAPP) && !APP_BT_ONLY
+	help
+	  From 1.22.0. A golden_promote job carries a promotion record signed with the offline
+	  golden key: the application writes it into external flash past golden_partition, restarts
+	  when idle, and reports what the bootloader made of it, and which image is golden, in the
+	  shadow. The bootloader checks it: firmware/README.md, "Golden image". On the nRF7002 DK,
+	  whose bootloader has the golden image.
+
 module = APP
 module-str = Cranium application
 source "subsys/logging/Kconfig.template.log_config"
