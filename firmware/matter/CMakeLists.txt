@@ -32,6 +32,10 @@ target_sources(app PRIVATE
   src/matter/mt_fabric.c
   src/matter/mt_case_msg.c
   src/matter/mt_controller.c
+  src/matter/mt_bdx.c
+  src/matter/mt_ota.c
+  src/matter/mt_ota_store.c
+  src/matter/mt_server.c
 )
 target_include_directories(app PRIVATE src src/policy src/matter)
 

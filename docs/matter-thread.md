@@ -23,15 +23,19 @@ this project's own compact library, and the border router's platform code is bui
 | Border router on Wi-Fi (routing, SRP advertising proxy, mDNS) | built, on the nRF7002 DK; nRF70 firmware in external flash |
 | Bluetooth central for commissioning, BTP | built |
 | PASE (SPAKE2+ prover through PSA) and its session | built |
-| ArmFailSafe, SetRegulatoryConfig, AddOrUpdateThreadNetwork, ConnectNetwork | built: the device joins the board's Thread network |
-| Device attestation (Matter test PAA only) | not yet |
-| The fabric's root certificate and NOC issuing, CSRRequest, AddTrustedRootCertificate, AddNOC | not yet |
-| CASE over Thread, CommissioningComplete, storing the fabric and nodes | not yet |
-| OnOff control, OTA provider for the devices | not yet |
+| ArmFailSafe, SetRegulatoryConfig | built |
+| Device attestation: DAC and PAI chained to the built-in Matter test PAAs, the AttestationResponse signature and nonce | built, host-tested with the Matter SDK's test certificates |
+| The fabric: root CA and the board's own NOC (keys as persistent PSA keys), CSRRequest, AddTrustedRootCertificate, AddNOC | built; certificate conversion host-tested byte for byte against the Matter SDK's vectors |
+| AddOrUpdateThreadNetwork, ConnectNetwork | built |
+| CASE (Sigma1 to Sigma3) over Thread with MRP, CommissioningComplete | built; destination ID, compressed fabric ID and IPK host-tested against the specification's vectors |
+| Fabric and nodes kept in settings; sessions reopened after a restart (10 s, then growing delays) | built |
+| OnOff from the shell (`matter onoff`) | built |
+| OTA provider: CASE as responder, QueryImage, BDX download, ApplyUpdate, NotifyUpdateApplied; image store; AnnounceOTAProvider | built |
 | Tested on hardware | nothing yet |
 
-Until CASE is in, a device commissioned this far joins the Thread network and leaves again when its fail-safe
-timer ends, as the Matter specification wants for an unfinished commissioning.
+Not checked yet in attestation: validity dates (the board has no trusted clock), the certification
+declaration's signature, revocation. A device with production credentials needs its PAA added
+(`src/matter/mt_test_paa.c` holds the trusted ones).
 
 ## Our code, and what it links
 
@@ -45,9 +49,15 @@ timer ends, as the Matter specification wants for an unfinished commissioning.
 | `src/matter/mt_crypto.c` | PSA crypto: SHA-256, HKDF, AES-CCM, PBKDF2 and the SPAKE2+ prover |
 | `src/matter/mt_ble.c` | Bluetooth central: scan by discriminator, connect, CHIPoBLE characteristics, indications, writes |
 | `src/matter/mt_commission.c` | the commissioning sequence and the PASE session |
+| `src/matter/mt_der.c`, `mt_cert.c` | ASN.1 DER; Matter certificates from TLV to X.509 and back, issuing RCAC and NOCs |
+| `src/matter/mt_attest.c`, `mt_test_paa.c` | X.509 parsing, device attestation, CSR checks; the Matter test PAAs |
+| `src/matter/mt_fabric.c` | the fabric: PSA keys, certificates, IPK, compressed fabric ID, node list in settings |
+| `src/matter/mt_case_msg.c`, `mt_controller.c` | CASE both ways; SRP lookup, MRP over UDP, commands to devices, reconnecting |
+| `src/matter/mt_server.c`, `mt_bdx.c`, `mt_ota.c`, `mt_ota_store.c` | the OTA provider: CASE responder, OTA commands, BDX, the image store |
 | `src/policy/matter_policy.c` | setup-code checks, retry and back-off, reconnect versus commission, Thread channel next to Wi-Fi |
 | `src/ot_leader.c`, `src/border_router.c`, `src/br/br_unused.c` | Thread leader and SRP server; Wi-Fi join; the border-router parts left out |
-| `src/matter_shell.c` | `matter pair`, `matter status`, `matter cancel` |
+| `src/matter_shell.c` | `matter pair`, `status`, `cancel`, `nodes`, `onoff`, `forget`, `ota ...` |
+| `tools/matter_ota_upload.py` | stores an OTA image on the board over its serial console |
 | `sdk/patch_sdk.py` | six small changes to the SDK (below) |
 
 | Linked | Why |
@@ -117,21 +127,22 @@ From real builds (bytes; free in brackets). CI builds both on every push (`Matte
 
 | Build | Application flash | Application RAM | Network core | MCUboot flash |
 | --- | --- | --- | --- | --- |
-| nRF7002 DK: border router + commissioner (this version) | 832,552 of 954,218 (121,666) | 325,144 of 458,752 (133,608) | 191,860 of 262,144 (70,284); RAM 7,528 free | 37,672 of 49,152 (11,480) |
-| nRF5340 DK: commissioner, Thread only | 381,920 (572,298) | 162,976 (295,776) | the same | 32,408 (16,744) |
+| nRF7002 DK: border router + the whole commissioner and OTA provider | 859,828 of 954,218 (94,390) | 348,056 of 458,752 (110,696) | 191,860 of 262,144 (70,284); RAM 7,528 free | 37,688 of 49,152 (11,464) |
+| nRF5340 DK: the same without Wi-Fi | 410,164 (544,054) | 185,888 (272,864) | the same | 32,424 (16,728) |
 
-How the nRF7002 DK image got there, step by step:
+How the nRF7002 DK image got there:
 
 | Step | Application flash used |
 | --- | --- |
 | With the Matter SDK's controller, Wi-Fi and the border router | did not link: about 1,425,000 needed |
-| Without the Matter SDK; Wi-Fi, border router, OpenThread commissioner and border agent; nRF70 firmware in external flash | 907,972 |
+| Without the Matter SDK; nRF70 firmware in external flash | 907,972 |
 | Border agent, OpenThread commissioner, TCP, IPv4, WPA3 out; buffers and the Wi-Fi heap sized down | 812,880 |
-| The commissioner library up to the Thread join | 832,552 |
+| Commissioner up to the Thread join | 832,552 |
+| Attestation, certificates, fabric store (persistent PSA keys) | 842,452 |
+| CASE, MRP, CommissioningComplete, reconnecting, OnOff | 851,316 |
+| OTA provider (CASE responder, BDX, image store) | 859,828 |
 
-The library so far takes about 20 KB. The parts still to come (certificates and their DER signing form,
-attestation, CASE, the fabric store, OTA provider) are estimated at 50 to 70 KB, which leaves the target of at
-least 40 KB of flash and 8 KB of RAM free.
+The target was at least 40 KB of flash and 8 KB of RAM free; there are 92 KB and 108 KB.
 
 ## Lessons kept from the earlier commissioner
 
@@ -143,19 +154,34 @@ least 40 KB of flash and 8 KB of RAM free.
 * The prover's SPAKE2+ needs the two Oberon fixes; Bluetooth discovery ends with attr == NULL, which is not a
   match.
 
+## Firmware updates over Matter
+
+The board is the OTA provider for the devices it commissioned:
+
+1. Store the image on the board: `python3 tools/matter_ota_upload.py --port <serial port> --vid <vendor> --pid
+   <product> --version <number> --name <file name> <image.ota>` (an image the device's maker built for Matter
+   OTA, with a newer software version than the device runs).
+2. `matter ota announce <node>` tells the device (AnnounceOTAProvider). It opens CASE to the board, asks
+   QueryImage, downloads the image over BDX, asks ApplyUpdate, restarts into it and reports NotifyUpdateApplied.
+
+The board's own image is updated the ways it has: MCUboot over the debug port today (Bluetooth SMP for this
+variant is not in it yet).
+
 ## What the owner tests on hardware
 
 Flash the build over the debug port (`west flash` writes the application, MCUboot, the network core and the
-nRF70 firmware into external flash). A Matter-over-Thread device that can be factory reset is needed: a retail
-one, or a second DK running a Matter light with test certificates. Its 11-digit manual pairing code is enough.
+nRF70 firmware into external flash). A Matter-over-Thread device that can be factory reset and uses Matter test
+credentials (vendor 0xFFF1 or 0xFFF2), for example a second DK running the SDK's Matter light bulb sample. Its
+11-digit manual pairing code is enough.
 
-1. Start-up: the log says `Thread up (role leader), SRP server on`. `matter status` says `Thread: leader`.
-2. `wifi cred add -s "<network>" -k 1 -p "<password>"`, restart: the log says `Wi-Fi joined, channel N: border
-   router backbone up`, and warns if the Thread channel overlaps.
-3. A laptop on the same Wi-Fi gets a route to the Thread network's prefix from the board's router advertisement
-   (`ip -6 route` or `netstat -rn`).
-4. Factory-reset the device, then `matter pair <manual code>`. The log goes `BTP up`, `PASE session up`, then
-   the commissioning steps, and ends with `the device is joining this board's Thread network`. A wrong code
-   ends with `wrong setup code`.
-5. While its fail-safe runs (120 s by default), the device appears on the board's Thread network, and the laptop
-   can ping its Thread address.
+1. Start-up: the log says `Thread up (role leader), SRP server on`; the first time, `new fabric ...`.
+2. `wifi cred add -s "<network>" -k 1 -p "<password>"`, restart: `Wi-Fi joined, channel N: border router
+   backbone up`.
+3. A laptop on the same Wi-Fi gets a route to the Thread network's prefix (`ip -6 route` or `netstat -rn`).
+4. Factory-reset the device, `matter pair <manual code>`: `BTP up`, `PASE session up`, `attestation passed`,
+   `NOC issued: node ...`, `CASE session up`, `node ... commissioned`. `matter nodes` lists it.
+5. `matter onoff <node> toggle`: the light toggles, `done`.
+6. Restart the board: after about 10 s, `node ... is back`; `matter onoff` works without pairing again.
+7. With a newer image of the light stored (above), `matter ota announce <node>`: `QueryImage ... update
+   offered`, `sending ...`, `image sent`, `applies version ...`, and after the light restarts, `runs the new
+   version`.
