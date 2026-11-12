@@ -1,5 +1,5 @@
 /**
- * Golden image promotion on the console (console 2.27.5): the Make golden button on a release, its
+ * Golden image promotion on the console (console 2.27.6): the Make golden button on a release, its
  * dialog (the record first, then the boards), a board's golden image on its page, and what the client
  * reads and sends. The scripts are the very files the browser loads, drawing into the stand-in
  * document of page.mjs.

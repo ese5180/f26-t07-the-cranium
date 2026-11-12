@@ -2287,7 +2287,7 @@ function openNotes(release) {
   self = openDialog(() => notesDialog(model, { state, actions }));
 }
 
-// Golden image promotion (console 2.27.5, firmware/README.md "Golden image"): a release's record, signed
+// Golden image promotion (console 2.27.6, firmware/README.md "Golden image"): a release's record, signed
 // offline, then the boards that make it their golden image.
 
 /** The 130 bytes of a promotion record. */

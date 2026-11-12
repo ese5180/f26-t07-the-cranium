@@ -7,9 +7,9 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
-## 2.27.5
+## 2.27.6
 
-Make golden: on the Firmware page a release manager uploads a release's golden promotion record, signed offline with the golden key, and makes that release the golden image on one board, a group or every board that runs it. Each board's page shows its golden image and what came of the last promotion. It needs firmware 1.22.0 and its bootloader, which takes one debug-port flash.
+Make golden: on the Firmware page a release manager uploads a release's golden promotion record, signed offline with the golden key, and makes that release the golden image on one board, a group or every board that runs it. Each board's page shows its golden image and what came of the last promotion. It needs firmware 1.19.3 and its bootloader, which takes one debug-port flash.
 
 `POST /api/firmware/{version}/golden` keeps a record only if its signature is good with the stack's golden public key
 (`GOLDEN_PUBLIC_KEY_B64`, the template's `GoldenPublicKey`, which `deploy.sh` reads from

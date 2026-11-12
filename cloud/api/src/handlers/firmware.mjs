@@ -136,7 +136,7 @@ export function releaseFromItem(item) {
   if (!Number.isInteger(item.size) || item.size <= 0) return null;
   const uploadedAt = text(item.uploadedAt, 40);
   const active = item.status === 'active';
-  // A golden image promotion record (handlers/golden.mjs), from console 2.27.5: only on a release that has one.
+  // A golden image promotion record (handlers/golden.mjs), from console 2.27.6: only on a release that has one.
   const golden = goldenOfItem(item.golden);
   return {
     ...(golden === null ? {} : { golden }),

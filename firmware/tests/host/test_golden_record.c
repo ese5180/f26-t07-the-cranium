@@ -1,5 +1,5 @@
 /*
- * Host-side tests of golden image promotion (firmware 1.22.0): the record's format as the
+ * Host-side tests of golden image promotion (firmware 1.19.3): the record's format as the
  * bootloader and the application read it, the bootloader's decision on a record, the state page
  * that keeps its pin and counter, the application's decision on a job, and the job document.
  *

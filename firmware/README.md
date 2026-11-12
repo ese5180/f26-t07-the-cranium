@@ -1776,7 +1776,7 @@ no Wi-Fi and no cloud. It is sealed in external flash, and only the bootloader c
 only under a physical gesture, and only if it is the pinned image. There is no cloud, job, console,
 serial or automatic way to start a restore.
 
-The pin was a digest compiled into the bootloader up to 1.21. From 1.22.0 the bootloader also takes
+The pin was a digest compiled into the bootloader up to 1.19.2. From 1.19.3 the bootloader also takes
 a **promotion record** signed with a separate golden key, sent as a job, and makes a new image the pin
 and the golden copy itself: [Promotion over the air](#promotion-over-the-air). The compiled-in digest
 stays the pin until a board's first promotion.
@@ -1785,7 +1785,7 @@ stays the pin until a board's first promotion.
 is on now: firmware 1.5.0 is the frozen image. With it off nothing of this is built into the bootloader. The one
 trace is `golden_partition` in its devicetree, which adds one 16-byte entry to its flash map. With it
 on, the bootloader is 50,324 bytes of its 64 KiB in the 1.5.0, 1.6.0 and 1.7.0 builds, against 47,452 with it off.
-In 1.22.0, with promotion over the air, it is 53,052 bytes, and has to stay below 0xf000 (61,440).
+In 1.19.3, with promotion over the air, it is 53,052 bytes, and has to stay below 0xf000 (61,440).
 Both counts include the check on serial recovery's image number, described under
 [Who can change it](#who-can-change-it), which is built in either way.
 
@@ -1847,7 +1847,7 @@ but the secondary slot stays as it was, and an image waiting there for a swap wo
 
 ### Promotion over the air
 
-From firmware 1.22.0 and console 2.27.5, to replace the golden image on many boards without a debug
+From firmware 1.19.3 and console 2.27.6, to replace the golden image on many boards without a debug
 probe. The bootloader holds the golden **public** key (`firmware/keys/golden_promote_pub.pem`, compiled in
 by `golden/CMakeLists.txt`); the private key is kept offline, by whoever holds the signing key, never on a
 build machine, in CI or in this repository. A bootloader built without the file has the gesture only, and
@@ -1878,7 +1878,7 @@ its build says so.
 | External flash 0x7e4000, after `golden_partition` | The request sector: the record (130 bytes) and, at 0x100, the bootloader's answer | The application the record, the bootloader the answer |
 | External flash 0x7e5000 | The info sector: the record that is golden now | The bootloader |
 
-The two external sectors are in no partition, so the flash layout, and its number, are those of 1.21. The
+The two external sectors are in no partition, so the flash layout, and its number, are those of 1.19.2. The
 record's format is in `golden/src/golden_record.h` (magic, format, counter, size, version, SHA-256, DER
 signature over the first 56 bytes). The bootloader's code has to end below 0xf000: its build checks that.
 
@@ -1897,7 +1897,7 @@ What this guards against:
 - A bootloader flash over the debug port with a chip erase loses the state page, and the pin goes back to the
   compiled-in one. That needs the probe and the board.
 
-**Boards from before 1.22.0 need one debug-port flash** of this bootloader, built with the golden public key, as
+**Boards from before 1.19.3 need one debug-port flash** of this bootloader, built with the golden public key, as
 under [Freezing an image](#freezing-an-image), step 6 (it keeps TF-M storage). After that, golden images change
 over the air. A board whose bootloader is older answers every promotion with `bootloader_unsupported`.
 
@@ -1914,8 +1914,8 @@ over the air. A board whose bootloader is older answers every promotion with `bo
 - The non-secure application owns the SPI bus of the external flash, so it can erase or damage the
   copy. That loses the way back, and the loss is only noticed at the next gesture, but nothing it
   writes there can be restored, because anything but the pinned image is refused.
-- The pin is in the bootloader's write-protected flash. Up to 1.21 replacing the image took a reviewed
-  commit and a debug-port flash of the bootloader. From 1.22.0 a record signed with the golden key also
+- The pin is in the bootloader's write-protected flash. Up to 1.19.2 replacing the image took a reviewed
+  commit and a debug-port flash of the bootloader. From 1.19.3 a record signed with the golden key also
   replaces it, over the air, with the checks under [Promotion over the air](#promotion-over-the-air); a leaked
   image signing key still cannot change it.
 - The gesture seals only the pinned image: after a promotion that is the promoted one.

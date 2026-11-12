@@ -880,7 +880,7 @@ function readDevice(raw) {
     // Where it is, from the Wi-Fi it hears (docs/fleet.md), and why it is not on the map if it is not.
     position: readPosition(item.position),
     location: readLocation(item.location),
-    // Its golden image, from firmware 1.22.0: only where the board reports one.
+    // Its golden image, from firmware 1.19.3: only where the board reports one.
     ...(item.golden ? { golden: readGolden(item.golden) } : {}),
   };
 }
@@ -1119,7 +1119,7 @@ function readRelease(raw) {
     ...(Object.hasOwn(item, 'board') ? { board: BOARD_TYPES.includes(item.board) ? item.board : 'nrf7002dk' } : {}),
     // And the flash layout it is built for, the same way.
     ...(Object.hasOwn(item, 'layout') ? { layout: whole(item.layout, 1, 9999) ?? 1 } : {}),
-    // Its golden image promotion record (console 2.27.5): only on a release that has one.
+    // Its golden image promotion record (console 2.27.6): only on a release that has one.
     ...(item.golden && typeof item.golden === 'object' && whole(item.golden.counter, 1, 2 ** 32 - 1) !== null
       ? {
           golden: {
@@ -1146,7 +1146,7 @@ export const GOLDEN_STATES = Object.freeze([
   'unknown',
 ]);
 
-/** A board's golden image, from firmware 1.22.0: { version (or null before any promotion), counter, state }. */
+/** A board's golden image, from firmware 1.19.3: { version (or null before any promotion), counter, state }. */
 export function readGolden(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const counter = whole(raw.counter, 0, 2 ** 32 - 1);
@@ -2974,7 +2974,7 @@ export function createApi({
       if (version !== null) body.version = checked(isVersion, version);
       return record(await request('POST', '/api/serial/commands', body, { once: true })).recorded ?? null;
     },
-    /** A release's golden image promotion record (console 2.27.5): the 130-byte file, signed offline. */
+    /** A release's golden image promotion record (console 2.27.6): the 130-byte file, signed offline. */
     async uploadGolden(version, bytes) {
       const path = `/api/firmware/${encodeURIComponent(checked(isVersion, version))}/golden`;
       return readRelease(record(await post(path, { record: toBase64(bytes) })).release);
@@ -4489,7 +4489,7 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to say a phone saw a board',
     icon: 'chip',
   },
-  // Golden image promotion (console 2.27.5): a release's record, signed offline, and the promotion itself.
+  // Golden image promotion (console 2.27.6): a release's record, signed offline, and the promotion itself.
   'firmware.golden_record': {
     done: 'uploaded the golden record of',
     tried: 'tried to upload the golden record of',

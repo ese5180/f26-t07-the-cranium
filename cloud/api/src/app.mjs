@@ -340,7 +340,7 @@ export function createApp({
   // Each board's version timeline (handlers/timeline.mjs), made from the update history.
   const timeline = createTimelineHandlers(context, { devices, updates });
   const firmware = createFirmwareHandlers(context, { deployments, fleet });
-  // Golden image promotion (console 2.27.5, firmware 1.22.0): a release's signed record, and its jobs.
+  // Golden image promotion (console 2.27.6, firmware 1.19.3): a release's signed record, and its jobs.
   const golden = createGoldenHandlers(context, { devices, fleet });
   const groups = createGroupHandlers(context, { devices, fleet });
   const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit, updates: () => updates });

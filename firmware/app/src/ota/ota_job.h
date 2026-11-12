@@ -17,7 +17,7 @@
  *     }
  *   }
  *
- * or, from 1.22.0, a golden image promotion (src/ota/golden_promote.c), whose record is the
+ * or, from 1.19.3, a golden image promotion (src/ota/golden_promote.c), whose record is the
  * 130 bytes of sysbuild/mcuboot/golden/src/golden_record.h in lower-case hex:
  *
  *   { "op": "golden_promote", "v": 1, "record": "<260 hex digits>" }

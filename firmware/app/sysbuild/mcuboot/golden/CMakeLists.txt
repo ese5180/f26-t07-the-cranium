@@ -10,7 +10,7 @@
 # is in firmware/keys/golden_promote_pub.pem, or in the file the environment variable
 # CRANIUM_GOLDEN_PROMOTE_KEY names (CI uses a throwaway key that way, outside the tree). Its private
 # key is kept offline, never in this repository: tools/golden_promote.py genkey makes the pair.
-# Without a key the bootloader has the gesture only, as before 1.22.0, and says so here.
+# Without a key the bootloader has the gesture only, as before 1.19.3, and says so here.
 #
 
 zephyr_library()
