@@ -161,6 +161,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-11 | Customer site: a reassigned board's health, like its activity and sessions, covers only the new owner's time | console 2.27.5 | #224 |
 | 2026-11-11 | Matter over Thread on the nRF7002 DK: own Matter library, commissioner, border router, OTA provider (not yet on hardware) | firmware 1.21.0 | #198, open |
 | 2026-11-11 | Apps with the Offline page | apps 0.9.0 | tags `ios-v0.9.0`, `android-v0.9.0` |
 | 2026-11-11 | Offline page: board status and updates over Bluetooth with no network | console 2.27.0, firmware 1.19.1 | #205 |
