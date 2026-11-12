@@ -17,10 +17,35 @@ One board does three jobs at once:
    phone over Bluetooth), a Matter OTA path: a laptop or phone on the same Wi-Fi or Bluetooth can send the board
    a new image, and the board can hand images to the Thread devices it commissioned.
 
-Nordic's SDK does not do (2): its Matter stack only builds the device side, and its Bluetooth layer only
-advertises. The approach here comes from a working on-device commissioner built on an nRF54L15 DK, which
-commissioned a retail Matter-over-Thread light from start to finish while also leading the Thread network. Its
-parts are ported to the nRF5340 here (see [What is reused](#what-is-reused)).
+**The board that does all three is the nRF7002 DK**: it is the only one with Wi-Fi, so only it can be a border
+router. The nRF5340 DK can run the same image as a Thread-only commissioner, which is useful for testing but
+not the goal.
+
+Nordic ships nothing for this. Its Matter support only builds the device side (a light, a lock), its Bluetooth
+layer only advertises, and none of its samples is a commissioner or a border router. So the commissioner and
+the router are this project's own code, not a Nordic sample adapted. The approach comes from a working
+on-device commissioner built earlier on an nRF54L15 DK, which commissioned a retail Matter-over-Thread light
+from start to finish while also leading the Thread network; its parts are ported here (see
+[What is reused](#what-is-reused)).
+
+## Our code, and the libraries it links
+
+| Ours (`firmware/matter/`) | What it does |
+| --- | --- |
+| Bluetooth central for Matter (`ble_central`) | scans for a device by its discriminator, connects, finds the CHIPoBLE service, subscribes and writes: the transport Matter's commissioning runs over, which the SDK lacks |
+| Commissioner (`controller_client`, `attestation`) | sets up the fabric, keys, certificate issuer and the commissioning sequence; checks the device's certificates (Matter test PAA only) |
+| Thread leader and border router bring-up (`thread_srp`, `border_router`) | forms the network with a random dataset, becomes leader, runs the SRP server, joins Wi-Fi and makes it the border router's backbone |
+| Commissioning rules (`policy/`) | setup-code checks, retry and back-off, reconnect versus re-commission; plain C with host tests |
+| Shell commands, start-up, update hooks | `matter controller ...` commands; the order everything starts in |
+| SDK patches (`sdk/patch_sdk.py`) | six small changes the SDK needs for a commissioner to build and to finish PASE |
+| Build variant | its own Kconfig, sysbuild, flash layout and data model, not a Nordic sample's |
+
+| Linked, open source | Why not ours |
+| --- | --- |
+| connectedhomeip, the Matter SDK (Apache 2.0) | Matter itself: message formats, PASE/CASE, certificates, the controller state machine. Writing the protocol again would take months and fail certification; the same code runs in every Matter controller, phones included. We use its controller library, which Nordic's build leaves out. |
+| OpenThread (BSD) | Thread itself, the SRP server and the border-routing logic |
+| Zephyr (Apache 2.0) with its OpenThread border-router glue, the nRF70 Wi-Fi driver, MCUboot | the OS, the IP stack, the Wi-Fi chip, the bootloader the board already uses |
+| Nordic's radio firmware for the network core (`ipc_radio`), Oberon crypto | the radio drivers and the crypto the SDK provides |
 
 ## Which core runs what
 
@@ -74,7 +99,7 @@ other; switching between them is a flash over the debug port, because the flash 
 **Kept:** MCUboot with the team's signature check and swap with revert, firmware update over Bluetooth (SMP),
 and the LEDs.
 
-The flash layout is Nordic's Matter layout for the nRF5340: MCUboot 32 KB, the application 956 KB, factory data
+The flash layout is this variant's own (the same split Matter devices on the nRF5340 commonly use): MCUboot 32 KB, the application 956 KB, factory data
 4 KB and settings 32 KB in internal flash, and the second image slot in the DK's external flash. It is not one
 of the layouts in `firmware/app/flash_layouts.json`, so a board refuses to install a Matter image sent from the
 console as an update, and the other way round: changing between the two is a debug-port flash.
@@ -144,8 +169,8 @@ certificates, marked as such.
 
 ## What the owner tests on hardware
 
-With the Matter image flashed over the debug port, and a Matter-over-Thread device that can be factory reset
-(for example a Nordic DK running the SDK's Matter light bulb sample, which uses test certificates):
+On the nRF7002 DK, with the Matter image flashed over the debug port, and a Matter-over-Thread device that can
+be factory reset (a retail one, or a second DK running a Matter light with test certificates):
 
 1. The board forms the Thread network, becomes leader, and joins Wi-Fi.
 2. A laptop on the same Wi-Fi sees the border router (`_meshcop._udp`) and can ping a Thread device.
