@@ -219,6 +219,17 @@ void mt_im_response_begin(struct mt_tlv_writer *w, uint16_t endpoint, uint32_t c
 	mt_tlv_start(w, 1, MT_TLV_STRUCT);
 }
 
+int mt_im_response_end(struct mt_tlv_writer *w)
+{
+	mt_tlv_end(w); /* CommandFields */
+	mt_tlv_end(w); /* CommandDataIB */
+	mt_tlv_end(w); /* InvokeResponseIB */
+	mt_tlv_end(w); /* InvokeResponses */
+	mt_tlv_put_uint(w, 0xFF, MT_IM_REVISION);
+	mt_tlv_end(w);
+	return mt_tlv_finish(w);
+}
+
 int mt_im_response_status(uint8_t *out, size_t cap, const struct mt_im_invoke_request *req, uint8_t status)
 {
 	struct mt_tlv_writer w;

@@ -42,6 +42,14 @@ enum mp_code_error {
 /* Reads a manual pairing code. Dashes and spaces are skipped. Nothing is written to out unless it is valid. */
 enum mp_code_error mp_parse_manual_code(const char *text, struct mp_manual_code *out);
 
+/*
+ * The board's own onboarding codes, for a phone to commission it: the QR code payload ("MT:" and 19 base-38
+ * characters) and the 11-digit manual code. discovery: 0x02 Bluetooth LE, 0x04 on the IP network.
+ */
+void mp_qr_payload(uint16_t vendor_id, uint16_t product_id, uint8_t discovery, uint16_t discriminator,
+		   uint32_t passcode, char out[23]);
+void mp_manual_code(uint16_t discriminator, uint32_t passcode, char out[12]);
+
 /* Whether a passcode is one a device may have (Matter specification 5.1.7.1). */
 bool mp_passcode_valid(uint32_t passcode);
 

@@ -11,6 +11,7 @@
 #include <zephyr/net/wifi_credentials.h>
 
 #include "matter_policy.h"
+#include "matter_node.h"
 
 LOG_MODULE_REGISTER(border_router, LOG_LEVEL_INF);
 
@@ -46,6 +47,7 @@ static void wifi_event(struct net_mgmt_event_callback *cb, uint64_t event, struc
 			return;
 		}
 		check_channel(iface);
+		matter_node_dnssd_update();
 	} else if (event == NET_EVENT_WIFI_DISCONNECT_RESULT) {
 		wifi_channel = 0;
 		LOG_WRN("Wi-Fi lost: Thread keeps running, the backbone is down");

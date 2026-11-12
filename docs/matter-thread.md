@@ -7,9 +7,10 @@ Issue #197. One board, the nRF7002 DK, in one image:
 2. **Matter commissioner.** It adds Matter-over-Thread devices by itself, with no phone and no hub: it finds a
    new device over Bluetooth LE, proves the setup code (PASE), checks the device, gives it the fabric's
    credentials and the Thread network, and then talks to it over Thread (CASE).
-3. **Firmware updates over Matter.** The board is a Matter OTA provider: it updates the Thread devices it
-   commissioned. The board's own image keeps the update paths it has (MCUboot, over Bluetooth or the debug
-   port), because it is the commissioner, not a device on someone else's fabric.
+3. **Firmware updates over Matter, both ways.** A phone adds the board to its own Matter fabric (over Bluetooth,
+   with the board's test onboarding code) and then sends the board its own firmware: the board is an OTA
+   requestor, the phone app the OTA provider, the image goes over BDX on Wi-Fi into MCUboot's second slot. And
+   the board is itself an OTA provider for the Thread devices it commissioned.
 
 Nordic ships nothing for (1) on Zephyr or for (2) at all, and the Matter SDK's own commissioner does not fit next
 to Wi-Fi and the border router in the nRF5340's 1 MB of flash (it needed about 1.4 MB). So the commissioner is
@@ -31,6 +32,8 @@ this project's own compact library, and the border router's platform code is bui
 | Fabric and nodes kept in settings; sessions reopened after a restart (10 s, then growing delays) | built |
 | OnOff from the shell (`matter onoff`) | built |
 | OTA provider: CASE as responder, QueryImage, BDX download, ApplyUpdate, NotifyUpdateApplied; image store; AnnounceOTAProvider | built |
+| The board as a device a phone adds: CHIPoBLE advertising, BTP as peripheral, PASE as verifier, the device's Interaction Model server (Descriptor, Access Control, Basic Information, General Commissioning, Network Commissioning for Wi-Fi, Operational Credentials with the test DAC/PAI/CD, OTA Requestor), CASE as responder on the phone's fabric with its ICAC, DNS-SD on Wi-Fi | built; the commissioning commands host-tested in the order a phone sends them |
+| The board's own update from the phone: AnnounceOTAProvider, QueryImage, BDX download into MCUboot's second slot, ApplyUpdate, restart, confirm, NotifyUpdateApplied | built |
 | Tested on hardware | nothing yet |
 
 Not checked yet in attestation: validity dates (the board has no trusted clock), the certification
@@ -127,8 +130,8 @@ From real builds (bytes; free in brackets). CI builds both on every push (`Matte
 
 | Build | Application flash | Application RAM | Network core | MCUboot flash |
 | --- | --- | --- | --- | --- |
-| nRF7002 DK: border router + the whole commissioner and OTA provider | 859,828 of 954,218 (94,390) | 348,056 of 458,752 (110,696) | 191,860 of 262,144 (70,284); RAM 7,528 free | 37,688 of 49,152 (11,464) |
-| nRF5340 DK: the same without Wi-Fi | 410,164 (544,054) | 185,888 (272,864) | the same | 32,424 (16,728) |
+| nRF7002 DK: border router, commissioner, OTA provider, and the board as a device with its OTA requestor | 883,580 of 954,218 (70,638) | 368,384 of 458,752 (90,368) | 191,860 of 262,144 (70,284); RAM 7,528 free | 37,688 of 49,152 (11,464) |
+| nRF5340 DK: the same without Wi-Fi | 433,308 (520,910) | 205,320 (253,432) | the same | 32,424 (16,728) |
 
 How the nRF7002 DK image got there:
 
@@ -141,8 +144,9 @@ How the nRF7002 DK image got there:
 | Attestation, certificates, fabric store (persistent PSA keys) | 842,452 |
 | CASE, MRP, CommissioningComplete, reconnecting, OnOff | 851,316 |
 | OTA provider (CASE responder, BDX, image store) | 859,828 |
+| The board as a device: peripheral, PASE verifier, device clusters, OTA requestor | 883,580 |
 
-The target was at least 40 KB of flash and 8 KB of RAM free; there are 92 KB and 108 KB.
+The target was at least 40 KB of flash and 8 KB of RAM free; there are 69 KB and 88 KB.
 
 ## Lessons kept from the earlier commissioner
 
@@ -156,7 +160,17 @@ The target was at least 40 KB of flash and 8 KB of RAM free; there are 92 KB and
 
 ## Firmware updates over Matter
 
-The board is the OTA provider for the devices it commissioned:
+**The board's own firmware, from the phone.** The board carries the Matter SDK's published TEST device
+credentials (vendor 0xFFF1, product 0x8000; DAC, PAI and certification declaration generated into the build from
+the SDK, no key in this repository), passcode 20202021 and discriminator 3840: QR `MT:Y.K9042C00KA0648G00`, manual
+code `34970112332`, printed at start-up and by `matter device`. A phone app with Matter support adds the board over
+Bluetooth (the app has to accept test credentials), gives it the Wi-Fi network, and from then on reaches it over
+Wi-Fi. To update it, the app acts as OTA provider with a signed MCUboot image of this variant and announces itself
+(AnnounceOTAProvider); the board asks QueryImage, downloads the image over BDX into MCUboot's second slot, asks
+ApplyUpdate, restarts into the new image as a test and confirms it once it runs. NotifyUpdateApplied is sent when
+the board can reach the phone again. Only images of this variant (same flash layout) can be installed this way.
+
+**The board's devices, from the board.** The board is the OTA provider for the devices it commissioned:
 
 1. Store the image on the board: `python3 tools/matter_ota_upload.py --port <serial port> --vid <vendor> --pid
    <product> --version <number> --name <file name> <image.ota>` (an image the device's maker built for Matter
@@ -164,10 +178,19 @@ The board is the OTA provider for the devices it commissioned:
 2. `matter ota announce <node>` tells the device (AnnounceOTAProvider). It opens CASE to the board, asks
    QueryImage, downloads the image over BDX, asks ApplyUpdate, restarts into it and reports NotifyUpdateApplied.
 
-The board's own image is updated the ways it has: MCUboot over the debug port today (Bluetooth SMP for this
-variant is not in it yet).
+## What the owner tests on hardware: the phone adds the board and updates it
 
-## What the owner tests on hardware
+Needs the phone app's Matter support (the paired app pull request). On the nRF7002 DK, freshly flashed:
+
+1. The log prints `add this board in the app: QR MT:Y.K9042C00KA0648G00, code 34970112332` and
+   `commissionable over Bluetooth for 15 minutes`.
+2. In the app, add the board with that code: the log shows `a phone connected`, `PASE session up with the phone`,
+   `on the phone's fabric ...`, `the phone (node ...) opened a session`, `commissioned by the phone`, and
+   `advertised on Wi-Fi as ..._matter._tcp`.
+3. In the app, send a newer signed image of this variant: `the phone offers version ...`, `downloading ...`,
+   `new image ... in place: restarting into it`, and after the restart `new image confirmed`.
+
+## What the owner tests on hardware: the board commissions a device
 
 Flash the build over the debug port (`west flash` writes the application, MCUboot, the network core and the
 nRF70 firmware into external flash). A Matter-over-Thread device that can be factory reset and uses Matter test

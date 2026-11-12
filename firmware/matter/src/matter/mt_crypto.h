@@ -51,6 +51,13 @@ struct mt_spake {
 
 int mt_spake_begin(struct mt_spake *s, uint32_t passcode, const uint8_t *salt, size_t salt_len, uint32_t iterations,
 		   const uint8_t context[32]);
+/* The PASE verifier (this board as the device): SPAKE2+ with the stored w0 || L and the transcript context. */
+int mt_spake_begin_verifier(struct mt_spake *s, const uint8_t verifier[97], const uint8_t context[32]);
+/* takes pA, gives pB and cB */
+int mt_spake_verifier_round(struct mt_spake *s, const uint8_t pa[65], uint8_t pb[65], uint8_t cb[32]);
+/* checks cA; on success gives the shared secret as a PSA HKDF key */
+int mt_spake_verifier_confirm(struct mt_spake *s, const uint8_t ca[32], psa_key_id_t *shared);
+
 /* pA, our share (65 bytes) */
 int mt_spake_round1(struct mt_spake *s, uint8_t pa[65]);
 /* takes pB, gives cA (32 bytes) */

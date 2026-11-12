@@ -39,6 +39,11 @@ size_t mt_btp_handshake_request(uint8_t *out, uint16_t att_mtu, uint8_t window);
 /* Takes the peer's handshake response. False if it is not one or picks something we did not offer. */
 bool mt_btp_handshake_response(struct mt_btp *b, const uint8_t *pkt, size_t len, uint16_t att_mtu);
 
+/* The server side, when a phone commissions this board: reads the client's handshake request. */
+bool mt_btp_parse_handshake_request(const uint8_t *pkt, size_t len, uint16_t *client_mtu, uint8_t *client_window);
+/* Answers it and sets the link up as the peripheral: our handshake response is our packet 0. Returns 6. */
+size_t mt_btp_server_accept(struct mt_btp *b, uint8_t *out, uint16_t att_mtu, uint8_t window);
+
 /*
  * Writes the next packet of a message into out (at least segment_size bytes), starting at *offset, which it
  * advances. Acknowledges the peer's last packet on the way. Returns the packet's length.

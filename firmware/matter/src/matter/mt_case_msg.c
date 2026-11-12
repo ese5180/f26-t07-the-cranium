@@ -96,13 +96,17 @@ int mt_case_tbs(uint8_t *out, size_t cap, const uint8_t *noc, size_t noc_len, co
 	return mt_tlv_finish(&w);
 }
 
-int mt_case_tbe3(uint8_t *out, size_t cap, const uint8_t *noc, size_t noc_len, const uint8_t sig[64])
+int mt_case_tbe3(uint8_t *out, size_t cap, const uint8_t *noc, size_t noc_len, const uint8_t *icac, size_t icac_len,
+		 const uint8_t sig[64])
 {
 	struct mt_tlv_writer w;
 
 	mt_tlv_writer_init(&w, out, cap);
 	mt_tlv_start(&w, MT_TLV_ANON, MT_TLV_STRUCT);
 	mt_tlv_put_bytes(&w, 1, noc, noc_len);
+	if (icac) {
+		mt_tlv_put_bytes(&w, 2, icac, icac_len);
+	}
 	mt_tlv_put_bytes(&w, 3, sig, 64);
 	mt_tlv_end(&w);
 	return mt_tlv_finish(&w);
@@ -161,14 +165,17 @@ bool mt_case_parse_sigma1(const uint8_t *in, size_t len, struct mt_case_sigma1 *
 	return !r.error && r.depth == 0 && out->random && have_sid && out->destination_id && out->eph_pub;
 }
 
-int mt_case_tbe2(uint8_t *out, size_t cap, const uint8_t *noc, size_t noc_len, const uint8_t sig[64],
-		 const uint8_t resumption_id[16])
+int mt_case_tbe2(uint8_t *out, size_t cap, const uint8_t *noc, size_t noc_len, const uint8_t *icac, size_t icac_len,
+		 const uint8_t sig[64], const uint8_t resumption_id[16])
 {
 	struct mt_tlv_writer w;
 
 	mt_tlv_writer_init(&w, out, cap);
 	mt_tlv_start(&w, MT_TLV_ANON, MT_TLV_STRUCT);
 	mt_tlv_put_bytes(&w, 1, noc, noc_len);
+	if (icac) {
+		mt_tlv_put_bytes(&w, 2, icac, icac_len);
+	}
 	mt_tlv_put_bytes(&w, 3, sig, 64);
 	mt_tlv_put_bytes(&w, 4, resumption_id, 16);
 	mt_tlv_end(&w);
@@ -209,13 +216,16 @@ bool mt_case_parse_sigma3(const uint8_t *in, size_t len, const uint8_t **encrypt
 	return !r.error && r.depth == 0 && *encrypted != NULL;
 }
 
-bool mt_case_parse_tbe3(const uint8_t *in, size_t len, const uint8_t **noc, size_t *noc_len, const uint8_t **sig)
+bool mt_case_parse_tbe3(const uint8_t *in, size_t len, const uint8_t **noc, size_t *noc_len, const uint8_t **icac,
+			size_t *icac_len, const uint8_t **sig)
 {
 	struct mt_tlv_reader r;
 	struct mt_tlv_element e;
 
 	*noc = NULL;
 	*sig = NULL;
+	*icac = NULL;
+	*icac_len = 0;
 	mt_tlv_reader_init(&r, in, len);
 	if (!mt_tlv_next(&r, &e) || e.type != MT_TLV_STRUCT) {
 		return false;
@@ -226,8 +236,9 @@ bool mt_case_parse_tbe3(const uint8_t *in, size_t len, const uint8_t **noc, size
 			*noc_len = e.len;
 		} else if (e.context && e.tag == 3 && e.type == MT_TLV_BYTES && e.len == 64) {
 			*sig = e.data;
-		} else if (e.context && e.tag == 2) {
-			return false; /* an ICAC: this fabric has none */
+		} else if (e.context && e.tag == 2 && e.type == MT_TLV_BYTES) {
+			*icac = e.data;
+			*icac_len = e.len;
 		}
 	}
 	return !r.error && r.depth == 0 && *noc && *sig;

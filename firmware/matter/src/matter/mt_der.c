@@ -84,7 +84,9 @@ void mt_der_put(struct mt_der_writer *w, uint8_t tag, const uint8_t *data, size_
 	hdr[0] = tag;
 	write_len(&hdr[1], len);
 	put(w, hdr, 1 + len_size(len));
-	put(w, data, len);
+	if (len > 0) {
+		put(w, data, len);
+	}
 }
 
 void mt_der_put_uint_bytes(struct mt_der_writer *w, const uint8_t *be, size_t len)

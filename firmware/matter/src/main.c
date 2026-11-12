@@ -11,6 +11,7 @@
 #include "matter_policy.h"
 #include "mt_controller.h"
 #include "mt_fabric.h"
+#include "matter_node.h"
 #include "ot_leader.h"
 #if defined(CONFIG_CRANIUM_MATTER_BORDER_ROUTER)
 #include "border_router.h"
@@ -34,6 +35,8 @@ static void thread_up(struct k_work *work)
 			return;
 		}
 		mt_ctl_reconnect_all();
+		/* and as a device a phone can add */
+		matter_node_start();
 		return;
 	}
 	uint32_t ms = mp_backoff_ms(thread_attempt++, MP_RETRY_FIRST_MS, MP_RETRY_CAP_MS);

@@ -41,7 +41,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/matter_policy_tests $(BUILD)/matter_lib_tests $(BUILD)/matter_cert_tests $(BUILD)/matter_attest_tests $(BUILD)/matter_case_tests $(BUILD)/matter_ota_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/matter_policy_tests $(BUILD)/matter_lib_tests $(BUILD)/matter_cert_tests $(BUILD)/matter_attest_tests $(BUILD)/matter_case_tests $(BUILD)/matter_ota_tests $(BUILD)/matter_device_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -85,6 +85,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/matter_attest_tests
 	./$(BUILD)/matter_case_tests
 	./$(BUILD)/matter_ota_tests
+	./$(BUILD)/matter_device_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -139,6 +140,14 @@ MATTER_OTA_SOURCES := $(MATTER_LIB)/mt_bdx.c $(MATTER_LIB)/mt_ota.c $(MATTER_LIB
 $(BUILD)/matter_ota_tests: test_matter_ota.c $(MATTER_OTA_SOURCES) $(wildcard $(MATTER_LIB)/*.h)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -I$(MATTER_LIB) -o $@ test_matter_ota.c $(MATTER_OTA_SOURCES)
+
+# The board as a Matter device a phone commissions: the commissioning commands in order, reads, the CSR, BTP
+# as the peripheral. The node's keys and storage are stand-ins.
+MATTER_DEVICE_SOURCES := $(MATTER_LIB)/mt_dev_im.c $(MATTER_LIB)/mt_csr.c $(MATTER_LIB)/mt_btp.c $(MATTER_LIB)/mt_im.c \
+	$(MATTER_LIB)/mt_attest.c $(MATTER_LIB)/mt_test_paa.c $(MATTER_LIB)/mt_der.c $(MATTER_LIB)/mt_tlv.c
+$(BUILD)/matter_device_tests: test_matter_device.c $(MATTER_DEVICE_SOURCES) $(wildcard $(MATTER_LIB)/*.h)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -I$(MATTER_LIB) -o $@ test_matter_device.c $(MATTER_DEVICE_SOURCES)
 
 # The listening sessions' JSON and times (src/cloud/sessions.c): what is refused, what is escaped, the
 # dates, and that nothing is written past the buffer. It needs nothing but the C library and a fake publish.

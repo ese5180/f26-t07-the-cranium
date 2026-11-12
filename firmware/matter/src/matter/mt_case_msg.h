@@ -45,8 +45,9 @@ bool mt_case_parse_tbe2(const uint8_t *in, size_t len, struct mt_case_tbe2 *out)
 int mt_case_tbs(uint8_t *out, size_t cap, const uint8_t *noc, size_t noc_len, const uint8_t *icac,
 		size_t icac_len, const uint8_t sender_eph[65], const uint8_t receiver_eph[65]);
 
-/* TBEData3: {1 initiator NOC, 3 signature}; Sigma3: {1 encrypted TBEData3 with its MIC} */
-int mt_case_tbe3(uint8_t *out, size_t cap, const uint8_t *noc, size_t noc_len, const uint8_t sig[64]);
+/* TBEData3: {1 initiator NOC, [2 ICAC], 3 signature}; Sigma3: {1 encrypted TBEData3 with its MIC} */
+int mt_case_tbe3(uint8_t *out, size_t cap, const uint8_t *noc, size_t noc_len, const uint8_t *icac, size_t icac_len,
+		 const uint8_t sig[64]);
 int mt_case_sigma3(uint8_t *out, size_t cap, const uint8_t *encrypted, size_t len);
 
 /* The message the destination ID's HMAC covers: random, root public key, fabric ID and node ID (little endian). */
@@ -61,13 +62,14 @@ struct mt_case_sigma1 {
 	const uint8_t *eph_pub;
 };
 bool mt_case_parse_sigma1(const uint8_t *in, size_t len, struct mt_case_sigma1 *out);
-int mt_case_tbe2(uint8_t *out, size_t cap, const uint8_t *noc, size_t noc_len, const uint8_t sig[64],
-		 const uint8_t resumption_id[16]);
+int mt_case_tbe2(uint8_t *out, size_t cap, const uint8_t *noc, size_t noc_len, const uint8_t *icac, size_t icac_len,
+		 const uint8_t sig[64], const uint8_t resumption_id[16]);
 int mt_case_sigma2(uint8_t *out, size_t cap, const uint8_t random[32], uint16_t session_id,
 		   const uint8_t eph_pub[65], const uint8_t *encrypted, size_t encrypted_len);
 /* Sigma3: the encrypted TBEData3 with its MIC; TBEData3: the initiator's NOC and signature. */
 bool mt_case_parse_sigma3(const uint8_t *in, size_t len, const uint8_t **encrypted, size_t *encrypted_len);
-bool mt_case_parse_tbe3(const uint8_t *in, size_t len, const uint8_t **noc, size_t *noc_len, const uint8_t **sig);
+bool mt_case_parse_tbe3(const uint8_t *in, size_t len, const uint8_t **noc, size_t *noc_len, const uint8_t **icac,
+			size_t *icac_len, const uint8_t **sig);
 
 #ifdef __cplusplus
 }
