@@ -1,0 +1,63 @@
+/*
+ * The Matter variant's flash layout, the same for the application and MCUboot, on both boards
+ * (docs/matter-thread.md, "The build"). It is not one of firmware/app/flash_layouts.json: a board running the
+ * main image refuses this one as an update, and the other way round.
+ *
+ * Internal flash (1 MiB): MCUboot 48 KiB, the application 940 KiB, settings 36 KiB (Thread dataset, the Matter
+ * fabric and keys, Wi-Fi credentials). External flash: the second image slot, and from 2 MB the OTA store (1 MB). MCUboot has 48 KiB because on the
+ * nRF7002 DK its SPI flash driver does not fit in 32 KiB.
+ */
+
+/delete-node/ &boot_partition;
+/delete-node/ &slot0_partition;
+/delete-node/ &slot1_partition;
+/delete-node/ &storage_partition;
+
+&flash0 {
+	partitions {
+		boot_partition: partition@0 {
+			compatible = "zephyr,mapped-partition";
+			label = "mcuboot";
+			reg = <0x00000000 DT_SIZE_K(48)>;
+		};
+
+		slot0_partition: partition@c000 {
+			compatible = "zephyr,mapped-partition";
+			label = "image-0";
+			reg = <0x0000c000 DT_SIZE_K(940)>;
+		};
+
+		storage_partition: partition@f7000 {
+			compatible = "zephyr,mapped-partition";
+			label = "storage";
+			reg = <0x000f7000 DT_SIZE_K(36)>;
+		};
+	};
+};
+
+/ {
+	chosen {
+		nordic,pm-ext-flash = &mx25r64;
+	};
+};
+
+&mx25r64 {
+	status = "okay";
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		slot1_partition: partition@0 {
+			label = "image-1";
+			reg = <0x00000000 DT_SIZE_K(940)>;
+		};
+
+		/* The image this board offers its Matter devices as OTA provider (src/matter/mt_ota_store.c). */
+		ota_store_partition: partition@200000 {
+			label = "ota-store";
+			reg = <0x00200000 DT_SIZE_M(1)>;
+		};
+	};
+};

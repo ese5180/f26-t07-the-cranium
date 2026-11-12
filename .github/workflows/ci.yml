@@ -125,6 +125,8 @@ jobs:
           run_test test_memfault_upload.py 'OK'
           run_test test_provision.py 'OK'
           run_test test_bt_only_check.py 'OK'
+          # The skip: the real-board run of tools/matter_check.py needs MATTER_PORT and a board with the Matter image.
+          run_test test_matter_check.py 'OK (skipped=1)'
 
   cloud-tests:
     name: Cloud tests
@@ -510,6 +512,90 @@ jobs:
         with:
           name: ${{ steps.report_nrf5340dk.outputs.artifact }}
           path: ci-artifact/
+          if-no-files-found: error
+          retention-days: 30
+
+  # The Matter variant, firmware/matter (docs/matter-thread.md): the board as Matter commissioner and Thread
+  # border router. Its own application, so its own job; it needs the SDK patched (firmware/matter/sdk), which
+  # happens after the SDK's cache is restored and is never saved back to it.
+  firmware-matter:
+    name: Firmware (${{ matrix.configuration }})
+    if: github.event_name != 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    container:
+      image: ghcr.io/nrfconnect/sdk-nrf-toolchain:v3.4.0@sha256:f1dca44678dae83e37404e33f369786f5b2ffe2ed497eec1815f66c3a868bace
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - configuration: Matter (nRF7002 DK)
+            board: nrf7002dk/nrf5340/cpuapp
+          - configuration: Matter (nRF5340 DK)
+            board: nrf5340dk/nrf5340/cpuapp
+    env:
+      BOARD: ${{ matrix.board }}
+      CONFIGURATION: ${{ matrix.configuration }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Let git work on what is not this user's
+        run: git config --global --add safe.directory '*'
+
+      - name: Restore the SDK from the cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/ncs
+          key: ncs-${{ env.NCS_VERSION }}-${{ env.NCS_COMMIT }}-${{ env.NCS_CACHE_GENERATION }}
+
+      - name: Fetch the SDK, or bring the cached one up to its manifest
+        run: |
+          if [ ! -d "$HOME/ncs/.west" ]; then
+            west init -m https://github.com/nrfconnect/sdk-nrf --mr "$NCS_VERSION" --clone-opt=--depth=1 "$HOME/ncs"
+          fi
+          cd "$HOME/ncs"
+          for attempt in 1 2 3; do
+            west update --narrow --fetch-opt=--depth=1 && break
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            sleep 30
+          done
+          echo "ZEPHYR_BASE=$HOME/ncs/zephyr" >> "$GITHUB_ENV"
+
+      - name: Check that the SDK is exactly the one it should be
+        run: scripts/ci/check-west-workspace.sh "$HOME/ncs" "$NCS_COMMIT"
+
+      # After the check above, which wants the SDK as it was fetched; this job never saves the SDK's cache.
+      - name: Patch this job's SDK for the commissioner
+        run: python3 -I firmware/matter/sdk/patch_sdk.py "$HOME/ncs"
+
+      - name: Make a throwaway signing key, outside the cache and the artifact
+        run: |
+          umask 077
+          mkdir -p "$HOME/.cranium"
+          if [ -e "$HOME/.cranium/mcuboot_signing_key.pem" ]; then
+            echo "::error::A signing key is already here, and this job must only ever have its own."
+            exit 1
+          fi
+          python3 "$ZEPHYR_BASE/../bootloader/mcuboot/scripts/imgtool.py" keygen -t ecdsa-p256 -k "$HOME/.cranium/mcuboot_signing_key.pem"
+
+      - name: Build
+        run: |
+          cd "$HOME/ncs"
+          west build -d "$GITHUB_WORKSPACE/build" -b "$BOARD" --sysbuild --pristine=always "$GITHUB_WORKSPACE/firmware/matter"
+
+      - name: Check the memory headroom of each image
+        run: |
+          python3 -I tools/memory_budget.py --build build --configuration "$CONFIGURATION" --app-image matter \
+            --summary "$GITHUB_STEP_SUMMARY" --json memory-report/memory.json
+
+      - name: Upload the memory report
+        if: always() && hashFiles('memory-report/memory.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: firmware-memory-${{ matrix.configuration }}-${{ github.sha }}
+          path: memory-report/
           if-no-files-found: error
           retention-days: 30
 
