@@ -1,8 +1,8 @@
 {
   "_about": "The least flash and RAM, in bytes, each image of a firmware build must keep free; tools/memory_budget.py checks them in every firmware job (docs/ci.md, 'Memory headroom'). Keyed by the firmware job's matrix configuration, then by image: app, mcuboot, tfm, or the network core's build folder. Each floor starts just below what the build had when it was set. Lower one only in the pull request that needs it, and say why there.",
   "default": {
-    "_measured": "1.18.0, main e29e53a: app 45298 flash / 1100 RAM free, mcuboot 15212 flash, tfm 552 flash / 12532 RAM. 1.19.1 (offline Bluetooth mode, #127): app 40810 flash / 1004 RAM free; the app's flash floor was lowered from 40960 to 40448 for it, as offline mode's GATT service and its console command take about 4.5 KB of flash",
-    "app": { "flash_free_min": 40448, "ram_free_min": 1000 },
+    "_measured": "1.18.0, main e29e53a: app 45298 flash / 1100 RAM free, mcuboot 15212 flash, tfm 552 flash / 12532 RAM. 1.19.1 (offline Bluetooth mode, #127): app 40810 flash / 1004 RAM free; the app's flash floor was lowered from 40960 to 40448 for it, as offline mode's GATT service and its console command take about 4.5 KB of flash. Raised to 61440 flash and 4096 RAM with IPv6 off and the topic buffers right-sized (docs/firmware-memory.md): app 64658 flash / 4628 RAM free on main, 62330 / 4556 with 1.19.3's golden image promotion",
+    "app": { "flash_free_min": 61440, "ram_free_min": 4096 },
     "mcuboot": { "flash_free_min": 14336 },
     "tfm": { "flash_free_min": 500, "ram_free_min": 12288 }
   },
