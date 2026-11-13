@@ -1,8 +1,8 @@
 # What firmware/tests/hil/test_*.py need outside an SDK terminal: pyserial and cbor2 for the tools,
 # and the rest for MCUboot's imgtool. These are the versions that
 # nrf/scripts/requirements-fixed.txt of nRF Connect SDK v3.4.0 names.
-cbor2==6.2.0.post2
-click==8.5.0
+cbor2==6.2.1
+click==8.5.1
 cryptography==50.0.2
 intelhex==2.3.0
 pyserial==3.5
