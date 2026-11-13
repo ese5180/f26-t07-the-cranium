@@ -25,7 +25,7 @@ webkit = "1.12.1"
 # Scan board (shell/BoardScanner.kt): CameraX for the camera's picture, and ZXing's core (Apache 2.0, plain
 # Java, no service behind it) to read the QR code in it. Android itself has no QR reader.
 camerax = "1.5.1"
-zxing = "3.5.3"
+zxing = "3.5.4"
 junit = "4.13.2"
 
 [libraries]
