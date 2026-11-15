@@ -66,6 +66,7 @@ const ON_DEMAND = [
   'db-page.js',
   'fleet.js',
   'history.js',
+  'issues-page.js',
   'labels.js',
   'live.js',
   'map.js',

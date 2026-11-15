@@ -2012,6 +2012,9 @@ const SECTION_OF = {
   database: 'developer',
   rollout: 'deployments',
   issue: 'memfault',
+  // Our own issues belong with Memfault's: the crashes (issues-page.js).
+  issues: 'memfault',
+  'own-issue': 'memfault',
   compare: 'devices',
   report: 'reports',
 };
@@ -2301,6 +2304,34 @@ export function developerTabs(current) {
           label
         )
       )
+  );
+}
+
+/**
+ * The pages under Crashes (console 2.28.2): Memfault's issues and traces (memfault-page.js) and our own issues,
+ * made from the boards' events (issues-page.js). Drawn as the Developer pages' tabs are.
+ */
+export function crashTabs(current) {
+  return h(
+    'nav',
+    { class: 'dev-tabs crash-tabs', key: 'tabs', 'aria-label': 'Crashes pages' },
+    h('span', { class: 'eyebrow' }, 'Crashes'),
+    [
+      ['memfault', 'Memfault'],
+      ['issues', 'Our issues'],
+    ].map(([view, label]) =>
+      h(
+        'a',
+        {
+          key: view,
+          class: 'nav-link',
+          href: `#/${view}`,
+          'data-label': label,
+          'aria-current': view === current ? 'page' : null,
+        },
+        label
+      )
+    )
   );
 }
 

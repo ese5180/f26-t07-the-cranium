@@ -1274,6 +1274,8 @@ public enum Words {
         "unauthorized": "The sign-in was not accepted",
         "unknown_deployment": "There is no such deployment",
         "unknown_device": "A board is not registered",
+        "unknown_issue": "No such issue in this window",
+        "invalid_issue": "Not a valid issue id",
         "unknown_version": "There is no such release",
         "image_unavailable": "The image could not be read; it may have been revoked",
         "image_mismatch": "The stored image is not the one that was verified",

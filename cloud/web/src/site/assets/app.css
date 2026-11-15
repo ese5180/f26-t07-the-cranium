@@ -13708,3 +13708,18 @@ button.back {
   color: var(--ink);
   font-size: var(--type-body);
 }
+
+/* Our own issues (issues-page.js): a signature is one long word, so it may break anywhere on a phone. */
+.own-issue-sig {
+  color: var(--ink-2);
+  font-size: var(--type-small);
+  overflow-wrap: anywhere;
+}
+.own-issue-row .ui-badge {
+  flex: none;
+}
+
+/* The Crashes tabs (views.js crashTabs): two, each as wide as its words, not stretched across the page. */
+.crash-tabs .nav-link {
+  flex: 0 0 auto;
+}

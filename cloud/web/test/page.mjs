@@ -85,6 +85,8 @@ export const MEMFAULT = scriptAddress('memfault-page.js', {
   'views.js': VIEWS,
   'telemetry.js': TELEMETRY,
 });
+// Our own issues (docs/own-observability.md).
+export const ISSUES = scriptAddress('issues-page.js', { 'core.js': CORE, 'views.js': VIEWS });
 // A board's version timeline and the Compare page (docs/compare.md).
 export const COMPARE = scriptAddress('compare.js', { 'core.js': CORE, 'views.js': VIEWS });
 // The Database page (docs/database.md).

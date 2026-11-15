@@ -63,6 +63,7 @@ The cloud is one AWS SAM stack (`cloud/infra/template.yaml`): an HTTP API, AWS I
 | Weekly reports | One page per week: how the fleet did, what was sent, what changed | 2.19.0 | `reports`, `docs/reports.md` | Generated, not hand-written |
 | Map | Boards placed by the Wi-Fi they hear | 2.x | `map` | Needs no GPS on the board |
 | Memfault page | Crashes and metrics from Memfault inside the console | 2.x | `memfault`, `docs/memfault.md` | Nav label: Crashes |
+| Issues (our own) | Crashes, faults and stuck restarts grouped by signature from the boards' own events: counts, boards, versions, fixed and regressed | 2.28.2 | `cloud/api/src/lib/issues.mjs`, `handlers/issues.mjs`, `issues-page.js`, `docs/own-observability.md` | Needs only restart events with a reason; a fault's function or address joins the signature when the firmware sends it |
 | Diagnostics and serial console | Read a board's diagnostics; talk to it over USB from the browser | 2.x | `diagnostics`, `serial` | Web Serial in Chrome, native serial in apps |
 | Board setup | First-time setup of an nRF7002 DK or nRF5340 DK over USB | 2.x | `setup`, `docs/new-board-setup.md` | Guided, step by step |
 | Bluetooth update | Send a release to a board from a phone or laptop over BLE | 2.x | `bluetooth` | Passkey relayed through the console |
@@ -163,6 +164,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-15 | Our own Issues: crashes, faults and stuck restarts grouped by signature, with boards, versions and regressions | console 2.28.2 | #259 |
 | 2026-11-12 | Console navigation in groups, a floating tab bar shaped for the iPhone 17 Pro's corners, Fleet folded into Devices and Deployments, Memfault named Crashes | console 2.28.0 | #258 |
 | 2026-11-12 | Events timeline: group numbers readable, no overlaps, inside the plot on a phone | console 2.27.7 | #250 |
 | 2026-11-12 | Make golden: a release's signed golden record, its promotion to boards, each board's golden image | console 2.27.7 | #250 |
