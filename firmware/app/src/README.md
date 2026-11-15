@@ -11,6 +11,7 @@ The application's sources. Every folder here is on the include path (`firmware/a
 | `cloud/` | AWS IoT: the connection, jobs and shadow (`cloud.c`), commands, events and location |
 | `ota/` | Firmware update over the air: the job, the download, the outcome after a restart, image compatibility and versions |
 | `mflt/` | Memfault: its hooks, and its chunks over AWS IoT |
+| `pi/` | The SPI link from the Raspberry Pi: its frames, the receiver and the SPI peripheral (`docs/pi-link.md`) |
 | `policy/` | Decisions kept apart from the hardware, so the host tests can run them: when to join Wi-Fi, when a board is stuck, what an update over Bluetooth may do, which passkey is allowed |
 
 The console, `net.c`, `device.c` and `identity.c` stay at the top because the cloud tests read their

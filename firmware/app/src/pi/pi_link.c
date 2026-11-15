@@ -2,8 +2,8 @@
  * The SPI link from the Raspberry Pi: see pi_link.h and docs/pi-link.md.
  *
  * The peripheral is armed with the STATUS frame for the next transfer, and READY goes high. When the
- * Pi has done the transfer, the SPI driver's callback hands it to the system work queue, which lowers
- * READY, takes the frame (pi_rx.c) and arms the peripheral again. While it is not armed the peripheral
+ * Pi has done the transfer, the SPI driver's callback lowers READY at once and hands the transfer to
+ * the system work queue, which takes the frame (pi_rx.c) and arms the peripheral again. While it is not armed the peripheral
  * clocks out def-char (0xff), which the Pi reads as no answer; after the STATUS frame's 16 bytes it
  * clocks out the overrun character, which the Pi ignores.
  */
@@ -69,6 +69,8 @@ static void on_transfer(const struct device *dev, int result, void *data)
 {
 	ARG_UNUSED(dev);
 	ARG_UNUSED(data);
+	/* At once, in the interrupt: the Pi looks at READY 0.5 ms after its transfer. */
+	(void)gpio_pin_set_dt(&ready, 0);
 	transfer_result = result;
 	(void)k_work_reschedule(&link_work, K_NO_WAIT);
 }
@@ -107,8 +109,16 @@ static void handle_transfer(size_t received)
 		last_frame_at = now;
 	}
 	if (result == PI_RX_DELIVER) {
-		char *into = kept_for(frame.payload, frame.length);
+		/* From the Pi, so untrusted: a control character could forge a console line. */
+		uint8_t *text = (uint8_t *)frame.payload;
+		char *into;
 
+		for (size_t i = 0; i < frame.length; i++) {
+			if (text[i] < 0x20 || text[i] == 0x7f) {
+				text[i] = '?';
+			}
+		}
+		into = kept_for(frame.payload, frame.length);
 		if (into != NULL) {
 			size_t n = MIN((size_t)frame.length, (size_t)PI_LINK_KEPT_MAX);
 
@@ -161,6 +171,9 @@ static void arm(void)
 		(void)k_work_reschedule(&link_work, K_SECONDS(1));
 		return;
 	}
+	k_mutex_lock(&view_lock, K_FOREVER);
+	link_error = 0;
+	k_mutex_unlock(&view_lock);
 	(void)gpio_pin_set_dt(&ready, 1);
 }
 
