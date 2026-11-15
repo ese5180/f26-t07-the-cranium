@@ -50,8 +50,16 @@ test('the bars are clear of the island, the home indicator and the sides', () =>
   assert.match(rules(APP, '.ui-dialog')[0], /--dialog-top: max\(16px, 9vh, calc\(var\(--safe-top\) \+ 12px\)\)/);
   // The customer site: its top bar under the island, its tab bar, its sidebar and the landing page's bar.
   assert.ok(rules(CUSTOMER, '.cs-top').some((body) => /padding: calc\(10px \+ var\(--safe-top\)\)/.test(body)));
-  assert.ok(rules(CUSTOMER, '.cs-tabbar').some((body) => /var\(--safe-bottom-bar\)/.test(body)));
-  assert.ok(rules(CUSTOMER, '.cs-body').some((body) => /calc\(68px \+ var\(--safe-bottom-bar\)\)/.test(body)));
+  // Its tab bar floats a gap in from the sides past the safe areas, and the page runs on under it (#122).
+  const bar = rules(CUSTOMER, '.cs-tabbar').find((body) => /position: fixed/.test(body));
+  assert.match(bar, /right: calc\(var\(--edge-gap\) \+ var\(--safe-right\)\)/);
+  assert.match(bar, /left: calc\(var\(--edge-gap\) \+ var\(--safe-left\)\)/);
+  assert.match(bar, /bottom: var\(--edge-gap\)/);
+  assert.ok(
+    rules(CUSTOMER, '.cs-body').some((body) =>
+      /padding-bottom: calc\(var\(--tabbar\) \+ var\(--edge-gap\) \+ var\(--space-4\)\)/.test(body)
+    )
+  );
   assert.match(rules(CUSTOMER, '.cs-side')[0], /calc\(18px \+ var\(--safe-left\)\)/);
   assert.match(rules(CUSTOMER, '.cs-landing-top')[0], /calc\(14px \+ var\(--safe-top\)\)/);
   // The customer site pads with the names alone.
@@ -64,4 +72,51 @@ test("the customer site's top bar fits a 402px iPhone: Connect device is its ico
   const block = CUSTOMER.slice(CUSTOMER.indexOf('@media (max-width: 460px)'));
   assert.match(block, /^@media \(max-width: 460px\) \{\s*\.btn\.cs-connect \{/);
   assert.doesNotMatch(CUSTOMER, /\.cs-top-brand \.cs-brand-text \{[^}]*clip-path/);
+});
+
+// The iPhone 17 Pro (#122, as the console's 2.28.0, #212): the customer site is designed with the screen's rounded
+// corners. What floats near a corner is concentric with it: a gap in from the edge, its radius the screen's less that.
+test("the customer site's tab bar and sheets are concentric with the screen's 55px corners", () => {
+  assert.match(CUSTOMER, /--radius-screen: min\(calc\(var\(--safe-bottom\) \* 100\), 55px\);/);
+  assert.match(CUSTOMER, /--radius-tabbar: calc\(var\(--tabbar\) \/ 2\);/);
+  assert.match(CUSTOMER, /--radius-tab: calc\(var\(--radius-tabbar\) - 4px\);/);
+  assert.match(CUSTOMER, /--edge-gap: max\(12px, calc\(var\(--radius-screen\) - var\(--radius-tabbar\)\)\);/);
+  assert.match(
+    CUSTOMER,
+    /--radius-sheet: max\(var\(--radius-card\), calc\(var\(--radius-screen\) - var\(--sheet-gap\)\)\);/
+  );
+  // The bar is a pill, the current tab a pill inside it; its glass is a layer of its own, the bar has no filter.
+  const bar = rules(CUSTOMER, '.cs-tabbar').find((body) => /position: fixed/.test(body));
+  assert.match(bar, /border-radius: var\(--radius-tabbar\)/);
+  assert.match(bar, /padding: 4px/);
+  assert.ok(!bar.includes('filter'));
+  assert.ok(rules(CUSTOMER, '.cs-tabbar::before').some((body) => /backdrop-filter/.test(body)));
+  assert.ok(rules(CUSTOMER, '.cs-tab-pill').some((body) => /border-radius: var\(--radius-tab\)/.test(body)));
+  // No longer an ink bar across the foot: the glass, as the console's.
+  const views = read('../src/customer/assets/customer-views.js');
+  assert.match(views, /\{ class: 'cs-tabbar', 'aria-label': 'Sections' \}/);
+  // A dialog on a phone is a sheet a gap in from the sides and the foot, its corners the screen's.
+  assert.ok(
+    rules(CUSTOMER, '.dialog.cs-dialog').some(
+      (body) => /border-radius: var\(--radius-sheet\)/.test(body) && /margin: auto auto var\(--sheet-gap\)/.test(body)
+    )
+  );
+  assert.ok(
+    rules(CUSTOMER, '.cs-dialog .dialog-foot').some((body) =>
+      /max\(0px, var\(--safe-bottom\) - var\(--sheet-gap\)\)/.test(body)
+    )
+  );
+});
+
+test("the customer site's tabs are words at the 13px floor with a 44px target, and nothing is read smaller", () => {
+  const phone = CUSTOMER.slice(CUSTOMER.indexOf('@media (max-width: 860px)'));
+  assert.match(phone, /--tabbar: 62px;/);
+  const tab = rules(phone, '.cs-tab').find((body) => /min-height/.test(body));
+  assert.match(tab, /font-size: var\(--type-small\)/);
+  // 62px bar, 4px padding and a 1px border each side: 52px tabs.
+  assert.match(tab, /min-height: calc\(var\(--tabbar\) - 10px\)/);
+  // The 12.5px label size is not used for words a customer reads: 13px is the floor.
+  assert.doesNotMatch(CUSTOMER, /var\(--type-label\)/);
+  // Tables are 14px.
+  assert.ok(rules(CUSTOMER, '.cs-table').some((body) => /font-size: var\(--type-table\)/.test(body)));
 });
