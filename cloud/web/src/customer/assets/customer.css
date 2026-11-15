@@ -757,6 +757,11 @@
   font-size: var(--type-table);
 }
 
+/* On a board's page, the key to the strip stands apart from it. */
+.cs-health + .card-note {
+  margin-top: var(--space-3);
+}
+
 .cs-health.is-attention .cs-health-text {
   color: var(--warn);
   font-weight: 600;
