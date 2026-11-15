@@ -240,8 +240,9 @@ would be too many there. `[PI] link up`, printed when frames start arriving afte
 to the cloud.
 
 The pins are set in `firmware/app/boards/nrf7002dk_nrf5340_cpuapp_ns.overlay` (SPIS3, and `pi-ready-gpios`), and are
-free in `main`'s firmware. The Pi image updates on `feature/pi-ota` (draft PR #42) use the same pins with the board
-as the SPI controller; when that work resumes, the two are to share this link.
+free in `main`'s firmware. The Pi image updates (`docs/pi-ota.md` on `feature/pi-ota-console-4`, PR #196) are a
+separate link that stays clear of this one: SPIM2 on the analog header pins A0 to A4 with READY from the Pi on D2,
+and none of this link's pins, SPI instance, files or Pi GPIOs (8 to 11, 25). The two can be built together.
 
 ## Tested
 
