@@ -933,6 +933,8 @@ static void print_pi(void)
 	pi_link_get_view(&pi);
 	if (!pi.running) {
 		(void)snprintk(state, sizeof(state), "not running (error %d)", pi.error);
+	} else if (pi.error != 0) {
+		(void)snprintk(state, sizeof(state), "not armed (error %d), trying again", pi.error);
 	} else if (pi.since_frame_ms < 0) {
 		(void)snprintk(state, sizeof(state), "waiting for the Pi");
 	} else {
