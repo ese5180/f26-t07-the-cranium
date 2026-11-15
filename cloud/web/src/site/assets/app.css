@@ -13718,3 +13718,8 @@ button.back {
 .own-issue-row .ui-badge {
   flex: none;
 }
+
+/* The Crashes tabs (views.js crashTabs): two, each as wide as its words, not stretched across the page. */
+.crash-tabs .nav-link {
+  flex: 0 0 auto;
+}
