@@ -836,7 +836,11 @@ test('the next step is in reach once a release is chosen: a bar at the card foot
   assert.match(block('@media (max-width: 1100px)'), /position: sticky;/);
   assert.match(block('@media (max-width: 1100px)'), /bottom: max\(var\(--space-3\), var\(--safe-bottom-bar\)\);/);
   assert.match(block('@media (max-width: 1100px)'), /background: var\(--surface\);/);
-  assert.match(block('@media (max-width: 860px)'), /bottom: calc\(var\(--tabbar\) \+ var\(--safe-bottom-bar\)\);/);
+  // Above the floating tab bar (console 2.28.0): its height and its gap from the foot, with or without a safe area.
+  assert.match(
+    block('@media (max-width: 860px)'),
+    /bottom: calc\(var\(--tabbar\) \+ var\(--edge-gap\) \+ var\(--space-2\)\);/
+  );
   // A focused control scrolls clear of the bar, on the pages that show it.
   assert.match(
     css,
@@ -844,6 +848,6 @@ test('the next step is in reach once a release is chosen: a bar at the card foot
   );
   assert.match(
     css,
-    /html:has\(\.bt-next\) \{\n    scroll-padding-bottom: calc\(var\(--tabbar\) \+ var\(--safe-bottom-bar\) \+ 6rem\);/
+    /html:has\(\.bt-next\) \{\n    scroll-padding-bottom: calc\(var\(--tabbar\) \+ var\(--edge-gap\) \+ 6rem\);/
   );
 });

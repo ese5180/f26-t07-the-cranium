@@ -12895,11 +12895,12 @@ span.glance-item:hover {
 
 @media (max-width: 860px) {
   .bt-next {
-    bottom: calc(var(--tabbar) + var(--safe-bottom-bar));
+    /* Above the floating tab bar, which stands a gap in from the foot (console 2.28.0). */
+    bottom: calc(var(--tabbar) + var(--edge-gap) + var(--space-2));
   }
 
   html:has(.bt-next) {
-    scroll-padding-bottom: calc(var(--tabbar) + var(--safe-bottom-bar) + 6rem);
+    scroll-padding-bottom: calc(var(--tabbar) + var(--edge-gap) + 6rem);
   }
 
   .bt-next .btn {

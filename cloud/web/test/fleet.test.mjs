@@ -125,8 +125,14 @@ function connected(extra = {}) {
       return answers.get(`${method} ${path}`);
     },
   };
+  // As app.js's load: a read that fails leaves its error on the resource, and the others go on.
   const load = async (target, fetcher) => {
-    target.value = await fetcher();
+    try {
+      target.value = await fetcher();
+      target.error = null;
+    } catch (error) {
+      target.error = error;
+    }
     target.loadedAt = NOW;
   };
   fleet.connect({
@@ -1063,7 +1069,12 @@ function lastGoodConsole() {
       },
     },
     load: async (target, fetcher) => {
-      target.value = await fetcher();
+      try {
+        target.value = await fetcher();
+        target.error = null;
+      } catch (error) {
+        target.error = error;
+      }
       target.loadedAt = NOW;
     },
     draw: () => {},
@@ -1138,6 +1149,35 @@ test('the preview: each board from and to under its release, the canary, what is
     to: '1.12.0+0',
   });
   assert.deepEqual(plan.healthGate, { on: true, minutes: 10 });
+});
+
+test('several staged rollouts started at once lead to Deployments, where they are listed (#115)', async () => {
+  const { answers, ctx, went, dialog } = lastGoodConsole();
+  answers.set('GET /api/fleet', FLEET);
+  answers.set('GET /api/groups/grp-0a0b0c0d/last-good', { plan: LAST_GOOD_PLAN });
+  const target = { kind: 'group', group: 'grp-0a0b0c0d', groupName: 'Bench', type: 'nrf7002dk' };
+  answers.set('POST /api/groups/grp-0a0b0c0d/last-good', {
+    rollouts: [
+      { ...DETAIL, purpose: 'last_good', target },
+      { ...DETAIL, id: 'rol-20261104T110000Z-0d0e0f', purpose: 'last_good', target },
+    ],
+  });
+  await fleet.refreshFor('devices', true);
+  one(draw(fleet.groupsCard(ctx)), 'button', 'Roll back to last good').dispatchEvent({ type: 'click' });
+  await new Promise((resolve) => setImmediate(resolve));
+  one(dialog(), 'form').dispatchEvent({ type: 'submit', preventDefault() {} });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(went, [{ view: 'deployments' }]);
+  // Never the Fleet page, which is not a section any more and would fall through to the Overview.
+  assert.equal(core.routeHash(went[0]), '#/deployments');
+});
+
+test('Devices reads the fleet health too, so that each board type says how many run its newest release', async () => {
+  const { asked, answers } = connected({ route: { view: 'devices' } });
+  answers.set('GET /api/fleet', FLEET);
+  answers.set('GET /api/fleet/health?days=30', { types: [], updates: {}, attention: [] });
+  await fleet.refreshFor('devices', true);
+  assert.ok(asked.some((entry) => String(entry).includes('/api/fleet/health')));
 });
 
 test('the dialog starts one staged rollout per release with the health gate on, for a group or the fleet', async () => {

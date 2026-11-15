@@ -115,8 +115,14 @@ function console_(extra = {}) {
         return answers.get(`${method} ${path}`);
       },
     },
+    // As app.js's load: a read that fails leaves its error on the resource, and the others go on.
     load: async (target, fetcher) => {
-      target.value = await fetcher();
+      try {
+        target.value = await fetcher();
+        target.error = null;
+      } catch (error) {
+        target.error = error;
+      }
       target.loadedAt = NOW;
     },
     draw: () => {},

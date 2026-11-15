@@ -2158,7 +2158,7 @@ export function navView(ctx) {
                   entry.heading ? h('p', { class: 'nav-sheet-heading' }, entry.heading) : null,
                   h(
                     'ul',
-                    { class: 'nav-sheet-list' },
+                    { class: 'nav-sheet-list', 'aria-label': entry.heading ?? null },
                     entry.sections.map(([view, label, iconName]) => sheetLink(view, label, iconName))
                   )
                 )
@@ -5811,6 +5811,8 @@ export function deploymentsView(ctx) {
       tools: [freshness(state.deployments, ctx), ctx.fleet?.deploymentTools?.(ctx) ?? null, start],
     }),
     loadProblem(state.deployments, 'the deployments', ctx),
+    // The staged rollouts' own read (fleet.js), which the Fleet page showed until console 2.28.0.
+    state.rollouts ? loadProblem(state.rollouts, 'the staged rollouts', ctx) : null,
     body
   );
 }

@@ -662,7 +662,8 @@ export async function refreshFor(view, full) {
   ) {
     jobs.push(load(state.fleet, fleetApi.fleet));
   }
-  if (view === 'overview' && due(state.fleetHealth, full, FLEET_REFRESH_MS))
+  // The Overview's health, and on Devices how many boards of each type run its newest release.
+  if (['overview', 'devices'].includes(view) && due(state.fleetHealth, full, FLEET_REFRESH_MS))
     jobs.push(load(state.fleetHealth, fleetApi.health));
   if (view === 'deployments' && due(state.rollouts, full, FLEET_REFRESH_MS / 3))
     jobs.push(load(state.rollouts, fleetApi.rollouts));
@@ -2295,7 +2296,8 @@ function openPlan() {
       self.close(true);
       tools.notify(`${plural(started.length, 'staged rollout')} started.`);
       if (started.length === 1) tools.go({ view: 'rollout', id: started[0].id });
-      else tools.go({ view: 'fleet' });
+      // Several: the Deployments page lists them all (the Fleet page's list until console 2.28.0).
+      else tools.go({ view: 'deployments' });
     });
   self = tools.dialogs.open(() => {
     const chosen = [...model.picked.values()].reduce((sum, set) => sum + set.size, 0);
@@ -2473,7 +2475,8 @@ function openLastGood({ group = null }) {
       self.close(true);
       tools.notify(`${plural(started.length, 'staged rollout')} started.`);
       if (started.length === 1) tools.go({ view: 'rollout', id: started[0].id });
-      else tools.go({ view: 'fleet' });
+      // Several: the Deployments page lists them all (the Fleet page's list until console 2.28.0).
+      else tools.go({ view: 'deployments' });
     });
   self = tools.dialogs.open(() => {
     const chosen = [...model.picked.values()].reduce((sum, set) => sum + set.size, 0);

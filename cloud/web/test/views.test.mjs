@@ -1363,6 +1363,28 @@ test("a board's panel holds what the board is doing, and claims no report that n
   assert.match(textOf(one(resting, 'section.flash')), /^Flash memory now/);
 });
 
+test('Deployments says when the staged rollouts could not be read, as the Fleet page did (#115)', async () => {
+  const state = await consoleState({ ...WORLD });
+  const rollouts = {
+    value: null,
+    error: new core.ApiError(503, 'gateway', 'Service Unavailable'),
+    loading: false,
+    loadedAt: 0,
+  };
+  const list = page(views.deploymentsView, { ...state, rollouts });
+  assert.match(textOf(list), /staged rollouts/);
+  assert.equal(
+    all(list, 'div.page-notice').some((el) => /staged rollouts/.test(textOf(el))),
+    true
+  );
+  // Read, or not asked for yet: no notice.
+  const fine = page(views.deploymentsView, state);
+  assert.equal(
+    all(fine, 'div.page-notice').some((el) => /staged rollouts/.test(textOf(el))),
+    false
+  );
+});
+
 test('the list of deployments does not show one board as a full bar, and says how far it is', async () => {
   const run = deployment(OFFERED, {
     executions: [execution(WAITING, 'downloading', { status: 'IN_PROGRESS', progress: 40, startedAt: ago(30) })],
@@ -2018,10 +2040,14 @@ test('on a phone four sections are tabs and the rest are under More, in a sheet 
       '#/account',
     ]
   );
-  // The sheet keeps the sidebar's groups, each a list of its own under its heading.
+  // The sheet keeps the sidebar's groups, each a list of its own under its heading, and named by it for a screen reader.
   assert.deepEqual(
     all(open, 'p.nav-sheet-heading').map((el) => textOf(el)),
     ['Releases', 'Monitoring', 'Admin']
+  );
+  assert.deepEqual(
+    all(open, 'ul.nav-sheet-list').map((el) => el.getAttribute('aria-label')),
+    [null, 'Releases', 'Monitoring', 'Admin', null]
   );
   assert.equal(one(open, 'a.nav-sheet-link', 'Events').getAttribute('aria-current'), 'page');
 });

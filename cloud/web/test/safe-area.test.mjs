@@ -117,3 +117,15 @@ test('tab labels are words at the 13px floor, and the tabs keep a 44px target', 
   assert.match(phone, /--tabbar: 62px;/);
   assert.match(link, /min-height: calc\(var\(--tabbar\) - 10px\)/);
 });
+
+test("on a phone nothing stands on the tab bar's old line: what clears the bar clears its gap too", () => {
+  // The bar floats --edge-gap above the foot, also with no safe area (a phone browser, Android, a narrow window).
+  const phone = APP.slice(APP.indexOf('@media (max-width: 860px)'));
+  assert.doesNotMatch(APP, /var\(--tabbar\) \+ var\(--safe-bottom-bar\)/);
+  for (const selector of ['.main', '.console .foot', '.bt-next']) {
+    assert.ok(
+      rules(phone, selector).some((body) => /var\(--tabbar\) \+ var\(--edge-gap\)/.test(body)),
+      `${selector} clears the floating bar`
+    );
+  }
+});
