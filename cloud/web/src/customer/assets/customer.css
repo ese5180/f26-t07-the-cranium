@@ -27,6 +27,31 @@
   --deck-b: #e4dccf;
   --deck-b-ink: #3b332c;
   --radius-panel: var(--radius-card);
+  /* The section open now in the sidebar: a paper pill on the ink, in both themes, with the accent's mark. */
+  --side-current: #faf7f2;
+  --side-current-ink: #1c1814;
+  --side-current-mark: #b7410e;
+  --side-current-line: #d1c6b6;
+  --side-current-ink-2: #574e45;
+  /* The floating tab bar of a phone: glass over the page, as the console's (2.28.0). */
+  --bar-glass: rgb(253 251 247 / 0.78);
+  --bar-lift: 0 12px 32px -14px rgb(28 24 20 / 0.42), 0 1px 3px rgb(28 24 20 / 0.08);
+}
+
+/*
+ * The screen's own corner, and what floats near it (#122, as the console's 2.28.0, #212): about 55 pt on an iPhone
+ * 17 Pro, read from the bottom safe area (a screen with one has rounded corners), 0 in a browser. What floats near a
+ * corner is concentric with it: a gap in from the edge, its radius the screen's less that gap. The same names and
+ * values as app.css's from console 2.28.0; once app.css has them, this block can go.
+ */
+:root {
+  --radius-screen: min(calc(var(--safe-bottom) * 100), 55px);
+  --radius-tabbar: calc(var(--tabbar) / 2);
+  --radius-tab: calc(var(--radius-tabbar) - 4px);
+  --edge-gap: max(12px, calc(var(--radius-screen) - var(--radius-tabbar)));
+  --sheet-gap: max(0px, min(8px, var(--radius-screen)));
+  --radius-sheet: max(var(--radius-card), calc(var(--radius-screen) - var(--sheet-gap)));
+  --radius-inset: max(var(--radius-card), calc(var(--radius-sheet) - var(--space-4)));
 }
 
 @media (prefers-color-scheme: dark) {
@@ -43,6 +68,8 @@
     --deck-a-ink: #f8cfb4;
     --deck-b: #352e28;
     --deck-b-ink: #e9e0d4;
+    --bar-glass: rgb(38 34 30 / 0.78);
+    --bar-lift: 0 12px 32px -12px rgb(0 0 0 / 0.75), 0 1px 3px rgb(0 0 0 / 0.4);
   }
 }
 
@@ -152,7 +179,7 @@
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-pill);
   color: var(--ink-2);
-  font-size: var(--type-label);
+  font-size: var(--type-small);
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
@@ -169,18 +196,18 @@
 /* The section open now: a paper pill on the ink, as in the mockup, with the accent's icon. */
 .cs-side .cs-nav-link[aria-current="page"],
 .cs-nav-link[aria-current="page"] {
-  background: #faf7f2;
-  color: #1c1814;
+  background: var(--side-current);
+  color: var(--side-current-ink);
   font-weight: 600;
 }
 
 .cs-nav-link[aria-current="page"] .icon {
-  color: #b7410e;
+  color: var(--side-current-mark);
 }
 
 .cs-nav-link[aria-current="page"] .cs-nav-count {
-  border-color: #d1c6b6;
-  color: #574e45;
+  border-color: var(--side-current-line);
+  color: var(--side-current-ink-2);
 }
 
 .cs-side-foot {
@@ -294,6 +321,8 @@
   flex-direction: column;
   min-width: 0;
   padding-right: var(--safe-right);
+  /* The console's grouped page (#122): the canvas behind, the groups on it in the surface colour. */
+  background: var(--grouped);
 }
 
 .cs-top {
@@ -410,6 +439,50 @@
 
 /* A page. */
 
+/*
+ * The shared card (views.js card()) as the console draws it (console 2.7, grouped lists; #122): its heading above,
+ * its body one inset group on the canvas. A group in a group is not boxed twice.
+ */
+.cs-page .ui-card {
+  padding: 0;
+  border-top: 0;
+}
+
+.cs-page .ui-card-head {
+  min-height: 0;
+  margin: 0 0 var(--space-2);
+  padding: 0 var(--space-1);
+}
+
+.cs-page .ui-card > .ui-card-head > .eyebrow {
+  color: var(--ink);
+  font-size: var(--type-large);
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  text-transform: none;
+}
+
+.cs-page .ui-card-body {
+  min-width: 0;
+  padding: var(--space-4);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: var(--elevation-1);
+}
+
+.cs-page .ui-card-body .ui-card-body {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* A fact in a group: a row of a settings list, the first with no hairline over it. */
+.cs-page .ui-card-body > .facts > .fact:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
 .cs-page {
   display: grid;
   gap: clamp(24px, 2.6vw, 36px);
@@ -446,6 +519,12 @@
 
 .cs-title:focus {
   outline: none;
+}
+
+.cs-head-id {
+  margin-top: -2px;
+  color: var(--ink-2);
+  font-size: var(--type-table);
 }
 
 .cs-lede {
@@ -551,12 +630,24 @@
   display: grid;
 }
 
+/* On the Overview the boards are one inset group: a rounded surface, the boards parted by hairlines. */
+.cs-boards.is-group {
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: var(--elevation-1);
+}
+
+.cs-boards.is-group .cs-board:first-child .cs-board-link {
+  padding-top: 16px;
+}
+
 .cs-board-link {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 14px;
-  padding: 14px 2px;
+  gap: 10px 14px;
+  padding: 16px 2px;
   border-top: 1px solid var(--line);
   color: var(--ink);
   text-decoration: none;
@@ -571,8 +662,10 @@
   color: var(--ink);
 }
 
-.cs-board-link:hover .cs-board-name {
-  color: var(--accent);
+@media (hover: hover) {
+  .cs-board-link:hover .cs-board-name {
+    color: var(--accent);
+  }
 }
 
 .cs-board-mark {
@@ -605,9 +698,25 @@
   font-weight: 600;
 }
 
+/* The board's own name, second to its label. */
+.cs-board-id {
+  color: var(--ink-2);
+  font-size: var(--type-small);
+}
+
+/* The health is under the board's name and state, from the name's edge to the row's. */
+.cs-board-link > .cs-health {
+  grid-column: 2 / -1;
+  margin-top: 0;
+}
+
 .cs-board-meta {
   color: var(--ink-2);
   font-size: var(--type-small);
+}
+
+.cs-board-meta time {
+  white-space: nowrap;
 }
 
 .cs-board-go {
@@ -626,8 +735,31 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  color: var(--ink);
+  font-size: var(--type-body);
+  font-weight: 600;
+}
+
+.cs-health.is-offline .cs-health-line {
+  color: var(--ink-2);
+}
+
+/* The strip and, beside it, what it draws in words. */
+.cs-health-week {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.cs-health-count {
   color: var(--ink-2);
   font-size: var(--type-table);
+}
+
+/* On a board's page, the key to the strip stands apart from it. */
+.cs-health + .card-note {
+  margin-top: var(--space-3);
 }
 
 .cs-health.is-attention .cs-health-text {
@@ -666,7 +798,7 @@
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
-  max-width: 280px;
+  width: min(100%, 266px);
 }
 
 .cs-week-day {
@@ -707,13 +839,13 @@
 
 .cs-week-more {
   color: var(--ink-3);
-  font-size: var(--type-label);
+  font-size: var(--type-small);
   line-height: 1;
 }
 
 .cs-week-label {
   color: var(--ink-3);
-  font-size: var(--type-label);
+  font-size: var(--type-small);
 }
 
 /* What the boards did. */
@@ -791,14 +923,23 @@
 
 /* Devices: a table, which turns into one block per board on a phone. */
 
+/* The boards as one inset group (#122), as the Overview's. */
 .cs-table-wrap {
   overflow-x: auto;
-  border-top: 2px solid var(--rule);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: var(--elevation-1);
+}
+
+.cs-table tbody tr:last-child > * {
+  border-bottom: 0;
 }
 
 .cs-table {
   width: 100%;
   border-collapse: collapse;
+  font-size: var(--type-table);
 }
 
 .cs-table th,
@@ -1613,7 +1754,7 @@
 
 .cs-count {
   color: var(--ink-3);
-  font-size: var(--type-label);
+  font-size: var(--type-small);
 }
 
 .cs-panel {
@@ -1707,7 +1848,7 @@ a.cs-panel-foot:hover {
 .cs-demo-tag {
   align-self: flex-start;
   margin-left: auto;
-  font-size: var(--type-label);
+  font-size: var(--type-small);
 }
 
 .cs-shape {
@@ -1728,7 +1869,7 @@ a.cs-panel-foot:hover {
 
 .cs-shape-time {
   color: var(--ink-3);
-  font-size: var(--type-label);
+  font-size: var(--type-small);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1746,7 +1887,7 @@ a.cs-panel-foot:hover {
 
 .cs-lane-name {
   color: var(--ink-3);
-  font-size: var(--type-label);
+  font-size: var(--type-small);
   font-weight: 600;
 }
 
@@ -1769,7 +1910,7 @@ a.cs-panel-foot:hover {
   border-radius: 3px;
   background: var(--deck-a);
   color: var(--deck-a-ink);
-  font-size: var(--type-label);
+  font-size: var(--type-small);
   font-weight: 500;
   line-height: 26px;
   text-overflow: ellipsis;
@@ -1986,7 +2127,7 @@ a.cs-panel-foot:hover {
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--well);
-  font-size: var(--type-label);
+  font-size: var(--type-small);
   font-weight: 600;
 }
 
@@ -2020,7 +2161,7 @@ a.cs-panel-foot:hover {
 
 .cs-rank {
   color: var(--ink-3);
-  font-size: var(--type-label);
+  font-size: var(--type-small);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2184,12 +2325,30 @@ a.cs-panel-foot:hover {
   margin-top: 6px;
 }
 
-.cs-boards-part {
+.cs-boards-part,
+.cs-mixes-part {
   display: grid;
+  /* One column as wide as the page, not as wide as the widest table in it. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
+  min-width: 0;
+}
+
+/* The mixes come after the boards (#122), a rule between them. */
+.cs-mixes-part {
   margin-top: clamp(8px, 1.6vw, 20px);
   padding-top: clamp(20px, 2.4vw, 32px);
   border-top: 1px solid var(--line);
+}
+
+.cs-section-head.is-mixes {
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: -6px;
+}
+
+.cs-section-head.is-mixes .cs-card-lede {
+  font-size: var(--type-table);
 }
 
 .cs-boards-part > .cs-section-head {
@@ -2330,13 +2489,14 @@ a.cs-panel-foot:hover {
     display: none;
   }
 
+  /* The bar runs edge to edge, up under the island; its tools are below the screen's top corners. */
   .cs-top {
     position: sticky;
     top: 0;
     z-index: 15;
     min-height: 0;
     padding: calc(10px + var(--safe-top)) 16px 10px;
-    background: var(--paper);
+    background: var(--bar);
   }
 
   /* A phone in landscape: the page clear of the notch or the island at either side. */
@@ -2394,34 +2554,81 @@ a.cs-panel-foot:hover {
     width: auto;
   }
 
-  .cs-body {
-    padding-bottom: calc(68px + var(--safe-bottom-bar));
+  :root {
+    --tabbar: 62px;
   }
 
+  /* The page runs on under the floating bar, to the foot of the screen; its foot is clear of the bar. */
+  .cs-body {
+    padding-bottom: calc(var(--tabbar) + var(--edge-gap) + var(--space-4));
+  }
+
+  /*
+   * The tab bar floats (#122, as the console's 2.28.0): a pill a gap in from the sides and the foot, its ends
+   * concentric with the screen's corners, and the current tab a smaller pill inside it, concentric again. Its glass
+   * is a layer of its own, so that the bar itself carries no filter.
+   */
   .cs-tabbar {
     position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
+    right: calc(var(--edge-gap) + var(--safe-right));
+    bottom: var(--edge-gap);
+    left: calc(var(--edge-gap) + var(--safe-left));
     z-index: 20;
     display: block;
-    padding: 0 var(--safe-right) var(--safe-bottom-bar) var(--safe-left);
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-tabbar);
+    box-shadow: var(--bar-lift);
   }
 
+  .cs-tabbar::before {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--bar-glass);
+    -webkit-backdrop-filter: blur(20px) saturate(1.8);
+    backdrop-filter: blur(20px) saturate(1.8);
+    content: "";
+  }
+
+  /* Five tabs of one width, unless a word needs more: "Transitions" takes what it needs and the others share the rest. */
   .cs-tabbar ul {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(max-content, 1fr));
   }
 
   .cs-tab {
+    position: relative;
+    z-index: 0;
     display: grid;
+    align-content: center;
     justify-items: center;
-    gap: 3px;
-    padding: 9px 2px 10px;
-    color: var(--ink-3);
-    font-size: var(--type-label);
-    font-weight: 500;
+    gap: 1px;
+    min-width: 0;
+    min-height: calc(var(--tabbar) - 10px);
+    padding: 4px 2px 3px;
+    color: var(--ink-2);
+    font-size: var(--type-small);
+    font-weight: 600;
+    letter-spacing: -0.01em;
     text-decoration: none;
+  }
+
+  .cs-tab .cs-nav-label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cs-tab-pill {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: var(--radius-tab);
+    background: transparent;
+    transition: background-color 0.2s var(--ease);
   }
 
   .cs-tab:hover {
@@ -2429,14 +2636,30 @@ a.cs-panel-foot:hover {
   }
 
   .cs-tab[aria-current="page"] {
-    box-shadow: inset 0 3px 0 var(--accent);
-    color: var(--ink);
-    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .cs-tab[aria-current="page"] .cs-tab-pill {
+    background: var(--accent-wash);
+  }
+
+  .cs-tab:focus-visible {
+    border-radius: var(--radius-tab);
+    outline-offset: -2px;
   }
 
   .cs-tab .icon {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
+  }
+
+  /* A message over the tab bar, as wide as it is. */
+  .toasts {
+    bottom: calc(var(--tabbar) + var(--edge-gap) + var(--space-3));
+  }
+
+  html {
+    scroll-padding-bottom: calc(var(--tabbar) + var(--edge-gap) + 0.5rem);
   }
 
   .cs-help,
@@ -2503,16 +2726,23 @@ a.cs-panel-foot:hover {
     border-top: 0;
   }
 
+  /* On a phone the words have the row: no mark, no arrow, the health as wide as the row. */
   .cs-board-link {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
+  .cs-board-mark,
   .cs-board-go {
     display: none;
   }
 
+  .cs-board-link > .cs-health {
+    grid-column: 1 / -1;
+  }
+
   .cs-page .fact {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(6.5rem, 0.42fr) minmax(0, 1fr);
+    align-items: baseline;
   }
 
   /* The table of boards as one block per board, each value under its label. */
@@ -2533,6 +2763,10 @@ a.cs-panel-foot:hover {
     gap: 8px;
     padding: 14px 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .cs-table tbody tr:last-child {
+    border-bottom: 0;
   }
 
   .cs-table th,
@@ -2594,6 +2828,13 @@ a.cs-panel-foot:hover {
  * than the screen (an iPhone 17 Pro's 402 points by 15 px, 375 px by 13, 320 px by 68): the button is its icon alone
  * there, like the two beside it, and keeps its words for a screen reader and as its tooltip.
  */
+/* A phone narrower than 360 px: five equal tabs again, a long word cut short rather than a bar wider than the screen. */
+@media (max-width: 359px) {
+  .cs-tabbar ul {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 460px) {
   .btn.cs-connect {
     flex: none;
@@ -2612,9 +2853,46 @@ a.cs-panel-foot:hover {
   }
 }
 
+/*
+ * On a phone a dialog is a sheet from the foot of the screen (#122, as the console's 2.28.0): a gap in from the sides
+ * and the foot, its four corners concentric with the screen's, its foot's buttons above the home indicator.
+ */
+@media (max-width: 700px) {
+  .dialog.cs-dialog {
+    width: calc(100% - 2 * var(--sheet-gap) - var(--safe-left) - var(--safe-right));
+    max-width: 100%;
+    max-height: calc(100dvh - var(--safe-top) - 24px);
+    margin: auto auto var(--sheet-gap);
+    border: 0;
+    border-radius: var(--radius-sheet);
+  }
+
+  .dialog.cs-dialog[open] {
+    animation: sheet-up 0.32s var(--ease) backwards;
+  }
+
+  .cs-dialog .dialog-head {
+    padding: 22px 16px 4px 22px;
+  }
+
+  .cs-dialog .dialog-body {
+    padding: 12px 22px 20px;
+  }
+
+  .cs-dialog .dialog-foot {
+    padding: 14px 22px calc(14px + max(0px, var(--safe-bottom) - var(--sheet-gap)));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cs-hero-sleeve {
     transform: none;
+  }
+
+  .dialog.cs-dialog[open],
+  .cs-tab-pill {
+    animation: none;
+    transition: none;
   }
 }
 
@@ -2706,7 +2984,7 @@ a.cs-panel-foot:hover {
 .cs-daybar-count,
 .cs-daybar-day {
   color: var(--ink-3);
-  font-size: var(--type-label);
+  font-size: var(--type-small);
 }
 
 .cs-daybar-fill {

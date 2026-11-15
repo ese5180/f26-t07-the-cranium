@@ -104,6 +104,7 @@ craniumiot.com is where device owners sign in and see their own boards and nothi
 | Admin mode | Team members open the console from the customer site | One domain for customers, one for the team |
 | Customer accounts | Release managers hand out accounts and boards from the console's Customers page | A customer sees only their boards |
 | My boards | Each board with a health dot, its week in a sentence, restarts by day, firmware and last report | Health in plain words, not raw metrics |
+| Boards-first redesign | The Overview opens on the boards and their health in words, then the mixes; a floating tab bar and sheets shaped for the iPhone 17 Pro's corners | Same tokens and phone frame as the console |
 | Product pages | Mixes, Now playing, play times and Your listening, from the board's sessions | Swap in your own product's telemetry |
 | Public front page | What the product is and how updates work, readable without JavaScript | Plain HTML |
 | Shared design | The console's tokens, with the site's own dark sidebar | One design system, two products |
@@ -162,6 +163,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-15 | Customer site redesign: boards before mixes, health in plain words, label first, floating tab bar for the iPhone 17 Pro | console 2.27.10 | #257 |
 | 2026-11-12 | Events timeline: group numbers readable, no overlaps, inside the plot on a phone | console 2.27.7 | #250 |
 | 2026-11-12 | Make golden: a release's signed golden record, its promotion to boards, each board's golden image | console 2.27.7 | #250 |
 | 2026-11-11 | Board log keeps location lines; refused Bluetooth and cloud updates for another board shown, warned and alerted | console 2.27.6 | #241 |
