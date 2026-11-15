@@ -78,6 +78,9 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12' # As in the toolchain image.
+      # The Pi's sender against a fake board (standard library only; no SPI hardware in CI).
+      - name: Test the Pi link's sender
+        run: python3 pi/tests/test_cranium_link.py
       - name: Install what the tools and imgtool need
         run: python3 -m pip install --quiet --requirement firmware/tests/requirements.txt
       - name: Fetch the files of the SDK that the tests read
