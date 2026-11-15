@@ -1056,10 +1056,10 @@ export function deviceView(ctx) {
     { class: 'cs-page', key: `device-${board.id}` },
     back,
     head({
-      eyebrow: 'Your board',
-      // Its label as the title, the board's own name second (the console's ui-board).
+      // Its label as the title, the board's own name second (the console's ui-board), in the words the phone apps'
+      // Classic screen has for it (CustomerWords.swift, CustomerText.kt).
       title: boardTitle(board),
-      id: board.boardName && board.boardName !== board.name ? h('span', { class: 'mono' }, board.boardName) : null,
+      id: board.boardName && board.boardName !== board.name ? `Board ${board.boardName}` : null,
       lede: words.text,
       tools: [
         badge(words.tone, words.icon, words.label),
