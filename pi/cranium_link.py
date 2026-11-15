@@ -172,14 +172,17 @@ class Link:
             payload = payload.encode("utf-8")
         if len(payload) > PAYLOAD_MAX:
             raise ValueError(f"message of {len(payload)} bytes; at most {PAYLOAD_MAX}")
-        self.seq = (self.seq + 1) & 0xffff
-        data = Frame(DATA, self.session, self.seq, 0, payload)
+        # The seq moves on only once the board has acknowledged: a message that comes back here after
+        # a failed round keeps its seq, so a board that took it but whose ack was lost does not take it twice.
+        seq = (self.seq + 1) & 0xffff
+        data = Frame(DATA, self.session, seq, 0, payload)
         for attempt in range(attempts):
             if attempt:
                 self.stats["resent"] += 1
             self.transfer(data)
             got = self.status()
-            if got is not None and got.session == self.session and got.ack == self.seq:
+            if got is not None and got.session == self.session and got.ack == seq:
+                self.seq = seq
                 self.stats["sent"] += 1
                 return True
         self.stats["failed"] += 1
@@ -252,6 +255,8 @@ def follow(link, follower, waiting=None, report_every=60.0, clock=time.monotonic
                 continue
             if len(waiting) == waiting.maxlen:
                 link.stats["dropped"] += 1
+                # The dropped message's seq is used up: the board may have taken it.
+                link.seq = (link.seq + 1) & 0xffff
             waiting.append(line)
         while waiting:
             if not link.send(waiting[0]):
