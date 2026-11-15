@@ -39,6 +39,7 @@ import {
   onlineWords,
   otpauthUri,
   plural,
+  restartSummary,
   restartWeek,
   shortVersion,
   signalWords,
@@ -109,9 +110,13 @@ function ago(iso, now) {
 
 // The frame of a signed-in page.
 
-// [the section, its address, its name, its icon]: the mixes first, as in the mockup, then the boards.
-const WORKSPACE = Object.freeze([
+// [the section, its address, its name, its icon]: the boards first (console 2.27.10, #122), then the mixes, then the
+// account and the help.
+const STUDIO = Object.freeze([
   ['overview', '#/overview', 'Overview', 'grid'],
+  ['devices', '#/devices', 'Devices', 'chip'],
+]);
+const MIXES = Object.freeze([
   ['mixes:sessions', '#/mixes/sessions', 'Sessions', 'layers'],
   ['mixes:transitions', '#/mixes/transitions', 'Transitions', 'swap'],
   ['mixes:library', '#/mixes/library', 'Track library', 'note'],
@@ -119,14 +124,13 @@ const WORKSPACE = Object.freeze([
   ['mixes:moments', '#/mixes/moments', 'Saved moments', 'bookmark'],
 ]);
 const CRANIUM = Object.freeze([
-  ['devices', '#/devices', 'Devices', 'chip'],
   ['account', '#/account', 'Account', 'user'],
   ['help', '#/help', 'Help', 'help'],
   ['about', '#/about', 'About', 'info'],
 ]);
-// The tab bar of a small screen: the five a phone needs most. Account is in its top bar; Help and About
-// are in the foot of every page.
-const TABS = Object.freeze(['overview', 'mixes:sessions', 'mixes:transitions', 'mixes:library', 'devices']);
+// The tab bar of a small screen: the five a phone needs most, the boards first. Account is in its top bar; Help and
+// About are in the foot of every page.
+const TABS = Object.freeze(['overview', 'devices', 'mixes:sessions', 'mixes:transitions', 'mixes:library']);
 const SHORT = { 'mixes:library': 'Library', 'mixes:moments': 'Moments' };
 const TITLES = {
   overview: 'Overview',
@@ -186,7 +190,7 @@ function craniumItems(ctx) {
   return [...CRANIUM, ['offline', offlineHref(ctx.site.adminPath), 'Offline mode', 'cloud-off']];
 }
 
-function navLinks(items, current, className, ctx, { short = false } = {}) {
+function navLinks(items, current, className, ctx, { short = false, pill = false } = {}) {
   return items.map(([section, href, label, iconName]) =>
     h(
       'li',
@@ -198,6 +202,8 @@ function navLinks(items, current, className, ctx, { short = false } = {}) {
           href,
           'aria-current': section === current ? 'page' : null,
         },
+        // The current tab's pill on a phone, concentric with the floating bar it is in.
+        pill ? h('span', { class: 'cs-tab-pill', 'aria-hidden': 'true' }) : null,
         siteOrMixIcon(iconName),
         h('span', { class: 'cs-nav-label' }, short ? (SHORT[section] ?? label) : label),
         section === 'mixes:moments' && ctx
@@ -286,9 +292,11 @@ export function shellView(ctx, page) {
       h(
         'nav',
         { class: 'cs-nav', 'aria-label': 'Sections' },
-        h('p', { class: 'eyebrow cs-nav-title' }, 'Your workspace'),
-        h('ul', { class: 'cs-nav-list' }, navLinks(WORKSPACE, current, 'cs-nav-link', ctx)),
         h('p', { class: 'eyebrow cs-nav-title' }, 'Your Cranium'),
+        h('ul', { class: 'cs-nav-list' }, navLinks(STUDIO, current, 'cs-nav-link')),
+        h('p', { class: 'eyebrow cs-nav-title' }, 'Your mixes'),
+        h('ul', { class: 'cs-nav-list' }, navLinks(MIXES, current, 'cs-nav-link', ctx)),
+        h('p', { class: 'eyebrow cs-nav-title' }, 'Your account'),
         h('ul', { class: 'cs-nav-list' }, navLinks(craniumItems(ctx), current, 'cs-nav-link'))
       ),
       h(
@@ -385,18 +393,19 @@ export function shellView(ctx, page) {
         footLinks()
       )
     ),
+    // A floating bar on a phone, as the console's (2.28.0): glass, a gap in from the screen's rounded corners.
     h(
       'nav',
-      { class: 'cs-tabbar on-ink', 'aria-label': 'Sections' },
+      { class: 'cs-tabbar', 'aria-label': 'Sections' },
       h(
         'ul',
         null,
         navLinks(
-          [...WORKSPACE, ...CRANIUM].filter(([section]) => TABS.includes(section)),
+          TABS.map((tab) => [...STUDIO, ...MIXES].find(([section]) => section === tab)),
           current,
           'cs-tab',
           null,
-          { short: true }
+          { short: true, pill: true }
         )
       )
     ),
@@ -550,7 +559,8 @@ function waitingCard(ctx, board) {
   );
 }
 
-function head({ eyebrow, title, lede, tools }) {
+/** A page's head: the eyebrow, the title, under it what names it second (a board's own name), the lede, the tools. */
+function head({ eyebrow, title, id, lede, tools }) {
   return h(
     'header',
     { class: 'cs-head' },
@@ -559,6 +569,7 @@ function head({ eyebrow, title, lede, tools }) {
       { class: 'cs-head-text' },
       eyebrow ? h('p', { class: 'eyebrow' }, eyebrow) : null,
       h('h1', { class: 'cs-title', id: 'page-title', tabindex: '-1' }, title),
+      id ? h('p', { class: 'cs-head-id' }, id) : null,
       lede ? h('p', { class: 'cs-lede' }, lede) : null
     ),
     tools ? h('div', { class: 'cs-head-tools' }, tools) : null
@@ -637,7 +648,10 @@ function restartStrip(board, now) {
   );
 }
 
-/** A board's health: the dot and the sentence, and the week's strip unless it is left out. */
+/**
+ * A board's health in plain words (#122): the dot and the sentence first, as the thing to read; then the week's strip
+ * with what it draws said beside it ("No restarts this week"), unless the strip is left out.
+ */
 function healthPart(board, now, { strip = true } = {}) {
   const words = healthWords(board);
   if (words === null) return null;
@@ -650,7 +664,14 @@ function healthPart(board, now, { strip = true } = {}) {
       healthDot(board, { said: false }),
       h('span', { class: 'cs-health-text' }, words.text)
     ),
-    strip ? restartStrip(board, now) : null
+    strip
+      ? h(
+          'span',
+          { class: 'cs-health-week' },
+          restartStrip(board, now),
+          h('span', { class: 'cs-health-count' }, restartSummary(board.health))
+        )
+      : null
   );
 }
 
@@ -717,18 +738,22 @@ function boardRow(board, now) {
       h(
         'span',
         { class: 'cs-board-main' },
+        // The label first, the board's own name second (the console's ui-board).
         h('span', { class: 'cs-board-name' }, boardTitle(board)),
+        board.boardName && board.boardName !== board.name
+          ? h('span', { class: 'cs-board-id mono' }, board.boardName)
+          : null,
         h(
           'span',
           { class: 'cs-board-meta' },
           board.firmware ? `Firmware ${shortVersion(board.firmware.version)}` : 'Firmware not reported',
           ' · ',
           board.lastSeen ? ['Heard from ', ago(board.lastSeen, now)] : 'Not heard from yet'
-        ),
-        healthPart(board, now)
+        )
       ),
       h('span', { class: 'cs-board-state' }, badge(words.tone, words.icon, words.label)),
-      icon('arrow-right', 'cs-board-go')
+      icon('arrow-right', 'cs-board-go'),
+      healthPart(board, now)
     )
   );
 }
@@ -761,6 +786,30 @@ function activityList(events, boards, now, { compact = false } = {}) {
 }
 
 /**
+ * The mixes' part of the Overview, under the boards (#122): its own heading with the mixes' words, the range and
+ * Import, then the demo or the journal.
+ */
+function mixesPart(ctx) {
+  return h(
+    'section',
+    { class: 'cs-mixes-part', key: 'mixes-part', 'aria-labelledby': 'mixes-title' },
+    h(
+      'header',
+      { class: 'cs-section-head is-mixes' },
+      h(
+        'div',
+        { class: 'cs-boards-head' },
+        h('p', { class: 'eyebrow' }, MIXES_EYEBROW),
+        h('h2', { class: 'cs-section-title', id: 'mixes-title' }, MIXES_TITLE),
+        h('p', { class: 'cs-card-lede' }, MIXES_LEDE)
+      ),
+      h('div', { class: 'cs-head-tools' }, mixTools(ctx))
+    ),
+    overviewMixes(ctx)
+  );
+}
+
+/**
  * An admin without a customer account sees the customer's Overview as it is (the mixes work from the demo or
  * their own journal, kept in this browser), with admin mode where a customer sees their boards: the boards of a
  * customer come from the customer API, which an admin's sign-in does not open.
@@ -771,12 +820,10 @@ function adminOverview(ctx) {
     'div',
     { class: 'cs-page', key: 'admin' },
     head({
-      eyebrow: MIXES_EYEBROW,
-      title: MIXES_TITLE,
-      lede: `${WELCOME} ${MIXES_LEDE}`,
-      tools: mixTools(ctx),
+      eyebrow: 'Your studio',
+      title: WELCOME,
+      lede: 'Signed in as an admin: the console is one step away.',
     }),
-    overviewMixes(ctx),
     h(
       'section',
       { class: 'panel on-ink cs-admin-panel', key: 'admin-panel' },
@@ -791,10 +838,12 @@ function adminOverview(ctx) {
           'give them their boards.'
       ),
       h('a', { class: 'btn is-primary is-large', href: ctx.site.adminPath }, icon('key'), 'Open admin mode')
-    )
+    ),
+    mixesPart(ctx)
   );
 }
 
+/** A customer's Overview: their boards and how each is first (#122), what they did beside them, then the mixes. */
 export function overviewView(ctx) {
   if (!ctx.state.customer) return adminOverview(ctx);
   const { boards, activity, me } = ctx.state;
@@ -804,12 +853,10 @@ export function overviewView(ctx) {
     'div',
     { class: 'cs-page', key: 'overview' },
     head({
-      eyebrow: MIXES_EYEBROW,
-      title: MIXES_TITLE,
-      lede: `${name ? `Hello, ${name}.` : WELCOME} ${MIXES_LEDE}`,
-      tools: mixTools(ctx),
+      eyebrow: 'Your studio',
+      title: name ? `Hello, ${name}.` : WELCOME,
+      lede: BOARDS_LEDE,
     }),
-    overviewMixes(ctx),
     h(
       'section',
       { class: 'cs-boards-part', key: 'boards-part', 'aria-labelledby': 'boards-title' },
@@ -820,8 +867,7 @@ export function overviewView(ctx) {
           'div',
           { class: 'cs-boards-head' },
           h('p', { class: 'eyebrow' }, BOARDS_EYEBROW),
-          h('h2', { class: 'cs-section-title', id: 'boards-title' }, 'Your boards'),
-          h('p', { class: 'cs-card-lede' }, BOARDS_LEDE)
+          h('h2', { class: 'cs-section-title', id: 'boards-title' }, 'Your boards')
         ),
         list && list.length > 0
           ? h('a', { class: 'cs-link-quiet', href: '#/devices' }, 'All devices', icon('arrow-right'))
@@ -833,27 +879,24 @@ export function overviewView(ctx) {
           ? null
           : loadingLine('your boards')
         : [
-            tiles(list, ctx.now),
             h(
               'div',
               { class: 'cs-columns', key: 'board-columns' },
               h(
                 'div',
                 { class: 'cs-column' },
-                card(
-                  { key: 'boards', title: 'On your account' },
-                  list.length === 0
-                    ? empty({
-                        iconName: 'chip',
-                        title: 'No boards on your account yet.',
-                        text: 'Once Cranium gives you a board, it shows here.',
-                      })
-                    : h(
-                        'ul',
-                        { class: 'cs-boards' },
-                        list.map((board) => boardRow(board, ctx.now))
-                      )
-                )
+                // The boards as one grouped list (the console's inset groups), each with its health in words.
+                list.length === 0
+                  ? empty({
+                      iconName: 'chip',
+                      title: 'No boards on your account yet.',
+                      text: 'Once Cranium gives you a board, it shows here.',
+                    })
+                  : h(
+                      'ul',
+                      { class: 'cs-boards is-group', key: 'boards', 'aria-label': 'On your account' },
+                      list.map((board) => boardRow(board, ctx.now))
+                    )
               ),
               h(
                 'div',
@@ -871,8 +914,10 @@ export function overviewView(ctx) {
                 )
               )
             ),
+            tiles(list, ctx.now),
           ]
-    )
+    ),
+    mixesPart(ctx)
   );
 }
 
@@ -1011,8 +1056,10 @@ export function deviceView(ctx) {
     { class: 'cs-page', key: `device-${board.id}` },
     back,
     head({
-      eyebrow: board.boardName && board.boardName !== board.name ? `Board ${board.boardName}` : 'Board',
+      eyebrow: 'Your board',
+      // Its label as the title, the board's own name second (the console's ui-board).
       title: boardTitle(board),
+      id: board.boardName && board.boardName !== board.name ? h('span', { class: 'mono' }, board.boardName) : null,
       lede: words.text,
       tools: [
         badge(words.tone, words.icon, words.label),

@@ -653,6 +653,19 @@ test("a board's health is read with care, said in plain words in the reader's ti
   );
 });
 
+test("the week's restarts in plain words, under the strip that draws them (#122)", () => {
+  const restarts = (...kinds) => ({
+    restarts7d: kinds.map((unexpected) => ({ at: '2026-11-03T09:00:00.000Z', unexpected })),
+  });
+  assert.equal(site.restartSummary(null), 'No restarts this week');
+  assert.equal(site.restartSummary(restarts()), 'No restarts this week');
+  assert.equal(site.restartSummary(restarts(false)), '1 restart this week, expected');
+  assert.equal(site.restartSummary(restarts(true)), '1 restart this week, unexpected');
+  assert.equal(site.restartSummary(restarts(false, false)), '2 restarts this week, all expected');
+  assert.equal(site.restartSummary(restarts(true, true)), '2 restarts this week, all unexpected');
+  assert.equal(site.restartSummary(BOARD.health), '3 restarts this week: 2 unexpected');
+});
+
 test('what a board is doing, in plain words, for every state and every result', () => {
   const now = Date.parse('2026-11-04T12:00:00.000Z');
   assert.deepEqual(site.statusWords(BOARD, now), {
@@ -1437,6 +1450,26 @@ test('the overview: figures, the boards and what they did; the account page labe
   // Each board on the overview says how its week went, with its strip.
   assert.match(tab.text(), /Restarted unexpectedly twice this week/);
   assert.equal(all(tab.app, 'span.cs-week').length, 1);
+  // The boards come before the mixes (#122): the page's title greets, the boards' part is first, the mixes' after.
+  assert.equal(textOf(tab.document.getElementById('page-title')), 'Hello, Ada.');
+  const parts = descendants(tab.app)
+    .map((el) => el.getAttribute?.('class'))
+    .filter((name) => name === 'cs-boards-part' || name === 'cs-mixes-part');
+  assert.deepEqual(parts, ['cs-boards-part', 'cs-mixes-part']);
+  assert.ok(tab.text().indexOf('Your boards') < tab.text().indexOf('Find your next great mix.'));
+  // Each board's health in words: the sentence, then what its strip draws.
+  assert.match(tab.text(), /Restarted unexpectedly twice this week.*3 restarts this week: 2 unexpected/);
+  // The label first, the board's own name second.
+  const row = one(tab.app, 'li.cs-board');
+  const name = textOf(one(row, 'span.cs-board-name'));
+  assert.ok(textOf(row).indexOf(name) < textOf(row).indexOf(BOARD.boardName ?? name));
+  // The tab bar of a phone: the boards first, then the mixes.
+  assert.deepEqual(
+    all(tab.app, 'a')
+      .filter((link) => link.getAttribute('class') === 'cs-tab')
+      .map((link) => link.getAttribute('href')),
+    ['#/overview', '#/devices', '#/mixes/sessions', '#/mixes/transitions', '#/mixes/library']
+  );
   tab.go('#/account');
   await until(() => tab.document.getElementById('current-password') !== null, 'the account page');
   for (const el of descendants(tab.app).filter(
@@ -1547,7 +1580,7 @@ test('an admin signs in on the one form with password and code, lands in admin m
   // Every link of the side panel (and of the tab bar of a small screen) opens its own page for an admin, who has no
   // boards of their own: not the overview, which Devices and Account once fell back to.
   const titles = new Map([
-    ['overview', 'Find your next great mix.'],
+    ['overview', 'Welcome back.'],
     ['devices', 'Boards, for admins'],
     ...MIX_TITLES,
     ['account', 'Your account'],
@@ -1572,7 +1605,7 @@ const MIX_TITLES = [
   ['mixes/listening', 'Your week on the decks.'],
   ['mixes/moments', 'Keep the good ones.'],
 ];
-const TAB_BAR = ['overview', 'mixes/sessions', 'mixes/transitions', 'mixes/library', 'devices'];
+const TAB_BAR = ['overview', 'devices', 'mixes/sessions', 'mixes/transitions', 'mixes/library'];
 
 /** Click each link of the sections, as the browser follows an anchor, and check the page that opens. */
 async function openEverySection(tab, titles) {
@@ -1603,7 +1636,7 @@ test('a customer opens every section of the side panel and the tab bar, and each
   await signInAsCustomer(tab);
   await until(() => all(tab.app, 'div.cs-tiles').length === 2, 'the overview');
   const titles = new Map([
-    ['overview', 'Find your next great mix.'],
+    ['overview', 'Hello, Ada.'],
     ['devices', 'Your boards'],
     ...MIX_TITLES,
     ['account', 'Your account'],
