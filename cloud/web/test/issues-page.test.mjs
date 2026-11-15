@@ -77,10 +77,12 @@ test('the Issues page and an issue have addresses of their own, under Memfault i
   assert.equal(core.routeHash({ view: 'own-issue', id: 'javascript:x' }), '#/overview');
   assert.equal(issues.ownIssueHref(ID), `#/issues/${ID}`);
   assert.equal(issues.ownIssueHref('x'), null);
-  // Memfault stays current in the sections on both pages.
+  // Crashes (Memfault's section, console 2.28.0) stays current in the sections on both pages, under Monitoring.
   for (const route of [{ view: 'issues' }, { view: 'own-issue', id: ID }]) {
     const nav = draw(views.navView({ state: { route, me: { canWrite: false } }, actions: {} }));
-    assert.equal(one(nav, 'a', 'Memfault').getAttribute('aria-current'), 'page');
+    const link = one(nav, 'a', 'Crashes');
+    assert.equal(link.getAttribute('href'), '#/memfault');
+    assert.equal(link.getAttribute('aria-current'), 'page');
   }
 });
 
@@ -156,6 +158,14 @@ test('the Issues page lists the issues with their status, and says when there ar
   };
   const root = draw(issues.issuesView(ctx({ view: 'issues' }, state)));
   assert.equal(textOf(one(root, 'h1')), 'Issues');
+  // The Crashes tabs: Memfault's issues and ours, this one current.
+  const tabs = one(root, 'nav.crash-tabs');
+  assert.equal(one(tabs, 'a', 'Our issues').getAttribute('aria-current'), 'page');
+  assert.equal(one(tabs, 'a', 'Memfault').getAttribute('href'), '#/memfault');
+  // The figures are the shared stat tiles.
+  const figures = one(root, 'dl.ui-stats');
+  assert.ok(figures.getAttribute('class').includes('is-tiles'));
+  assert.match(textOf(figures), /Issues 2 in 90 days/);
   const rows = all(root, '.own-issue-row');
   assert.equal(rows.length, 2);
   assert.equal(one(rows[0], 'a.row-title').getAttribute('href'), `#/issues/${ID}`);
@@ -200,8 +210,15 @@ test("an issue's page shows the regression, its boards and its timeline", () => 
   assert.match(textOf(one(root, 'h1')), /Reset by the watchdog/);
   assert.equal(one(root, 'a.back').getAttribute('href'), '#/issues');
   assert.match(textOf(root), /Fixed in 1\.14\.0\+0, and back in 1\.15\.0\+0\./);
-  assert.equal(all(root, '.own-issue-board').length, 2);
-  assert.equal(one(all(root, '.own-issue-board')[0], 'a').getAttribute('href'), `#/devices/${A}`);
+  // The boards are a shared table that stacks on a phone, each named as a ui-board.
+  const table = one(root, 'table.ui-table');
+  assert.ok(table.getAttribute('class').includes('is-stacked'));
+  assert.equal(all(table, '.own-issue-board').length, 2);
+  assert.equal(one(all(root, '.own-issue-board')[0], 'a.ui-board').getAttribute('href'), `#/devices/${A}`);
+  assert.equal(all(table, 'td').filter((cell) => cell.getAttribute('data-label') === 'Times').length, 2);
+  // Times and dates are drawn as times, never as "[object Object]".
+  assert.doesNotMatch(textOf(root), /object Object/);
+  assert.match(textOf(one(root, 'dl.ui-stats')), /Regressed/);
   assert.equal(all(one(root, '.own-issue-timeline'), 'li').length, 2);
   assert.match(textOf(one(root, '.own-issue-sig')), /reset:watchdog/);
 
@@ -212,7 +229,7 @@ test("an issue's page shows the regression, its boards and its timeline", () => 
   assert.equal(one(waiting, 'a.back').getAttribute('href'), '#/issues');
 });
 
-test('the Memfault page links to our own issues, and still draws as before', () => {
+test('the Crashes page has the same tabs to our own issues, and still draws as before', () => {
   const root = draw(
     memfault.memfaultView({
       state: {
@@ -225,6 +242,8 @@ test('the Memfault page links to our own issues, and still draws as before', () 
       actions: {},
     })
   );
-  assert.equal(textOf(one(root, 'h1')), 'Memfault');
-  assert.equal(one(root, 'a', 'Our own issues').getAttribute('href'), '#/issues');
+  assert.equal(textOf(one(root, 'h1')), 'Crashes');
+  const tabs = one(root, 'nav.crash-tabs');
+  assert.equal(one(tabs, 'a', 'Memfault').getAttribute('aria-current'), 'page');
+  assert.equal(one(tabs, 'a', 'Our issues').getAttribute('href'), '#/issues');
 });

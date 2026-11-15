@@ -2307,6 +2307,34 @@ export function developerTabs(current) {
   );
 }
 
+/**
+ * The pages under Crashes (console 2.28.2): Memfault's issues and traces (memfault-page.js) and our own issues,
+ * made from the boards' events (issues-page.js). Drawn as the Developer pages' tabs are.
+ */
+export function crashTabs(current) {
+  return h(
+    'nav',
+    { class: 'dev-tabs crash-tabs', key: 'tabs', 'aria-label': 'Crashes pages' },
+    h('span', { class: 'eyebrow' }, 'Crashes'),
+    [
+      ['memfault', 'Memfault'],
+      ['issues', 'Our issues'],
+    ].map(([view, label]) =>
+      h(
+        'a',
+        {
+          key: view,
+          class: 'nav-link',
+          href: `#/${view}`,
+          'data-label': label,
+          'aria-current': view === current ? 'page' : null,
+        },
+        label
+      )
+    )
+  );
+}
+
 /** Such a page while its script is on the way, or when it could not be fetched. */
 export function scriptPending(ctx, view, title, { tabs = true } = {}) {
   return h(

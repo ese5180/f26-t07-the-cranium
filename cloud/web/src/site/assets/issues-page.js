@@ -9,11 +9,11 @@
  * Fetched when one of these pages is first opened (app.js).
  */
 
-import { OWN_ISSUE, boardName, isThing, plural } from './core.js';
+import { OWN_ISSUE, boardName, deviceHref, isThing, plural } from './core.js';
 import {
   badge,
-  boardLabel,
   card,
+  crashTabs,
   empty,
   filterBar,
   filterSelect,
@@ -25,7 +25,7 @@ import {
   notice,
   pageHead,
   pending,
-  stats,
+  thingId,
   when,
   whenAt,
 } from './views.js';
@@ -273,12 +273,85 @@ function unreadNotice(data) {
   );
 }
 
+/**
+ * Stat tiles (the shared `ui-stats is-tiles`, console 2.25.17): a figure with its label under it, a tile each.
+ * The value may be words or nodes, such as a time or versions.
+ */
+function tiles(rows) {
+  return h(
+    'dl',
+    { class: 'ui-stats is-tiles own-issue-tiles', key: 'tiles' },
+    rows.map(([label, value, note]) =>
+      h(
+        'div',
+        { key: label, class: 'ui-stat' },
+        h('dt', { class: 'ui-stat-label' }, label),
+        h('dd', { class: 'ui-stat-value' }, value),
+        note ? h('dd', { class: 'ui-stat-note' }, note) : null
+      )
+    )
+  );
+}
+
+/** A board as the shared `ui-board` names one: its label first, its thing name second, as a link to its page. */
+function boardCell(board) {
+  const named = boardName(board) !== board.thing;
+  return h(
+    'a',
+    { class: 'ui-board', href: deviceHref(board.thing), title: board.thing },
+    h('span', { class: 'ui-board-label' }, named ? boardName(board) : thingId(board.thing)),
+    named ? h('span', { class: 'ui-board-id' }, board.thing) : null
+  );
+}
+
+/** The boards an issue hit, as a shared table (`ui-table`): a card per row on a phone (`is-stacked`). */
+function boardsTable(ctx, perBoard, now) {
+  return h(
+    'div',
+    { class: 'ui-table-wrap', key: 'boards', tabindex: '0', role: 'region', 'aria-label': 'Boards with this issue' },
+    h(
+      'table',
+      { class: 'ui-table is-stacked own-issue-boards' },
+      h(
+        'thead',
+        null,
+        h(
+          'tr',
+          null,
+          h('th', { scope: 'col' }, 'Board'),
+          h('th', { scope: 'col', class: 'is-num' }, 'Times'),
+          h('th', { scope: 'col' }, 'Versions'),
+          h('th', { scope: 'col' }, 'Last seen')
+        )
+      ),
+      h(
+        'tbody',
+        null,
+        perBoard.map((one) =>
+          h(
+            'tr',
+            { key: one.thing, class: 'own-issue-board' },
+            h('th', { scope: 'row' }, boardCell(boardOf(ctx, one.thing))),
+            h('td', { class: 'is-num', 'data-label': 'Times' }, String(one.count)),
+            h(
+              'td',
+              { 'data-label': 'Versions' },
+              one.versions.length ? one.versions.map((version, at) => [at ? ', ' : null, mono(version)]) : '-'
+            ),
+            h('td', { 'data-label': 'Last seen' }, when(one.lastSeen, now) ?? '-')
+          )
+        )
+      )
+    )
+  );
+}
+
 const HOW = {
   title: 'How issues are made',
   text: [
     'Each restart a board reports that says something went wrong is counted: the watchdog, a brownout, a lockup, a restart for being stuck. A restart by the reset pin, by an update or by a loss of power is not.',
     'Restarts with the same reason, and later the same place in the code, are one issue. An issue is fixed in a newer version that ran without it, and regressed when it comes back in a version after that.',
-    `The console makes them from the events of the last ${ISSUE_DAYS} days. Memfault's issues stay on the Memfault page.`,
+    `The console makes them from the events of the last ${ISSUE_DAYS} days. Memfault's own issues stay on the Crashes page.`,
   ],
 };
 
@@ -286,12 +359,14 @@ const HOW = {
 export function issuesView(ctx) {
   const { state } = ctx;
   const target = state.ownIssues?.list ?? resource();
-  const head = pageHead({
-    title: 'Issues',
-    back: { href: '#/memfault', label: 'Memfault' },
-    lede: 'Crashes, faults and stuck restarts from the boards, grouped by what went wrong.',
-    how: HOW,
-  });
+  const head = [
+    crashTabs('issues'),
+    pageHead({
+      title: 'Issues',
+      lede: 'Crashes, faults and stuck restarts from the boards, grouped by what went wrong.',
+      how: HOW,
+    }),
+  ];
   const data = target.value;
   if (!data)
     return h('div', { class: 'page' }, head, loadProblem(target, 'the issues', ctx), pending(target, 'the issues'));
@@ -303,15 +378,12 @@ export function issuesView(ctx) {
     head,
     loadProblem(target, 'the issues', ctx),
     unreadNotice(data),
-    card(
-      { key: 'summary' },
-      stats([
-        ['Issues', String(data.issues.length), `in ${data.days ?? ISSUE_DAYS} days`],
-        ['Not fixed', String(open)],
-        ['Regressed', String(regressed)],
-        ['Boards', String(data.boards)],
-      ])
-    ),
+    tiles([
+      ['Issues', String(data.issues.length), `in ${data.days ?? ISSUE_DAYS} days`],
+      ['Not fixed', String(open)],
+      ['Regressed', String(regressed)],
+      ['Boards watched', String(data.boards)],
+    ]),
     card(
       { key: 'issues', title: 'Issues' },
       data.issues.length === 0
@@ -365,39 +437,13 @@ export function ownIssueView(ctx) {
           notice('bad', 'restart', `Fixed in ${issue.fixedIn}, and back in ${issue.regressedIn}.`)
         )
       : null,
-    card(
-      { key: 'facts' },
-      stats([
-        ['First seen', whenAt(issue.firstSeen, now) ?? '-'],
-        ['Last seen', whenAt(issue.lastSeen, now) ?? '-'],
-        ['Versions', issue.versions.length ? issue.versions.map((one, at) => [at ? ', ' : null, mono(one)]) : '-'],
-      ])
-    ),
-    card(
-      { key: 'boards', title: 'Boards' },
-      h(
-        'ul',
-        { class: 'rows', key: 'boards' },
-        data.perBoard.map((one) =>
-          h(
-            'li',
-            { key: one.thing, class: 'row own-issue-board' },
-            h(
-              'div',
-              { class: 'row-main' },
-              boardLabel(boardOf(ctx, one.thing), 'row-title'),
-              h(
-                'span',
-                { class: 'row-note dotted' },
-                h('span', { key: 'count' }, plural(one.count, 'time', 'times')),
-                one.versions.length ? h('span', { key: 'versions' }, 'on ', one.versions.join(', ')) : null,
-                one.lastSeen ? h('span', { key: 'seen' }, 'last ', when(one.lastSeen, now)) : null
-              )
-            )
-          )
-        )
-      )
-    ),
+    tiles([
+      ['Times', String(issue.count), plural(issue.boards, 'board', 'boards')],
+      ['First seen', when(issue.firstSeen, now) ?? '-', issue.firstVersion ? mono(issue.firstVersion) : null],
+      ['Last seen', when(issue.lastSeen, now) ?? '-', issue.lastVersion ? mono(issue.lastVersion) : null],
+      ['Status', STATUS_LOOK[issue.status][2], issue.fixedIn ? ['Fixed in ', mono(issue.fixedIn)] : null],
+    ]),
+    card({ key: 'boards', title: 'Boards' }, boardsTable(ctx, data.perBoard, now)),
     card(
       { key: 'timeline', title: 'Timeline' },
       h(
@@ -415,7 +461,11 @@ export function ownIssueView(ctx) {
                 'span',
                 { class: 'row-note dotted' },
                 h('span', { key: 'when' }, whenAt(one.at, now)),
-                h('span', { key: 'board' }, boardName(boardOf(ctx, one.thing), { short: true })),
+                h(
+                  'a',
+                  { key: 'board', href: deviceHref(one.thing) },
+                  boardName(boardOf(ctx, one.thing), { short: true })
+                ),
                 one.version ? h('span', { key: 'version' }, 'on ', mono(one.version)) : null
               )
             )

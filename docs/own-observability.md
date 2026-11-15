@@ -3,7 +3,7 @@
 What Memfault does for the boards today, built into our own firmware, cloud and console, so that the
 platform does it on its own. Memfault stays connected until ours covers each part (issue #236). This page is
 the design for every row of the gap table in #236 and the order the stages land in. Stage 1, **Issues**, is
-built (console 2.27.9); the rest is the plan.
+built (console 2.28.2); the rest is the plan.
 
 Everything here lives in the stack we already run (`cloud/infra/template.yaml`): the events table, the state
 table and the firmware bucket, all pay-per-request, and the API function. No new service, and nothing a board
@@ -73,9 +73,10 @@ needs one, and the Database page, the backups and the permissions follow it with
   for every member, from the website, an app or an API token, like the events. Made on each read from each
   board's restart and firmware events in the window: one Query per board. A board whose events cannot be
   read is counted in `unread`.
-- **Console**: the Issues page (`#/issues`, `issues-page.js`), under Memfault in the sections, linked from the
-  Memfault page: counts, status (Open, Fixed in, Regressed in), search and a status filter; an issue's page
-  with its boards and its timeline. Memfault's own issues stay on the Memfault page.
+- **Console**: the Issues page (`#/issues`, `issues-page.js`) under Crashes in the navigation (Monitoring), a tab
+  beside Memfault's issues on the Crashes page (`views.js` `crashTabs`): stat tiles, status (Open, Fixed in,
+  Regressed in), search and a status filter; an issue's page with stat tiles, its boards in a shared table that
+  stacks on a phone, and its timeline. Memfault's own issues stay on the Crashes page.
 - **Cost**: reads only. At 25 boards and a few hundred restarts each in 90 days, one page load reads under
   1 MB from DynamoDB, well inside the free tier at the team's use. When the fleet grows past a few hundred
   boards, stage 3 keeps a summary item per issue (`ISS#<id>`, updated by the recorder) instead of reading every
@@ -152,7 +153,7 @@ needs one, and the Database page, the backups and the permissions follow it with
 
 | Stage | What | Products |
 | --- | --- | --- |
-| 1 | Issues from today's events: grouping, regressions, API, Issues page | console 2.27.9 |
+| 1 | Issues from today's events: grouping, regressions, API, Issues page | console 2.28.2 |
 | 2 | Coredumps to our cloud, symbol files per release, crash log ring buffer, fix marked by hand | firmware, console |
 | 3 | Heartbeat metrics, vitals, one timeline, crash rate by version, attribute search | firmware, console |
 | 4 | Rollout abort and cohorts, alerts to webhooks and Slack, sampling settings | console |

@@ -63,6 +63,7 @@ The cloud is one AWS SAM stack (`cloud/infra/template.yaml`): an HTTP API, AWS I
 | Weekly reports | One page per week: how the fleet did, what was sent, what changed | 2.19.0 | `reports`, `docs/reports.md` | Generated, not hand-written |
 | Map | Boards placed by the Wi-Fi they hear | 2.x | `map` | Needs no GPS on the board |
 | Memfault page | Crashes and metrics from Memfault inside the console | 2.x | `memfault`, `docs/memfault.md` | Nav label: Crashes |
+| Issues (our own) | Crashes, faults and stuck restarts grouped by signature from the boards' own events: counts, boards, versions, fixed and regressed | 2.28.2 | `cloud/api/src/lib/issues.mjs`, `handlers/issues.mjs`, `issues-page.js`, `docs/own-observability.md` | Needs only restart events with a reason; a fault's function or address joins the signature when the firmware sends it |
 | Diagnostics and serial console | Read a board's diagnostics; talk to it over USB from the browser | 2.x | `diagnostics`, `serial` | Web Serial in Chrome, native serial in apps |
 | Board setup | First-time setup of an nRF7002 DK or nRF5340 DK over USB | 2.x | `setup`, `docs/new-board-setup.md` | Guided, step by step |
 | Bluetooth update | Send a release to a board from a phone or laptop over BLE | 2.x | `bluetooth` | Passkey relayed through the console |
