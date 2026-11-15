@@ -27,6 +27,21 @@ import { createPublicKey, verify } from 'node:crypto';
 import { strictVersion } from './validate.mjs';
 
 export const RECORD_SIZE = 130;
+
+// The first firmware whose application takes a golden_promote job (firmware/README.md, "Promotion over the
+// air"). A board has to run the release it makes golden, so no earlier release can ever become golden.
+export const GOLDEN_FIRST_VERSION = '1.19.3+0';
+
+/** Whether a release can become golden: firmware 1.19.3 or later. */
+export function takesGolden(version) {
+  const parsed = strictVersion(version);
+  const first = strictVersion(GOLDEN_FIRST_VERSION);
+  if (parsed === null) return false;
+  for (const name of ['major', 'minor', 'revision', 'build']) {
+    if (parsed.parts[name] !== first.parts[name]) return parsed.parts[name] > first.parts[name];
+  }
+  return true;
+}
 const SIGNED = 56;
 const SIG_MIN = 8;
 const SIG_MAX = 72;

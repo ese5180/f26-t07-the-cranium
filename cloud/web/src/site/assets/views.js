@@ -85,6 +85,8 @@ import {
 import { canCommand, distanceWords, positionSteps, unplacedReason } from './core.js';
 // The update history (GET /api/updates): every update however it came.
 import { describeOutcome, updateHow, updateSummary, updateTime, updateTotals } from './core.js';
+// Golden image promotion (console 2.27.7): which releases can become golden.
+import { takesGolden } from './core.js';
 // Search and filters of the long lists (docs/search-filters.md).
 import {
   ACTIVITY_KINDS,
@@ -5204,8 +5206,9 @@ function releaseRow(release, ctx) {
             'Deploy'
           )
         : null,
-      // Golden image promotion (console 2.27.7): a release of a board whose bootloader has the golden image.
-      overTheAir && actions.openGolden
+      // Golden image promotion (console 2.27.7): a release of a board whose bootloader has the golden image,
+      // from firmware 1.19.3 on, on a stack that has the golden key.
+      overTheAir && actions.openGolden && ctx.state.firmware.value?.goldenKey === true && takesGolden(release.version)
         ? h(
             'button',
             {

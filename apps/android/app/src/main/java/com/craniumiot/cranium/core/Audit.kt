@@ -349,6 +349,8 @@ object AuditText {
         "no_golden_record" to "That release has no golden record yet",
         "golden_record_invalid" to "The release’s golden record no longer verifies",
         "golden_unsupported" to "A chosen board’s firmware cannot take a golden promotion: it needs 1.19.3",
+        "golden_not_running" to "A chosen board does not run that release",
+        "golden_release_too_old" to "Only firmware 1.19.3 and later can become golden",
         "internal_error" to "Something went wrong on the server",
         "invalid_body" to "The request could not be read",
         "invalid_deployment" to "Not a valid deployment ID",

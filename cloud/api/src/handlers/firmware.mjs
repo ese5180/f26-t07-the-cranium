@@ -240,6 +240,9 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
           releases,
           signingKey: { fingerprint: config.signingKeyFingerprint },
           slotSize: config.slotSize,
+          // Whether this stack has the golden public key (handlers/golden.mjs): the Firmware page offers Make
+          // golden only then.
+          goldenKey: { present: config.goldenKey !== null },
         },
       };
     },

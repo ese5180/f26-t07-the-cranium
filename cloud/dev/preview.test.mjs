@@ -684,6 +684,7 @@ for (const scenario of Object.keys(SCENARIOS)) {
       releases: sent.at(-1).releases,
       fingerprint: sent.at(-1).signingKey.fingerprint,
       slotSize: sent.at(-1).slotSize,
+      goldenKey: sent.at(-1).goldenKey.present,
     });
 
     const deployments = await api.deployments();

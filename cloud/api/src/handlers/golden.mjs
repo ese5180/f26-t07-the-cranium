@@ -23,6 +23,7 @@
 import { conflict, field, notFound, unprocessable } from '../http.mjs';
 import { change } from '../lib/audit.mjs';
 import {
+  GOLDEN_FIRST_VERSION,
   RecordError,
   buildGoldenDocument,
   buildGoldenJobId,
@@ -30,6 +31,7 @@ import {
   parseGoldenJobId,
   parseRecord,
   signatureOk,
+  takesGolden,
 } from '../lib/golden.mjs';
 import {
   IN_PROGRESS_TIMEOUT_MIN,
@@ -47,6 +49,15 @@ import { releaseFromItem, releaseKey } from './firmware.mjs';
 
 const LIST_LIMIT = 10;
 const MAX_BOARDS_NAMED = 200;
+
+/** A release from before golden image promotion: no board can run it and take the job. */
+function tooOld(version) {
+  return unprocessable(
+    'golden_release_too_old',
+    `Release ${version} cannot become golden: only firmware ${GOLDEN_FIRST_VERSION} and later takes a golden ` +
+      'promotion, and a board has to run the release it makes golden.'
+  );
+}
 
 function noKey() {
   return conflict(
@@ -107,6 +118,7 @@ export function createGoldenHandlers({ aws, config, now, randomHex }, { devices,
       );
       entry.target = version.text;
       if (config.goldenKey === null) throw noKey();
+      if (!takesGolden(version.text)) throw tooOld(version.text);
       const bytes = requireBase64(field(json(), 'record'), 'record');
 
       let record;
@@ -173,6 +185,7 @@ export function createGoldenHandlers({ aws, config, now, randomHex }, { devices,
       if (named.length <= MAX_BOARDS_NAMED) entry.detail.boards = named;
       const note = requireText(field(body, 'note'), 'note', { max: MAX_NOTE });
       if (config.goldenKey === null) throw noKey();
+      if (!takesGolden(version.text)) throw tooOld(version.text);
 
       const item = await aws.getRelease(releaseKey(version.parts));
       const release = releaseFromItem(item);
@@ -200,9 +213,22 @@ export function createGoldenHandlers({ aws, config, now, randomHex }, { devices,
       }
       // Of the release's board type, and able to take a job at all (docs/fleet.md, Board types).
       if (fleet !== null) await fleet.requireJobTargets(things, release);
-      // Only firmware 1.19.3 and later takes a promotion, and every such board reports its golden image.
-      // A board that reports none would refuse the job as unsupported: say so here instead.
       const reported = await devices.loadDevices(things);
+      // Only a board that runs the release can seal it (its bootloader answers not_running otherwise), and a
+      // shadow keeps its golden report after a board goes back to older firmware: the version comes first.
+      // The release is 1.19.3 or later (above), so a board that runs it takes the job.
+      const elsewhere = reported
+        .filter((device) => device.fw?.version !== release.version)
+        .map((device) => device.thing);
+      if (elsewhere.length > 0) {
+        throw conflict(
+          'golden_not_running',
+          `These boards do not run ${release.version}, so they cannot make it golden: ${elsewhere.join(', ')}.`,
+          { boards: elsewhere }
+        );
+      }
+      // Every board on 1.19.3 or later reports its golden image; one that has not yet would refuse the job
+      // as unsupported: say so here instead.
       const older = reported.filter((device) => device.golden === undefined).map((device) => device.thing);
       if (older.length > 0) {
         throw conflict(

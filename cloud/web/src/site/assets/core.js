@@ -49,6 +49,16 @@ export function compareVersions(a, b) {
   return 0;
 }
 
+// The first firmware that takes a golden promotion (firmware/README.md, "Promotion over the air"). A board has
+// to run the release it makes golden, so no release before it can become golden.
+export const GOLDEN_FIRST_VERSION = '1.19.3+0';
+
+/** Whether a release can become golden: firmware 1.19.3 or later. */
+export function takesGolden(version) {
+  const parsed = parseVersion(version);
+  return parsed !== null && compareVersions(parsed, parseVersion(GOLDEN_FIRST_VERSION)) >= 0;
+}
+
 export function isVersion(text) {
   return parseVersion(text) !== null;
 }
@@ -1209,6 +1219,8 @@ function readFirmware(body) {
     releases: list(reply.releases).map(readRelease),
     fingerprint: text(reply.signingKey?.fingerprint, 64),
     slotSize: whole(reply.slotSize, 1, 2 ** 32),
+    // Whether the stack has the golden public key (console 2.27.7): Make golden is offered only then.
+    goldenKey: reply.goldenKey?.present === true,
   };
 }
 
@@ -4822,6 +4834,8 @@ export const REFUSAL_WORDS = {
   no_golden_record: 'That release has no golden record yet',
   golden_record_invalid: 'The release’s golden record no longer verifies',
   golden_unsupported: 'A chosen board’s firmware cannot take a golden promotion: it needs 1.19.3',
+  golden_not_running: 'A chosen board does not run that release',
+  golden_release_too_old: 'Only firmware 1.19.3 and later can become golden',
   internal_error: 'Something went wrong on the server',
   invalid_body: 'The request could not be read',
   invalid_deployment: 'Not a valid deployment ID',

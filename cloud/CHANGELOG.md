@@ -11,16 +11,19 @@ were given later, from the history; each names its commit.
 
 Two changes. **Make golden** on the Firmware page, and the Events timeline's numbers are readable again.
 
-**Make golden.** On the Firmware page a release manager uploads a release's golden promotion record, signed offline with the golden key, and makes that release the golden image on one board, a group or every board that runs it. Each board's page shows its golden image and what came of the last promotion. It needs firmware 1.19.3 and its bootloader, which takes one debug-port flash. Until a board has them, Make golden does not offer it, and the API refuses it by name.
+**Make golden.** On the Firmware page a release manager uploads a release's golden promotion record, signed offline with the golden key, and makes that release the golden image on one board, a group or every board that runs it. Each board's page shows its golden image and what came of the last promotion. It needs firmware 1.19.3 and its bootloader, which takes one debug-port flash. Make golden is offered only for releases from 1.19.3 on and only on a stack that has the golden key, and the API refuses by name any board that does not run the release or cannot take the job.
 
 `POST /api/firmware/{version}/golden` keeps a record only if its signature is good with the stack's golden public key
 (`GOLDEN_PUBLIC_KEY_B64`, the template's `GoldenPublicKey`, which `deploy.sh` reads from
 `firmware/keys/golden_promote_pub.pem`, empty until that file exists), it names this release's image hash, size and
-version, the release is active, and its counter is above every other release's; once per release.
-`POST /api/golden/promotions` makes one AWS IoT job, `gold-<version>-c<counter>-<time>-<4 hex>`, with the document
-`{"op":"golden_promote","v":1,"record":"<hex>"}`, to boards that are registered, of the release's type and free.
-A board that reports no golden image, so firmware before 1.19.3, is refused with `golden_unsupported` and no job is
-made. `GET /api/golden/promotions` lists the latest. Both writes are on the activity log (`firmware.golden_record`,
+version, the release is active and 1.19.3 or later (`golden_release_too_old` otherwise), and its counter is above every
+other release's; once per release. `POST /api/golden/promotions` makes one AWS IoT job,
+`gold-<version>-c<counter>-<time>-<4 hex>`, with the document `{"op":"golden_promote","v":1,"record":"<hex>"}`, to
+boards that are registered, of the release's type, free and running it (`golden_not_running` otherwise: a shadow keeps
+its golden report after a board goes back to older firmware, so the running version decides). A board that runs it but
+reports no golden image yet is refused with `golden_unsupported`; either way no job is made. `GET /api/firmware` says
+whether the stack has the golden key (`goldenKey.present`), and the page shows Make golden only then.
+`GET /api/golden/promotions` lists the latest. Both writes are on the activity log (`firmware.golden_record`,
 `golden.promote`), from the website only. A board's report beside `diag` gives `golden: {version, counter, state}`, and
 a device carries it where it is reported. The apps host the console, so they have it with this version. Tests:
 cloud/api/test/golden.test.mjs, cloud/web/test/golden.test.mjs. (#216)

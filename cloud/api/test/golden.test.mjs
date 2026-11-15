@@ -84,7 +84,7 @@ function setup({ golden = true } = {}) {
   for (const thing of [THING, OTHER_THING]) {
     console_.fake.addThing(thing);
     console_.fake.device(thing).report({
-      fw: { version: '1.19.2+0', confirmed: true },
+      fw: { version: '1.19.3+0', confirmed: true },
       uptime: 60,
       golden: { version: null, counter: 0, state: 'none' },
     });
@@ -113,10 +113,10 @@ function setup({ golden = true } = {}) {
 }
 
 test('a record parses as the board reads it, and its job id names version and counter', () => {
-  const built = builtImage('1.19.2+0');
-  const bytes = record({ version: '1.19.2+0', size: built.image.length, hash: built.hash, counter: 3 });
+  const built = builtImage('1.19.3+0');
+  const bytes = record({ version: '1.19.3+0', size: built.image.length, hash: built.hash, counter: 3 });
   const parsed = parseRecord(bytes);
-  assert.equal(parsed.version, '1.19.2+0');
+  assert.equal(parsed.version, '1.19.3+0');
   assert.equal(parsed.counter, 3);
   assert.equal(parsed.imageHash, built.hash.toString('hex'));
   assert.throws(() => parseRecord(bytes.subarray(1)), { code: 'record_size' });
@@ -124,16 +124,16 @@ test('a record parses as the board reads it, and its job id names version and co
   trailing[RECORD_SIZE - 1] = 1;
   if (trailing[56] < 72) assert.throws(() => parseRecord(trailing), { code: 'record_format' });
 
-  const id = buildGoldenJobId('1.19.2+0', 3, Date.UTC(2026, 10, 11, 9, 0, 0), 'abcd');
-  assert.equal(id, 'gold-1-19-2-b0-c3-20261111T090000Z-abcd');
-  assert.deepEqual(parseGoldenJobId(id), { id, version: '1.19.2+0', counter: 3 });
-  assert.equal(parseGoldenJobId('cranium-1-19-2-b0-20261111T090000Z-abcd'), null);
+  const id = buildGoldenJobId('1.19.3+0', 3, Date.UTC(2026, 10, 11, 9, 0, 0), 'abcd');
+  assert.equal(id, 'gold-1-19-3-b0-c3-20261111T090000Z-abcd');
+  assert.deepEqual(parseGoldenJobId(id), { id, version: '1.19.3+0', counter: 3 });
+  assert.equal(parseGoldenJobId('cranium-1-19-3-b0-20261111T090000Z-abcd'), null);
   const longest = buildGoldenJobId('255.255.65535+4294967295', 4294967295, Date.UTC(2026, 10, 11), 'ffff');
   assert.equal(longest.length, 64);
 });
 
 test('a board reports its golden image, and nothing else is read from it', () => {
-  const golden = { version: '1.19.2+0', counter: 1, state: 'sealed' };
+  const golden = { version: '1.19.3+0', counter: 1, state: 'sealed' };
   assert.deepEqual(readGolden({ golden }), golden);
   assert.deepEqual(readGolden({ golden: { version: null, counter: 0, state: 'none' } }), {
     version: null,
@@ -145,21 +145,21 @@ test('a board reports its golden image, and nothing else is read from it', () =>
   assert.equal(readGolden({ golden: { ...golden, counter: -1 } }), null);
   assert.equal(readGolden({}), null);
   assert.deepEqual(readReported({ golden }).golden, golden);
-  assert.equal('golden' in readReported({ fw: { version: '1.19.2+0' } }), false);
+  assert.equal('golden' in readReported({ fw: { version: '1.19.3+0' } }), false);
 });
 
 test('a release manager uploads a signed record for a release, once, and it goes on record', async () => {
   const { release, uploadRecord, recordFor, call, manager, viewer } = setup();
-  await release('1.19.2+0');
+  await release('1.19.3+0');
 
-  assert.equal((await uploadRecord('1.19.2+0', recordFor('1.19.2+0', 1), viewer)).status, 403);
+  assert.equal((await uploadRecord('1.19.3+0', recordFor('1.19.3+0', 1), viewer)).status, 403);
 
-  const response = await uploadRecord('1.19.2+0', recordFor('1.19.2+0', 1));
+  const response = await uploadRecord('1.19.3+0', recordFor('1.19.3+0', 1));
   assert.equal(response.status, 201, JSON.stringify(response.body));
   assert.equal(response.body.release.golden.counter, 1);
   assert.deepEqual(response.body.release.golden.uploadedBy, { sub: manager.sub, email: manager.email });
 
-  const again = await uploadRecord('1.19.2+0', recordFor('1.19.2+0', 2));
+  const again = await uploadRecord('1.19.3+0', recordFor('1.19.3+0', 2));
   assert.equal(again.status, 409);
   assert.equal(again.body.error.code, 'golden_record_exists');
 
@@ -171,76 +171,76 @@ test('a release manager uploads a signed record for a release, once, and it goes
   const audit = await call('GET', '/api/audit', { as: manager });
   const entry = audit.body.entries.find((item) => item.action === 'firmware.golden_record' && item.outcome === 'ok');
   assert.ok(entry, JSON.stringify(audit.body.entries.map((item) => item.action)));
-  assert.equal(entry.target, '1.19.2+0');
+  assert.equal(entry.target, '1.19.3+0');
 });
 
 test('a record is refused unless the golden key signed it for this very release', async () => {
   const { release, uploadRecord, recordFor } = setup();
-  const built = await release('1.19.2+0');
-  await release('1.19.3+0', 0x5a);
+  const built = await release('1.19.3+0');
+  await release('1.19.4+0', 0x5a);
 
   const cases = [
-    ['another key', recordFor('1.19.2+0', 1, { key: otherKey.privateKey }), 422, 'bad_signature'],
-    ['the image key', recordFor('1.19.2+0', 1, { key: imageKey.privateKey }), 422, 'bad_signature'],
-    ['another release', recordFor('1.19.3+0', 1), 422, 'record_mismatch'],
+    ['another key', recordFor('1.19.3+0', 1, { key: otherKey.privateKey }), 422, 'bad_signature'],
+    ['the image key', recordFor('1.19.3+0', 1, { key: imageKey.privateKey }), 422, 'bad_signature'],
+    ['another release', recordFor('1.19.4+0', 1), 422, 'record_mismatch'],
     [
       'another size',
-      record({ version: '1.19.2+0', size: built.image.length + 1, hash: built.hash, counter: 1 }),
+      record({ version: '1.19.3+0', size: built.image.length + 1, hash: built.hash, counter: 1 }),
       422,
       'record_mismatch',
     ],
-    ['too short', recordFor('1.19.2+0', 1).subarray(0, 100), 422, 'invalid_record'],
+    ['too short', recordFor('1.19.3+0', 1).subarray(0, 100), 422, 'invalid_record'],
   ];
   for (const [name, bytes, status, code] of cases) {
-    const response = await uploadRecord('1.19.2+0', bytes);
+    const response = await uploadRecord('1.19.3+0', bytes);
     assert.equal(response.status, status, name);
     assert.equal(response.body.error.code, code, name);
   }
   // A changed counter breaks the signature.
-  const changed = recordFor('1.19.2+0', 1);
+  const changed = recordFor('1.19.3+0', 1);
   changed[8] = 2;
-  assert.equal((await uploadRecord('1.19.2+0', changed)).body.error.code, 'bad_signature');
+  assert.equal((await uploadRecord('1.19.3+0', changed)).body.error.code, 'bad_signature');
 });
 
 test('counters only go up across releases, as they do on a board', async () => {
   const { release, uploadRecord, recordFor } = setup();
-  await release('1.19.2+0');
-  await release('1.19.3+0', 0x5a);
-  assert.equal((await uploadRecord('1.19.3+0', recordFor('1.19.3+0', 5))).status, 201);
-  const lower = await uploadRecord('1.19.2+0', recordFor('1.19.2+0', 5));
+  await release('1.19.3+0');
+  await release('1.19.4+0', 0x5a);
+  assert.equal((await uploadRecord('1.19.4+0', recordFor('1.19.4+0', 5))).status, 201);
+  const lower = await uploadRecord('1.19.3+0', recordFor('1.19.3+0', 5));
   assert.equal(lower.status, 409);
   assert.equal(lower.body.error.code, 'counter_not_higher');
-  assert.equal((await uploadRecord('1.19.2+0', recordFor('1.19.2+0', 6))).status, 201);
+  assert.equal((await uploadRecord('1.19.3+0', recordFor('1.19.3+0', 6))).status, 201);
 });
 
 test('without a golden key the console takes no record and starts no promotion', async () => {
   const { release, uploadRecord, recordFor, promote, call, viewer } = setup({ golden: false });
-  await release('1.19.2+0');
-  const response = await uploadRecord('1.19.2+0', recordFor('1.19.2+0', 1));
+  await release('1.19.3+0');
+  const response = await uploadRecord('1.19.3+0', recordFor('1.19.3+0', 1));
   assert.equal(response.status, 409);
   assert.equal(response.body.error.code, 'golden_key_missing');
-  assert.equal((await promote('1.19.2+0', [THING])).body.error.code, 'golden_key_missing');
+  assert.equal((await promote('1.19.3+0', [THING])).body.error.code, 'golden_key_missing');
   const listed = await call('GET', '/api/golden/promotions', { as: viewer });
   assert.equal(listed.body.goldenKey.present, false);
 });
 
 test('a promotion is one job with the record, to the chosen boards, and shows in the list', async () => {
   const { release, uploadRecord, recordFor, promote, call, fake, viewer, manager } = setup();
-  await release('1.19.2+0');
-  const bytes = recordFor('1.19.2+0', 1);
+  await release('1.19.3+0');
+  const bytes = recordFor('1.19.3+0', 1);
 
-  const early = await promote('1.19.2+0', [THING]);
+  const early = await promote('1.19.3+0', [THING]);
   assert.equal(early.status, 409);
   assert.equal(early.body.error.code, 'no_golden_record');
 
-  assert.equal((await uploadRecord('1.19.2+0', bytes)).status, 201);
-  assert.equal((await promote('1.19.2+0', [THING], viewer)).status, 403);
+  assert.equal((await uploadRecord('1.19.3+0', bytes)).status, 201);
+  assert.equal((await promote('1.19.3+0', [THING], viewer)).status, 403);
 
-  const response = await promote('1.19.2+0', [THING, OTHER_THING]);
+  const response = await promote('1.19.3+0', [THING, OTHER_THING]);
   assert.equal(response.status, 201, JSON.stringify(response.body));
   const { promotion } = response.body;
-  assert.match(promotion.id, /^gold-1-19-2-b0-c1-\d{8}T\d{6}Z-[0-9a-f]{4}$/);
-  assert.equal(promotion.version, '1.19.2+0');
+  assert.match(promotion.id, /^gold-1-19-3-b0-c1-\d{8}T\d{6}Z-[0-9a-f]{4}$/);
+  assert.equal(promotion.version, '1.19.3+0');
   assert.equal(promotion.counter, 1);
   assert.deepEqual(promotion.things, [OTHER_THING, THING].sort());
 
@@ -256,7 +256,7 @@ test('a promotion is one job with the record, to the chosen boards, and shows in
     deployments.body.deployments.some((item) => item.id === promotion.id),
     false
   );
-  const busy = await promote('1.19.2+0', [THING]);
+  const busy = await promote('1.19.3+0', [THING]);
   assert.equal(busy.status, 409);
   assert.equal(busy.body.error.code, 'device_busy');
 
@@ -272,43 +272,90 @@ test('a promotion is one job with the record, to the chosen boards, and shows in
 
 test('a promotion goes to registered boards only, and never of a revoked release', async () => {
   const { release, uploadRecord, recordFor, promote, call, manager } = setup();
-  await release('1.19.2+0');
-  await uploadRecord('1.19.2+0', recordFor('1.19.2+0', 1));
-  const stranger = await promote('1.19.2+0', ['cranium-aaaaaaaaaaaaaaaa']);
+  await release('1.19.3+0');
+  await uploadRecord('1.19.3+0', recordFor('1.19.3+0', 1));
+  const stranger = await promote('1.19.3+0', ['cranium-aaaaaaaaaaaaaaaa']);
   assert.equal(stranger.status, 422);
   assert.equal(stranger.body.error.code, 'unknown_device');
 
-  const revoked = await call('POST', `/api/firmware/${encodeURIComponent('1.19.2+0')}/revoke`, {
+  const revoked = await call('POST', `/api/firmware/${encodeURIComponent('1.19.3+0')}/revoke`, {
     as: manager,
     body: { reason: 'bad build' },
   });
   assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
-  const response = await promote('1.19.2+0', [THING]);
+  const response = await promote('1.19.3+0', [THING]);
   assert.equal(response.status, 409);
   assert.equal(response.body.error.code, 'release_revoked');
 });
 
 test("a board's golden image is on its page and in the list of boards", async () => {
   const { fake, call, viewer } = setup();
-  fake.device(THING).report({ golden: { version: '1.19.2+0', counter: 1, state: 'sealed' } });
+  fake.device(THING).report({ golden: { version: '1.19.3+0', counter: 1, state: 'sealed' } });
   const one = await call('GET', `/api/devices/${THING}`, { as: viewer });
-  assert.deepEqual(one.body.device.golden, { version: '1.19.2+0', counter: 1, state: 'sealed' });
+  assert.deepEqual(one.body.device.golden, { version: '1.19.3+0', counter: 1, state: 'sealed' });
   const all = await call('GET', '/api/devices', { as: viewer });
   const listed = all.body.devices.find((device) => device.thing === THING);
-  assert.deepEqual(listed.golden, { version: '1.19.2+0', counter: 1, state: 'sealed' });
+  assert.deepEqual(listed.golden, { version: '1.19.3+0', counter: 1, state: 'sealed' });
 });
 
 test('a board whose firmware cannot take a promotion is named, and no job is made', async () => {
   const { release, uploadRecord, recordFor, promote, fake } = setup();
-  await release('1.19.2+0');
-  await uploadRecord('1.19.2+0', recordFor('1.19.2+0', 1));
-  // A board on firmware before 1.19.3 reports no golden image.
+  await release('1.19.3+0');
+  await uploadRecord('1.19.3+0', recordFor('1.19.3+0', 1));
+  // A board on firmware before 1.19.4 reports no golden image.
   fake.addThing('cranium-00000000000000ee');
-  fake.device('cranium-00000000000000ee').report({ fw: { version: '1.19.2+0', confirmed: true }, uptime: 60 });
-  const response = await promote('1.19.2+0', [THING, 'cranium-00000000000000ee']);
+  fake.device('cranium-00000000000000ee').report({ fw: { version: '1.19.3+0', confirmed: true }, uptime: 60 });
+  const response = await promote('1.19.3+0', [THING, 'cranium-00000000000000ee']);
   assert.equal(response.status, 409, JSON.stringify(response.body));
   assert.equal(response.body.error.code, 'golden_unsupported');
   assert.match(response.body.error.message, /needs firmware 1\.19\.3/);
   assert.match(response.body.error.message, /cranium-00000000000000ee/);
   assert.equal(fake.device(THING).nextJob(), null);
+});
+
+test('a promotion goes only to boards that run the release', async () => {
+  const { release, uploadRecord, recordFor, promote, fake } = setup();
+  await release('1.19.3+0');
+  await uploadRecord('1.19.3+0', recordFor('1.19.3+0', 1));
+  // A board on another release, though its shadow still has a golden report.
+  fake.device(OTHER_THING).report({ fw: { version: '1.19.4+0', confirmed: true } });
+  const response = await promote('1.19.3+0', [THING, OTHER_THING]);
+  assert.equal(response.status, 409, JSON.stringify(response.body));
+  assert.equal(response.body.error.code, 'golden_not_running');
+  assert.match(response.body.error.message, new RegExp(OTHER_THING));
+  assert.equal(fake.device(THING).nextJob(), null);
+});
+
+test('a board gone back to older firmware keeps its golden report, and still gets no job', async () => {
+  const { release, uploadRecord, recordFor, promote, fake } = setup();
+  await release('1.19.3+0');
+  await uploadRecord('1.19.3+0', recordFor('1.19.3+0', 1));
+  // Its shadow still says golden, from when it ran 1.19.3: the running version decides.
+  fake.device(OTHER_THING).report({ fw: { version: '1.19.2+0', confirmed: true } });
+  const response = await promote('1.19.3+0', [OTHER_THING]);
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.code, 'golden_not_running');
+});
+
+test('a release before 1.19.3 can never become golden: no record, no promotion', async () => {
+  const { release, uploadRecord, recordFor, promote } = setup();
+  await release('1.19.2+0', 0x33);
+  const upload = await uploadRecord('1.19.2+0', recordFor('1.19.2+0', 1));
+  assert.equal(upload.status, 422);
+  assert.equal(upload.body.error.code, 'golden_release_too_old');
+  assert.match(upload.body.error.message, /1\.19\.3\+0 and later/);
+  const sent = await promote('1.19.2+0', [THING]);
+  assert.equal(sent.status, 422);
+  assert.equal(sent.body.error.code, 'golden_release_too_old');
+});
+
+test('the releases list says whether the stack has a golden key', async () => {
+  const withKey = setup();
+  assert.deepEqual((await withKey.call('GET', '/api/firmware', { as: withKey.viewer })).body.goldenKey, {
+    present: true,
+  });
+  const without = setup({ golden: false });
+  assert.deepEqual((await without.call('GET', '/api/firmware', { as: without.viewer })).body.goldenKey, {
+    present: false,
+  });
 });

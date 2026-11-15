@@ -1255,6 +1255,8 @@ public enum Words {
         "no_golden_record": "That release has no golden record yet",
         "golden_record_invalid": "The release’s golden record no longer verifies",
         "golden_unsupported": "A chosen board’s firmware cannot take a golden promotion: it needs 1.19.3",
+        "golden_not_running": "A chosen board does not run that release",
+        "golden_release_too_old": "Only firmware 1.19.3 and later can become golden",
         "internal_error": "Something went wrong on the server",
         "invalid_body": "The request could not be read",
         "invalid_deployment": "Not a valid deployment ID",
