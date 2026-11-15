@@ -111,6 +111,7 @@ craniumiot.com is where device owners sign in and see their own boards and nothi
 | Admin mode | Team members open the console from the customer site | One domain for customers, one for the team |
 | Customer accounts | Release managers hand out accounts and boards from the console's Customers page | A customer sees only their boards |
 | My boards | Each board with a health dot, its week in a sentence, restarts by day, firmware and last report | Health in plain words, not raw metrics |
+| Boards-first redesign | The Overview opens on the boards and their health in words, then the mixes; a floating tab bar and sheets shaped for the iPhone 17 Pro's corners | Same tokens and phone frame as the console |
 | Product pages | Mixes, Now playing, play times and Your listening, from the board's sessions or, from console 2.29.0, its plays (with BPM and key) | Swap in your own product's telemetry |
 | Public front page | What the product is and how updates work, readable without JavaScript | Plain HTML |
 | Shared design | The console's tokens, with the site's own dark sidebar | One design system, two products |
@@ -185,6 +186,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-26 | Customer site redesign: boards before mixes, health in plain words, label first, floating tab bar for the iPhone 17 Pro | console 2.31.1 | #122, open |
 | 2026-11-26 | Our own Vitals: crash-free boards, connected time and the newest release, by day, board and version, from the events boards already send | console 2.31.0, apps 0.9.5, desktop 0.1.19 | #304 |
 | 2026-11-25 | Our own Issues: crashes, faults and stuck restarts grouped by signature, with boards, versions and regressions | console 2.30.3 | #298 |
 | 2026-11-25 | Canary time limit: a canary that has not confirmed in time halts the rest, unless visibly still at work; a deployment of several boards gets a canary | console 2.30.1, apps 0.9.3, desktop 0.1.17 | #293 |

@@ -767,6 +767,23 @@ export function restartWeek(health, nowMs) {
   return days;
 }
 
+/**
+ * The week's restarts in one line of plain words, under the strip that draws them (console 2.27.10): "No restarts
+ * this week", "1 restart this week, expected", "3 restarts this week: 2 unexpected". Expected and unexpected only, as
+ * the strip; no cause.
+ */
+export function restartSummary(health) {
+  const restarts = health?.restarts7d ?? [];
+  if (restarts.length === 0) return 'No restarts this week';
+  const unexpected = restarts.filter((restart) => restart.unexpected).length;
+  const count = plural(restarts.length, 'restart');
+  if (unexpected === 0) return `${count} this week, ${restarts.length === 1 ? 'expected' : 'all expected'}`;
+  if (unexpected === restarts.length) {
+    return `${count} this week, ${restarts.length === 1 ? 'unexpected' : 'all unexpected'}`;
+  }
+  return `${count} this week: ${unexpected} unexpected`;
+}
+
 /** Wi-Fi signal in a word, or ''. */
 export function signalWords(rssi) {
   return signalQuality(rssi)?.label ?? '';
