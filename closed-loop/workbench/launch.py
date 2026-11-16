@@ -158,8 +158,12 @@ def main():
         loop=seed_loop(jwt);webbrowser.open(loop['url'])
     else:webbrowser.open(URL)
     print('Hapimatic:',URL)
-    print('If the browser asks for its access token, paste this private local token:')
-    print(access)
+    # The token is not printed: a terminal's scrollback and logs outlive it.
+    if shutil.which('pbcopy'):
+        subprocess.run(['pbcopy'],input=access.encode(),check=True)
+        print('If the browser asks for its access token, paste it: it is on the clipboard.')
+    else:
+        print('If the browser asks for its access token, it is cliApiToken in '+str(ROOT/'.state/hapi/settings.json'))
     return 0
 
 

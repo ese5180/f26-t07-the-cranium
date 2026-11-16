@@ -69,8 +69,8 @@ software check supplements correct wiring; it does not substitute for it.
    selection is saved locally and excluded from Git.
 2. Double-click **Start AI Loop.command**. It runs readiness checks, starts
    Hapimatic/Logic 2, starts the coding agent with the saved requirements,
-   and sends the prompt automatically. The terminal prints a private access
-   token if Hapimatic's browser asks for it. It is not a new AI subscription.
+   and sends the prompt automatically. It copies Hapimatic's private access
+   token to the clipboard, for when the browser asks for it. It is not a new AI subscription.
 3. Keep the Mac awake with its lid open and the rig connected. You can watch
    captures in Logic 2 and the loop in Hapimatic. The agent stops on a pass,
    physical block or three attempts; it does not keep making arbitrary edits.
