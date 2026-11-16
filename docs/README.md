@@ -44,7 +44,7 @@ course's [Hapimatic example](https://github.com/ese5180/hapimatic-test-v1) and i
 - **A Python workbench** (`./bench`): builds a baseline and a low-power profile, flashes, checks UART timing on a Saleae
   and current on a PPK2 against `requirements.json`, and saves the evidence. A small MCP server gives a coding agent
   seven fixed tools to run that loop through Hapimatic.
-- **CI**: the job "Closed-loop bench" runs its 26 host tests ([ci.md](ci.md)). No board, analyzer or PPK2 is used.
+- **CI**: the job "Closed-loop bench" runs its 29 host tests ([ci.md](ci.md)). No board, analyzer or PPK2 is used.
 - **Not yet on hardware**: no flash, UART timing, Bluetooth delivery or before/after current has been measured.
   Flashing the bench app replaces the product firmware and its bootloader on that DK: use a spare DK, or set the
   board up again afterwards ([new-board-setup.md](new-board-setup.md)).

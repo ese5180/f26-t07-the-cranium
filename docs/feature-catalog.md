@@ -156,7 +156,7 @@ firmware against fixed, measured tests. Built and host-tested; not yet run on ha
 | Measured acceptance | Saleae capture of the UART edges (ACK within 50 ms) and PPK2 current over three matched pairs (25% lower, 90% sample coverage), judged against `requirements.json` | — | `closed-loop/workbench/`, `requirements.json` | Thresholds are fixed before a change; a failed candidate is flashed back to the baseline |
 | PPK2 measure and hold | Standalone current reading or a powered hold, with no analyzer and no flash | — | `closed-loop/GeneratedFiles/ppk2/ppk2.py` | Refuses unverified wiring; holds are capped at 15 minutes |
 | MCP bench tools | Seven fixed tools (doctor, build, test, run, power, job status, latest) over stdio, long jobs by ID, at most three runs per loop | — | `closed-loop/workbench/mcp.py` | No shell or paths from the caller; the agent is chosen in the Git-ignored `bench.local.json` |
-| Host tests in CI | 26 tests: the C protocol code compiled and loaded, the capture and power analysis, the MCP adapter, refusal without a verified rig | — | `closed-loop/tests/`, CI job "Closed-loop bench" | No hardware result is claimed |
+| Host tests in CI | 29 tests: the C protocol code compiled and loaded, the capture and power analysis, the MCP adapter, refusal without a verified rig | — | `closed-loop/tests/`, CI job "Closed-loop bench" | No hardware result is claimed |
 
 ## Engineering workflow
 
