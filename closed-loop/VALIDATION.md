@@ -26,7 +26,8 @@ below remain useful context; the live hardware requirement is still pending.
   `2003da602aae23724d174f06d68a65c8fdce1e54031696d38a5c0125a04451d9`.
 - Both network-core HEX SHA-256:
   `b1945528af98dcc17eb1948ac729083ae7f12c2be346a06eeb7aa5e09e28d3ee`.
-- All 26 host tests pass. They compile and load the actual C protocol implementation; exercise
+- The original 20 host tests passed at setup (the current expanded suite has 26).
+  They compile and load the actual C protocol implementation; exercise
   a known CRC vector, Unicode/maximum-size payloads, corruption, truncation,
   uint32 wrap, stale/duplicate sequence rejection and 1,500 bounded random frames.
 - Independent UART analysis is checked against generated 8N1 edges, incorrect

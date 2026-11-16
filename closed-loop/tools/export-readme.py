@@ -26,7 +26,7 @@ def inline(text):
 def main():
     dest=ROOT/'output/pdf/cranium-closed-loop-readme.pdf';dest.parent.mkdir(parents=True,exist_ok=True)
     styles=getSampleStyleSheet()
-    styles.add(ParagraphStyle(name='Text',fontName='Helvetica',fontSize=9.3,leading=12.8,spaceAfter=6.5,
+    styles.add(ParagraphStyle(name='Text',fontName='Helvetica',fontSize=9.3,leading=12.8,spaceAfter=5.5,
                               splitLongWords=True,allowWidows=0,allowOrphans=0))
     styles.add(ParagraphStyle(name='SmallCell',fontName='Helvetica',fontSize=8.7,leading=11.8,splitLongWords=True))
     styles['Title'].fontName='Helvetica-Bold';styles['Title'].fontSize=26;styles['Title'].leading=30;styles['Title'].alignment=TA_LEFT
@@ -38,10 +38,13 @@ def main():
     story=[];lines=(ROOT/'README.md').read_text().splitlines();i=0
     while i<len(lines):
         line=lines[i]
-        if not line.strip() or line.startswith('<!--'):i+=1;continue
+        if not line.strip() or line.startswith('<!--') or line.startswith('[!['):i+=1;continue
         if line.startswith('```'):
-            code=[];i+=1
+            language=line[3:].strip();code=[];i+=1
             while i<len(lines) and not lines[i].startswith('```'):code.append(lines[i]);i+=1
+            if language=='mermaid':
+                code=['Requirement -> AI -> build/flash -> measurements -> verdict',
+                      '                ^____________________________________|']
             story.append(Preformatted('\n'.join(code),styles['Code']));story.append(Spacer(1,6));i+=1;continue
         if line.startswith('|'):
             rows=[]
@@ -50,7 +53,9 @@ def main():
                 if not all(re.fullmatch(r':?-+:?',c) for c in cells):
                     rows.append([Paragraph(inline(c),styles['SmallCell']) for c in cells])
                 i+=1
-            table=Table(rows,colWidths=[177,327],repeatRows=1,hAlign='LEFT')
+            columns=len(rows[0])
+            widths=[177,327] if columns==2 else [125,120,259] if columns==3 else [504/columns]*columns
+            table=Table(rows,colWidths=widths,repeatRows=1,hAlign='LEFT')
             table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#eeeeee')),
                 ('VALIGN',(0,0),(-1,-1),'TOP'),('BOX',(0,0),(-1,-1),.5,colors.HexColor('#bbbbbb')),
                 ('INNERGRID',(0,0),(-1,-1),.3,colors.HexColor('#cccccc')),
