@@ -143,6 +143,21 @@ The phone sets the board up over Bluetooth, then talks Matter to it over Wi-Fi o
 | Memory | 94 KB flash and 110 KB RAM free on the nRF7002 DK | `tools/memory_budgets.json` | Wi-Fi chip firmware moved to external flash |
 | Raspberry Pi updates | The board writes a signed Pi image to the Pi's SD card over SPI; the Pi never has Wi-Fi | PR #196, `docs/raspberry-pi-ota.md` | Board test waits on the microSD breakout |
 
+## Closed-loop HIL bench
+
+Adam's bench for manual section 3.7 (`closed-loop/`, docs/README.md "Closed-loop bench"): its own Zephyr app on the
+nRF7002 DK and a Python workbench that builds, flashes, measures and judges it, so a coding agent can change the
+firmware against fixed, measured tests. Built and host-tested; not yet run on hardware.
+
+| Feature | What it does | Since | Where | Reuse notes |
+| --- | --- | --- | --- | --- |
+| UART to Bluetooth telemetry | The nRF5340 takes `C1` frames (CRC-16, length, uint32 sequence) over UART0, answers `ACK`, `CRC`, `DUP` or `FRAME`, and forwards each event as a Nordic UART Service notification | — | `closed-loop/app/src/` | Any board with a UART and NUS; an ACK means receipt, not radio delivery |
+| Baseline and low-power profiles | Two builds of one source, differing only in advertising interval, heartbeat and status LED, from JSON | — | `closed-loop/app/profiles/`, `CMakeLists.txt` | CMake writes the header from the JSON, so the settings are checked after the build |
+| Measured acceptance | Saleae capture of the UART edges (ACK within 50 ms) and PPK2 current over three matched pairs (25% lower, 90% sample coverage), judged against `requirements.json` | — | `closed-loop/workbench/`, `requirements.json` | Thresholds are fixed before a change; a failed candidate is flashed back to the baseline |
+| PPK2 measure and hold | Standalone current reading or a powered hold, with no analyzer and no flash | — | `closed-loop/GeneratedFiles/ppk2/ppk2.py` | Refuses unverified wiring; holds are capped at 15 minutes |
+| MCP bench tools | Seven fixed tools (doctor, build, test, run, power, job status, latest) over stdio, long jobs by ID, at most three runs per loop | — | `closed-loop/workbench/mcp.py` | No shell or paths from the caller; the agent is chosen in the Git-ignored `bench.local.json` |
+| Host tests in CI | 26 tests: the C protocol code compiled and loaded, the capture and power analysis, the MCP adapter, refusal without a verified rig | — | `closed-loop/tests/`, CI job "Closed-loop bench" | No hardware result is claimed |
+
 ## Engineering workflow
 
 The way the platform is built is as reusable as the features: every change is small, tested, reviewed and released by a tag.
@@ -163,6 +178,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-15 | Closed-loop HIL bench (Adam's): UART to Bluetooth telemetry app, Saleae and PPK2 acceptance, MCP bench tools, host tests in CI (not yet on hardware) | — | open |
 | 2026-11-12 | Console navigation in groups, a floating tab bar shaped for the iPhone 17 Pro's corners, Fleet folded into Devices and Deployments, Memfault named Crashes | console 2.28.0 | #258 |
 | 2026-11-12 | Events timeline: group numbers readable, no overlaps, inside the plot on a phone | console 2.27.7 | #250 |
 | 2026-11-12 | Make golden: a release's signed golden record, its promotion to boards, each board's golden image | console 2.27.7 | #250 |

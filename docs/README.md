@@ -33,6 +33,26 @@ the firmware is described in [`firmware/README.md`](../firmware/README.md) and t
 | [`code-map.md`](code-map.md) | Where in the code to point for the 3.11 demo, by file and function |
 | [`fleet-demo.md`](fleet-demo.md) | What to show, in order, for the 3.11 fleet-management checkoff |
 
+## Closed-loop bench
+
+[`closed-loop/`](../closed-loop/README.md) is Adam's hardware-in-the-loop bench for manual section 3.7, brought in from
+[adamshal/cranium-closed-loop](https://github.com/adamshal/cranium-closed-loop) with its history. It follows the
+course's [Hapimatic example](https://github.com/ese5180/hapimatic-test-v1) and is separate from `firmware/`:
+
+- **Its own Zephyr app** (`closed-loop/app`, `nrf7002dk/nrf5340/cpuapp`): the nRF5340 takes track events over UART0 with
+  CRC and sequence checks and forwards them over Bluetooth (Nordic UART Service). Same NCS v3.4.0 commit as `firmware/`.
+- **A Python workbench** (`./bench`): builds a baseline and a low-power profile, flashes, checks UART timing on a Saleae
+  and current on a PPK2 against `requirements.json`, and saves the evidence. A small MCP server gives a coding agent
+  seven fixed tools to run that loop through Hapimatic.
+- **CI**: the job "Closed-loop bench" runs its 26 host tests ([ci.md](ci.md)). No board, analyzer or PPK2 is used.
+- **Not yet on hardware**: no flash, UART timing, Bluetooth delivery or before/after current has been measured.
+  Flashing the bench app replaces the product firmware and its bootloader on that DK: use a spare DK, or set the
+  board up again afterwards ([new-board-setup.md](new-board-setup.md)).
+
+Run the host tests with `cd closed-loop && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt &&
+./bench test`; the full bench (`./setup.sh`, then `PHYSICAL-SETUP.md`) is set up for Apple Silicon macOS. MIT, with
+Adam's `LICENSE` and `NOTICE.md`; Hapimatic (AGPL-3.0) is downloaded by `setup.sh`, never committed.
+
 ## Customers and apps
 
 | Document | What it covers |

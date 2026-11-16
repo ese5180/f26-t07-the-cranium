@@ -1,5 +1,14 @@
 # CRANIUM on nRF7002 DK
 
+**In the CRANIUM repository.** This bench came from
+[adamshal/cranium-closed-loop](https://github.com/adamshal/cranium-closed-loop) with its history, and lives in
+`closed-loop/`: run its commands from this folder, not from the repository's root. Its host tests run in the
+repository's CI as the job "Closed-loop bench"; the badge below is the original repository's. The product firmware is
+[`firmware/`](../firmware/README.md), a different app for the same nRF7002 DK (`nrf7002dk/nrf5340/cpuapp/ns`, with
+MCUboot, Wi-Fi and AWS IoT) on the same NCS v3.4.0 commit. Flashing this bench's app replaces that firmware and its
+bootloader on the board: use a spare DK, or set the board up again afterwards
+([docs/new-board-setup.md](../docs/new-board-setup.md)).
+
 [![Host tests](https://github.com/adamshal/cranium-closed-loop/actions/workflows/host-tests.yml/badge.svg)](https://github.com/adamshal/cranium-closed-loop/actions/workflows/host-tests.yml)
 
 Zephyr/NCS firmware and a closed-loop AI development bench for CRANIUM's DJ
