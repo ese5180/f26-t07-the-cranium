@@ -126,6 +126,37 @@ jobs:
           run_test test_provision.py 'OK'
           run_test test_bt_only_check.py 'OK'
 
+  # The closed-loop bench (closed-loop/README.md, docs/README.md "Closed-loop bench"), a Zephyr app and
+  # Python workbench of its own: its host tests compile and load the bench's C protocol code, check its
+  # Saleae and PPK2 analysis on made-up data, and talk to its MCP adapter. No board, logic analyzer or
+  # PPK2 is used, so a pass is not a hardware result.
+  closed-loop:
+    name: Closed-loop bench
+    if: github.event_name != 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # A job's own defaults replace the workflow's: shell is named again, or a pipe into tee would hide a failure.
+    defaults:
+      run:
+        shell: bash
+        working-directory: closed-loop
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      # In the bench's own environment, where ./bench and ./mcp-server look for it.
+      - name: Install the bench's Python packages
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --quiet --requirement requirements.txt
+      - name: Run the tests, and fail on any skip
+        run: |
+          ./bench test 2>&1 | tee "$RUNNER_TEMP/closed-loop.log"
+          [ "$(grep -E '^(OK|FAILED)' "$RUNNER_TEMP/closed-loop.log" | tail -n 1)" = OK ]
+
   cloud-tests:
     name: Cloud tests
     if: github.event_name != 'release'
