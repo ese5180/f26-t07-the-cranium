@@ -205,3 +205,13 @@ Disconnect its receiver before any idle measurement.
   `cranium-bench` with the agent.
 - `./bench test` (29 pass), then build both profiles. Then follow [Before you start](#before-you-start) and
   [Run it](#run-it).
+
+## Manual 3.7 checklist
+
+| Item | Where it stands |
+| --- | --- |
+| Peripheral feature from a requirements prompt, validated with the Saleae | Prompt and pass test ready (`closed-loop/prompts/PERIPHERAL.md`, `requirements.json`); needs the run on the board |
+| Low-power feature from a prompt, PPK2 before and after | Prompt and pass test ready (`closed-loop/prompts/LOW-POWER.md`); needs the PPK2 run on the prepared board |
+| 3.7.1 Code in the GitHub repository | Done: `closed-loop/` on main |
+| 3.7.2 PDF of the current README to Gradescope | After the run, put the measured results into the README's 3.7 table ("Shown on a board"), then print the README from GitHub to PDF |
+| 3.7.3 Teaching Team checkoff | Submit 3.7.1 and 3.7.2 first; then demonstrate both features and explain them without AI tools (talking points at the end of the README's 3.7 section). Up to 3 attempts, before Nov 25, 2026 |

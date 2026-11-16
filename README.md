@@ -175,3 +175,16 @@ From firmware 1.14.0 the boards report to Memfault, in our project in nRF Cloud.
 Only the staged rollout and A/B are named in the manual; we'd ask the teaching team to approve the rest as "other features".
 
 The code: [`mflt.c`](firmware/app/src/mflt/mflt.c) and [`mflt_link.c`](firmware/app/src/mflt/mflt_link.c) on the board, and [`memfault.mjs`](cloud/api/src/memfault.mjs) with [`forwarder.mjs`](cloud/api/src/forwarder.mjs) in AWS.
+
+## 3.7 Closing the Loop: HIL Testing + AI
+
+Built on the open-source Hapimatic core, in [`closed-loop/`](closed-loop/) (Adam's bench). An AI coding agent starts from a written requirement with numbers in it, writes the firmware, builds and flashes it onto the nRF7002 DK's nRF5340, measures it with a Saleae logic analyzer and a Nordic PPK2, and changes the firmware again until the measurements pass, with no person in between. The pass tests ([`closed-loop/requirements.json`](closed-loop/requirements.json)) were written before any firmware or measurement. How to run it: [docs/hapimatic-demo.md](docs/hapimatic-demo.md).
+
+| Feature (manual) | What is built | Shown on a board |
+| --- | --- | --- |
+| A peripheral feature from a requirements-based AI prompt, validated with the Saleae | The prompt [`closed-loop/prompts/PERIPHERAL.md`](closed-loop/prompts/PERIPHERAL.md): the nRF5340 takes track and session events on UART0 at 115200 baud, framed with a CRC-16, a bounded length and a rising 32-bit sequence number, rejects corrupt, duplicate and stale frames, acknowledges each one and forwards it over Bluetooth LE to a subscribed client. Pass test: Saleae channel 0 on P0.22 (RX) and channel 1 on P0.20 (TX) independently decode exactly 100 test messages, the duplicate and the corrupted frame are refused, and every ACK comes within 50 ms; the raw captures and image hashes are saved | Pending: both firmware builds and 29 host tests pass, and the bench is set up; the run on the board with the Saleae has not been recorded yet |
+| A low-power mode from an AI prompt, with PPK2 numbers before and after | The prompt [`closed-loop/prompts/LOW-POWER.md`](closed-loop/prompts/LOW-POWER.md): the baseline advertises every 100 ms with the status LED and a 50 ms heartbeat; the candidate advertises every 1000 ms, turns the LED off and waits for UART events instead of polling. Pass test: the PPK2 in ampere mode on the nRF5340 + IOVDD rail (P22 VDD_MEAS), three alternating baseline/candidate pairs of 15 s each, at least 25% lower median current and lower in every pair, and the candidate still passes the Saleae test | Pending: the PPK2 measurement on the prepared board has not been recorded yet |
+
+**What closes the loop:** measured feedback decides the agent's next change, or proves the candidate passes. A build that compiles, or a simulated capture, never counts; the bench refuses to flash or power anything until the DK, the Saleae and the PPK2 are the real, verified devices. CI runs the bench's host tests on every pull request (the job "Closed-loop bench").
+
+**At the checkoff** we explain, without AI tools: the UART framing, CRC-16 and sequence checks; how events reach Bluetooth LE and why a UART ACK isn't a delivery receipt; how the PPK2 measures the nRF5340 rail and why the debugger supply is excluded; and why waiting on events instead of polling, slower advertising and the LED off lower the current.
