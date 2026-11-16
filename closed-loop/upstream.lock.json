@@ -1,0 +1,25 @@
+{
+  "hapimatic": {
+    "version": "1.0.2094",
+    "core_commit": "a0ce06901a3d93df95348818a5e6e84eb2570dfd",
+    "source": "https://github.com/SolidPD/hapimatic-core",
+    "archive_sha256": "db967249db6cc48132c5987a8a27544d7f860240edf9ba8db1955343d4dcf688"
+  },
+  "course_starter": {
+    "commit": "7f94e21a4d7e140959869c1a1eaff257c9f0041a",
+    "source": "https://github.com/SolidPD/closed-loop-starter"
+  },
+  "logic2": {
+    "version": "2.4.49",
+    "archive_url": "https://downloads2.saleae.com/logic2/Logic-2.4.49-macos-arm64.zip",
+    "archive_sha256": "8e7ea6bcfeb3841c47f868e7375415cfbf651520e0fa3250fb3217a5644eb671",
+    "macos_signature_verified": true
+  },
+  "ncs": "3.4.0",
+  "professor_example": {
+    "source": "https://github.com/ese5180/hapimatic-test-v1",
+    "commit": "1816e0aa3b9ece1ea5d27044637b7791c739a1d2",
+    "role": "repository layout, reproducible build instructions and PPK2 measurement workflow guideline; no hardware results copied"
+  },
+  "ncs_commit": "99553055607b2e9885fbc80ccd11fa9da81c2df0"
+}

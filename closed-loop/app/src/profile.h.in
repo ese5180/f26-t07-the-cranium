@@ -1,0 +1,5 @@
+/* Generated from the selected, version-controlled profile. */
+#define CRANIUM_PROFILE "@CRANIUM_PROFILE@"
+#define CRANIUM_ADV_UNITS @CRANIUM_ADV_UNITS@
+#define CRANIUM_HEARTBEAT_MS @CRANIUM_HEARTBEAT_MS@
+#define CRANIUM_STATUS_LED @CRANIUM_STATUS_LED@

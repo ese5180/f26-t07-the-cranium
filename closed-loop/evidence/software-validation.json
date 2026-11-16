@@ -1,0 +1,57 @@
+{
+  "as_of": "2026-11-15",
+  "scope": "software validation; no physical hardware pass",
+  "hardware_passed": false,
+  "host_tests": {
+    "passed": 26,
+    "result": "passed",
+    "command": "./bench test",
+    "log_sha256": "9dacc776e43599312729b4142e992814c171882fbb559d4355e48a5db831c48f"
+  },
+  "firmware_builds": {
+    "baseline": {
+      "profile": "baseline",
+      "source_sha256": "dd4902ccf09c5ca347f7dd4f53f13e718b5a6d84f3b129ed817c3ab6fc65d26f",
+      "board": "nrf7002dk/nrf5340/cpuapp",
+      "settings": {
+        "advertising_interval_ms": 100,
+        "heartbeat_ms": 50,
+        "status_led": true
+      },
+      "images": {
+        "app/zephyr/zephyr.hex": "c56b6bfc5c3711b54ea44a4db06fc955279afa1ab73cb992a138221fe4fa641f",
+        "ipc_radio/zephyr/zephyr.hex": "b1945528af98dcc17eb1948ac729083ae7f12c2be346a06eeb7aa5e09e28d3ee"
+      }
+    },
+    "optimized": {
+      "profile": "optimized",
+      "source_sha256": "dd4902ccf09c5ca347f7dd4f53f13e718b5a6d84f3b129ed817c3ab6fc65d26f",
+      "board": "nrf7002dk/nrf5340/cpuapp",
+      "settings": {
+        "advertising_interval_ms": 1000,
+        "heartbeat_ms": 0,
+        "status_led": false
+      },
+      "images": {
+        "app/zephyr/zephyr.hex": "2003da602aae23724d174f06d68a65c8fdce1e54031696d38a5c0125a04451d9",
+        "ipc_radio/zephyr/zephyr.hex": "b1945528af98dcc17eb1948ac729083ae7f12c2be346a06eeb7aa5e09e28d3ee"
+      }
+    }
+  },
+  "west_manifest": {
+    "ncs_version": "3.4.0",
+    "ncs_commit": "99553055607b2e9885fbc80ccd11fa9da81c2df0",
+    "recursive_projects_resolved": 74,
+    "method": "offline resolution against installed matching SDK; no fresh network dependency fetch claimed"
+  },
+  "professor_example": {
+    "url": "https://github.com/ese5180/hapimatic-test-v1",
+    "commit": "1816e0aa3b9ece1ea5d27044637b7791c739a1d2"
+  },
+  "physical": {
+    "flashed": false,
+    "saleae_capture": false,
+    "ppk2_measurement": false,
+    "ble_delivery": false
+  }
+}

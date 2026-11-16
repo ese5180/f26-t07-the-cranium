@@ -1,0 +1,12 @@
+.venv/
+.local/
+.state/
+build/
+captures/
+output/
+bench.local.json
+__pycache__/
+*.pyc
+.DS_Store
+/.west/
+/deps/

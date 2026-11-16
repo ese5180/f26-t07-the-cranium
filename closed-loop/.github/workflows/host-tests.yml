@@ -1,0 +1,25 @@
+name: Host tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install isolated host dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+      - name: Run host and actual C parser tests
+        run: ./bench test
+      - name: Explain scope
+        run: echo 'These are host tests. No physical flash, Saleae capture or PPK2 measurement is claimed by CI.'

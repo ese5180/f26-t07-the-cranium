@@ -1,0 +1,8 @@
+/* Keep UART0 at the DK's debug VCOM pins: TX=P0.20, RX=P0.22. */
+&uart0 {
+    status = "okay";
+    current-speed = <115200>;
+    /delete-property/ hw-flow-control;
+};
+/* This BLE companion does not initialize the Wi-Fi companion or QSPI. */
+&qspi { status = "disabled"; };

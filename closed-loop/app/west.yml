@@ -1,0 +1,13 @@
+manifest:
+  version: "0.13"
+  self:
+    path: app
+  projects:
+    - name: nrf
+      url: https://github.com/nrfconnect/sdk-nrf
+      # NCS v3.4.0, identical to the SDK used to validate this project.
+      revision: 99553055607b2e9885fbc80ccd11fa9da81c2df0
+      path: nrf
+      import:
+        # Keep fetched SDK sources separate from our tools/ and source files.
+        path-prefix: deps

@@ -1,0 +1,18 @@
+{
+  "id": "CRANIUM-CL-01",
+  "board": "nrf7002dk/nrf5340/cpuapp",
+  "sdk": "3.4.0",
+  "baud": 115200,
+  "valid_frames": 100,
+  "ack_latency_ms_max": 50,
+  "power_duration_s": 15,
+  "power_repeats": 3,
+  "power_settle_s": 5,
+  "power_reduction_percent_min": 25,
+  "power_sample_coverage_min": 0.90,
+  "power_current_uA_min": 1,
+  "power_current_uA_max": 150000,
+  "capture_sample_rate": 4000000,
+  "capture_duration_s": 12,
+  "max_ai_attempts": 3
+}
