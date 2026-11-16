@@ -1,0 +1,38 @@
+#
+# Sysbuild for the Matter variant: MCUboot, and the network core running Bluetooth and 802.15.4 together.
+#
+
+choice BOOTLOADER
+	default BOOTLOADER_MCUBOOT
+endchoice
+
+config NRF_DEFAULT_IPC_RADIO
+	default y
+
+config NETCORE_IPC_RADIO_IEEE802154
+	default y
+
+config NETCORE_IPC_RADIO_BT_HCI_IPC
+	default y
+
+config CRANIUM_BORDER_ROUTER
+	bool "Thread border router with Wi-Fi as its backbone (nRF7002 DK)"
+	default y if BOARD_NRF7002DK
+	help
+	  Adds Wi-Fi and Zephyr's OpenThread border router to the application (border_router.conf). On by default
+	  on the nRF7002 DK, which has the Wi-Fi chip.
+
+# The nRF70's firmware patches live in external flash and are loaded into the chip from there: 88 KB of internal
+# flash the application needs.
+choice WIFI_PATCHES_EXT_FLASH_SUPPORT
+	default WIFI_PATCHES_EXT_FLASH_STORE if CRANIUM_BORDER_ROUTER
+endchoice
+
+# The Wi-Fi chip, only for the border router.
+config WIFI_NRF70
+	default y if CRANIUM_BORDER_ROUTER
+
+config PARTITION_MANAGER
+	default n
+
+source "share/sysbuild/Kconfig"

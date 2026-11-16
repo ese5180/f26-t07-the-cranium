@@ -212,6 +212,12 @@ before it lands, and the same test passes before and after it does. A key that i
 nor listed as coming in `test_memory_budget.py` fails that test, so that a renamed job cannot leave its
 floors behind.
 
+The Matter variant (`firmware/matter`, [docs/matter-thread.md](matter-thread.md)) has its own job,
+`firmware-matter`, with the configurations `Matter (nRF7002 DK)` and `Matter (nRF5340 DK)`. It patches the
+job's SDK with `firmware/matter/sdk/patch_sdk.py` after the SDK's cache is restored and checked, and never saves
+the SDK back to the cache. Its application builds into `build/matter`, which `memory_budget.py --app-image
+matter` reports as `app`; the network core's image is `ipc_radio`.
+
 Locally, after a build: `python3 -I tools/memory_budget.py --build build --configuration default`.
 
 ## The firmware build image

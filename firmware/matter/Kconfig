@@ -1,0 +1,22 @@
+#
+# The Matter variant: the board as Matter commissioner and Thread border router (docs/matter-thread.md).
+#
+mainmenu "Cranium Matter commissioner and Thread border router"
+
+config CRANIUM_THREAD_CHANNEL
+	int "Thread channel of a network this board forms"
+	range 11 26
+	default 25
+	help
+	  Used only when the board has no Thread network yet and forms one. Keep it away from the Wi-Fi channel:
+	  25 is clear of Wi-Fi 1 and 6, 15 of Wi-Fi 11 (src/policy/matter_policy.c, mp_pick_thread_channel()).
+
+config CRANIUM_MATTER_BORDER_ROUTER
+	bool "Thread border router with Wi-Fi as the backbone"
+	default y if WIFI_NRF70
+	depends on OPENTHREAD_ZEPHYR_BORDER_ROUTER
+	help
+	  Joins the stored Wi-Fi network at start-up (src/border_router.c); Zephyr's OpenThread border router
+	  takes it as the backbone once it is up. Wi-Fi credentials are added with the shell's "wifi cred add".
+
+source "Kconfig.zephyr"

@@ -3,7 +3,7 @@
 job on GitHub Actions, right after the build (docs/ci.md, "Memory headroom").
 
     python3 -I tools/memory_budget.py --build build --configuration default \\
-        [--budgets tools/memory_budgets.json] [--summary file] [--json file]
+        [--budgets tools/memory_budgets.json] [--summary file] [--json file] [--app-image matter]
 
 It finds every image of the sysbuild build folder: the application (app), MCUboot (mcuboot), TF-M
 (tfm) and whatever runs on the network core (hci_ipc, ipc_radio, netcore_blinky, ...), and for each
@@ -78,15 +78,16 @@ def measure(key: str, elf: Path, map_file: Path) -> Image:
     return Image(key, flash.used, flash.limit, ram.used, ram.limit)
 
 
-def images_of(build: Path) -> list[Image]:
-    """Every image of a sysbuild build folder, the application first."""
-    if not (build / "app" / "zephyr" / "zephyr.elf").is_file():
-        raise BudgetError(f"{build} has no app/zephyr/zephyr.elf: is it a sysbuild build folder?")
-    found = [measure("app", build / "app/zephyr/zephyr.elf", build / "app/zephyr/zephyr.map")]
-    tfm = build / "app" / "tfm" / "bin"
+def images_of(build: Path, app: str = "app") -> list[Image]:
+    """Every image of a sysbuild build folder, the application first. Sysbuild names the application's folder
+    after its source folder: "app" for firmware/app, "matter" for firmware/matter. It is reported as "app"."""
+    if not (build / app / "zephyr" / "zephyr.elf").is_file():
+        raise BudgetError(f"{build} has no {app}/zephyr/zephyr.elf: is it a sysbuild build folder?")
+    found = [measure("app", build / app / "zephyr/zephyr.elf", build / app / "zephyr/zephyr.map")]
+    tfm = build / app / "tfm" / "bin"
     if (tfm / "tfm_s.elf").is_file():
         found.append(measure("tfm", tfm / "tfm_s.elf", tfm / "tfm_s.map"))
-    for folder in sorted(path for path in build.iterdir() if path.is_dir() and path.name != "app"):
+    for folder in sorted(path for path in build.iterdir() if path.is_dir() and path.name != app):
         elf = folder / "zephyr" / "zephyr.elf"
         if elf.is_file():
             found.append(measure(folder.name, elf, folder / "zephyr" / "zephyr.map"))
@@ -168,9 +169,10 @@ def as_json(images: list[Image], floors: dict[str, dict[str, int]], configuratio
     }, indent=2) + "\n"
 
 
-def run(build: Path, configuration: str, budgets: Path, summary: Path | None, json_file: Path | None) -> int:
+def run(build: Path, configuration: str, budgets: Path, summary: Path | None, json_file: Path | None,
+        app: str = "app") -> int:
     floors = load_budgets(budgets, configuration)
-    images = images_of(build)
+    images = images_of(build, app)
     problems = check(images, floors, configuration)
     text = table(images, floors, configuration)
     if problems:
@@ -194,9 +196,11 @@ def main() -> None:
     parser.add_argument("--budgets", type=Path, default=DEFAULT_BUDGETS, help="the floors (tools/memory_budgets.json)")
     parser.add_argument("--summary", type=Path, help="append the table to this file")
     parser.add_argument("--json", type=Path, help="write the numbers to this file")
+    parser.add_argument("--app-image", default="app",
+                        help="the application's folder in the build: app, or matter for firmware/matter")
     args = parser.parse_args()
     try:
-        sys.exit(run(args.build, args.configuration, args.budgets, args.summary, args.json))
+        sys.exit(run(args.build, args.configuration, args.budgets, args.summary, args.json, args.app_image))
     except BudgetError as error:
         print(f"::error::memory_budget: {error}")
         sys.exit(f"memory_budget: {error}")

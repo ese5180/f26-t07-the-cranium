@@ -1,0 +1,30 @@
+/*
+ * The nRF70's firmware patches in the DK's external flash, after the second application slot: 88 KB of the
+ * application's internal flash freed. MCUboot treats them as its second image (image 1: slot2 holds them, slot3
+ * takes an update), signed with the same key.
+ *
+ * Two names for slot 2, on purpose. MCUboot reads the image header at the start of slot2_partition. The driver
+ * (nrf/subsys/net/lib/nrf70_fw_ext) reads the patches from offset 0 of nrf70_fw_partition, and the SDK's build
+ * places them, before signing, at the start of nrf70_wifi_fw_partition: both must begin after the 0x200-byte
+ * MCUboot header (CONFIG_ROM_START_OFFSET). With one node at 0xeb000 the signed image's header landed at 0xeae00,
+ * MCUboot found no valid image 1 and refused to boot anything ("Unable to find bootable image").
+ */
+&mx25r64 {
+	partitions {
+		slot2_partition: partition@eb000 {
+			label = "image-2";
+			reg = <0x000eb000 DT_SIZE_K(128)>;
+		};
+
+		/* Inside slot2_partition, after the MCUboot header: the patches themselves. */
+		nrf70_wifi_fw_partition: nrf70_fw_partition: partition@eb200 {
+			label = "nrf70-fw";
+			reg = <0x000eb200 (DT_SIZE_K(128) - 0x200)>;
+		};
+
+		slot3_partition: partition@10b000 {
+			label = "image-3";
+			reg = <0x0010b000 DT_SIZE_K(128)>;
+		};
+	};
+};
