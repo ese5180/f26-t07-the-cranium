@@ -16,10 +16,15 @@ from .launch import agent_cli
 from .runner import config
 
 
+# Saleae's download host answers 403 to urllib's default User-Agent, so every download names this tool.
+USER_AGENT='cranium-bench-setup/1 (+https://github.com/ese5180/f26-t07-the-cranium)'
+
+
 def download(url,path,digest):
     if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest()==digest:return
     temp=path.with_suffix('.download')
-    with urllib.request.urlopen(url,timeout=30) as source,temp.open('wb') as target:
+    request=urllib.request.Request(url,headers={'User-Agent':USER_AGENT})
+    with urllib.request.urlopen(request,timeout=30) as source,temp.open('wb') as target:
         shutil.copyfileobj(source,target)
     if hashlib.sha256(temp.read_bytes()).hexdigest()!=digest:
         temp.unlink();raise RuntimeError('Archive checksum mismatch: '+url)

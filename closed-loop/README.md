@@ -93,15 +93,20 @@ not on PATH, and `agent_config` (its TOML file of MCP servers) in
 `bench.local.json`. Install the
 SDK/toolchain with Nordic's normal tools before running the automated bench.
 
+Setup runs from `closed-loop/` in a clone of this (CRANIUM) repository; the original repository is not needed:
+
 ```sh
-git clone https://github.com/adamshal/cranium-closed-loop.git
-cd cranium-closed-loop
+git clone https://github.com/ese5180/f26-t07-the-cranium.git
+cd f26-t07-the-cranium/closed-loop
 ./setup.sh
 ./bench test
 ```
 
 `setup.sh` restores pinned Python adapters, official Hapimatic and Logic 2,
 and this project's limited MCP adapter. It does not flash or enable power.
+Every download sends the User-Agent `cranium-bench-setup/1` (Saleae's download
+server refuses Python's default one) and is checked against its SHA-256 in
+`upstream.lock.json` before use.
 `CRANIUM_SDK` selects an NCS source root containing `nrf/` and `zephyr/`;
 `CRANIUM_TOOLCHAIN` selects another installed Nordic toolchain. Existing
 standard Mac locations work by default. The wrapper builds in a space-free
