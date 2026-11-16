@@ -67,8 +67,9 @@ After setup, from the repository root:
 On the configured Mac, use **Configure Bench.command** once to select the
 DK/PPK2 and verify wiring. A missing analyzer does not prevent configuring
 standalone PPK2 measurements. **Start AI Loop.command** starts a requirements-
-seeded Hapimatic/Codex session when the full rig is ready. **Open
-Workbench.command** opens Hapimatic without starting a model session.
+seeded Hapimatic run of the coding agent set in `bench.local.json` when the
+full rig is ready. **Open Workbench.command** opens Hapimatic without starting
+the agent.
 
 The full experiment enables the checked measurement path before SWD flashing,
 programs both cores using the selected J-Link ID, then measures. Do not run a
@@ -77,7 +78,10 @@ separate hold process at the same time as `./bench run`.
 ## Fresh setup
 
 The installed bench is qualified on Apple Silicon macOS with **NCS 3.4.0**,
-its Nordic toolchain, Python 3.11+ and a signed-in Codex CLI. Install the
+its Nordic toolchain, Python 3.11+ and a signed-in coding-agent CLI that
+Hapimatic supports: set `agent` (Hapimatic's name for it), `agent_cli` if it is
+not on PATH, and `agent_config` (its TOML file of MCP servers) in
+`bench.local.json`. Install the
 SDK/toolchain with Nordic's normal tools before running the automated bench.
 
 ```sh
@@ -226,7 +230,7 @@ and [Nordic's rail guide](https://docs.nordicsemi.com/r/bundle/ug_nrf7002_dk/pag
 
 ```mermaid
 flowchart LR
-  R[Requirement and prompt] --> A[Hapimatic and Codex]
+  R[Requirement and prompt] --> A[Hapimatic and the coding agent]
   A --> B[Build and flash selected DK]
   B --> M[Saleae timing and PPK2 current]
   M --> E[Saved evidence and fixed verdict]

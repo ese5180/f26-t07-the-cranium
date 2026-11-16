@@ -13,7 +13,7 @@ During an autonomous firmware optimization run:
   Development notes and generated README/evidence updates are also permitted. Keep the
   baseline profile, requirements, acceptance tools and tests unchanged. Ask the
   user to scope any change outside those paths. This restriction applies to
-  firmware-optimization sessions, not maintenance of the workbench itself.
+  firmware-optimization runs, not maintenance of the workbench itself.
 - Work in a new local branch after checking for unrelated user changes.
   Do not reset, clean, stash, overwrite or commit someone else's changes.
 - Record the requirement and a numerical pass test before changing firmware.
@@ -21,7 +21,7 @@ During an autonomous firmware optimization run:
   fidelity intact. Do not remove functionality to meet a power target.
 - Call `cranium_test`, then `cranium_start_run`. Wait for the final measured
   report. Source, image and artifact hashes must correspond to that run.
-- At most three real experiments per explicitly started session. Stop on pass,
+- At most three real experiments per explicitly started AI loop. Stop on pass,
   missing hardware, instrument/calibration faults, exhausted budget, or 40 minutes.
   Do not change thresholds or tool code to manufacture a pass.
 - A failed candidate is flashed back to the built baseline where possible.

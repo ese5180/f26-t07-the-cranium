@@ -42,9 +42,9 @@ below remain useful context; the live hardware requirement is still pending.
   host-test job that exits successfully. Simulation cannot satisfy preflight.
 - Actual Hapimatic 1.0.2094 native Mac binary verifies against the official
   release checksum. Its HTTP endpoint returns 200; access-token authentication
-  succeeds and the daemon reports one online Mac machine. No model session was
-  started during this software setup.
-- Codex CLI 0.166.0-alpha.5.1 is present and reports an existing ChatGPT login.
+  succeeds and the daemon reports one online Mac machine. The coding agent was
+  not started during this software setup.
+- The coding agent's CLI is present and reports an existing sign-in.
   The cranium-bench adapter is registered. The CLI's MCP-add operation initially
   normalized away an existing node_repl argument list; that list was restored
   and all prior MCP entries and sandbox/approval settings compared unchanged.
@@ -68,7 +68,7 @@ below remain useful context; the live hardware requirement is still pending.
 Real UART electrical timing and packet capture; real BLE notification delivery;
 PPK2 rail preparation and known-load qualification; actual before/after current;
 SWD flashing/reset on the selected board; and a complete AI-directed hardware
-repair/checkoff session. No current reduction, physical pass, battery estimate,
+repair/checkoff run. No current reduction, physical pass, battery estimate,
 live Pi journal integration or signed OTA/fleet feature is claimed by these
 software checks. The deployed CRANIUM Pi and its SD card were not changed.
 

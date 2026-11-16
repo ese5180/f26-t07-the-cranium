@@ -10,5 +10,8 @@
   "voltage_mV": 1800,
   "power_wiring_verified": false,
   "measurement_scope": "nRF5340 plus IOVDD on prepared P22 VDD_MEAS rail (SB16 open, SB17 closed); debugger supply excluded",
-  "radio_disconnected_for_power": true
+  "radio_disconnected_for_power": true,
+  "agent": "",
+  "agent_cli": "",
+  "agent_config": ""
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Export the current README as a readable checkoff PDF (status stays explicit).
 
-Requires reportlab; the Codex bundled Python already includes it on this Mac.
+Requires reportlab: pip install -r requirements-docs.txt.
 """
 from pathlib import Path
 import html

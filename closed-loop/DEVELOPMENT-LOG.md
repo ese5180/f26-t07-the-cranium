@@ -22,7 +22,7 @@
   automation API. A one-second simulated capture/export is labelled simulation
   and cannot satisfy the HIL acceptance path.
 - No physical DK, Saleae or PPK2 was present. Real flash, UART timing, BLE transfer
-  and before/after current remain pending. No autonomous model session was
+  and before/after current remain pending. The autonomous AI loop was not
   started against absent hardware and no working Pi/SD image was changed.
 
 ## 2026-11-15: aligned with the professor's public example

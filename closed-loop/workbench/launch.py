@@ -1,4 +1,4 @@
-"""One-click services, bench selection and a requirements-seeded Hapi session."""
+"""One-click services, bench selection and a requirements-seeded Hapimatic run."""
 import argparse
 import json
 import os
@@ -18,12 +18,18 @@ URL='http://127.0.0.1:3006'
 
 def environment():
     env=os.environ.copy()
-    codex=shutil.which('codex')
-    fallback=Path('/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex')
-    if not codex and fallback.exists():codex=str(fallback)
-    env['PATH']=str(Path(codex).parent)+os.pathsep+env['PATH'] if codex else env['PATH']
+    # The coding agent is chosen per Mac in the Git-ignored bench.local.json:
+    # `agent` is Hapimatic's name for it, `agent_cli` its command or full path
+    # when that is not on PATH.
+    cli=agent_cli(config())
+    env['PATH']=str(Path(cli).parent)+os.pathsep+env['PATH'] if cli else env['PATH']
     env.update(HAPI_HOME=str(ROOT/'.state/hapi'),WEBAPP_PORT='3006',HAPI_API_URL=URL,WEBAPP_URL=URL)
     return env
+
+
+def agent_cli(cfg):
+    name=cfg.get('agent_cli') or cfg.get('agent') or ''
+    return shutil.which(name) if name else None
 
 
 def api(path, body=None, token=None):
@@ -107,24 +113,27 @@ def configure_bench():
     print(json.dumps({'power_only':power_readiness(cfg),'full_hil':doctor(cfg)},indent=2))
 
 
-def seed_session(jwt):
-    # Repeated clicks cannot create overlapping agent sessions.
+def seed_loop(jwt):
+    # Repeated clicks cannot start overlapping agent runs. The paths and fields
+    # of Hapimatic's HTTP API below are its own names and stay as they are.
+    agent=config().get('agent','')
+    if not agent:raise RuntimeError('Set agent (Hapimatic\'s name for your coding agent) in bench.local.json')
     previous=ROOT/'.state/autopilot.json'
     if previous.exists():
         old=json.loads(previous.read_text())
-        sessions=api('/api/sessions',token=jwt).get('sessions',[])
-        if any(s.get('id')==old.get('session_id') and s.get('active') for s in sessions):
+        active=api('/api/sessions',token=jwt).get('sessions',[])
+        if any(s.get('id')==old.get('run_id') and s.get('active') for s in active):
             return old
     machines=api('/api/machines',token=jwt)['machines']
     if len(machines)!=1:raise RuntimeError('Expected one local Hapimatic machine; select the Mac in the web UI')
     save(ROOT/'.state/budget.json',{'attempts':0})
     result=api('/api/machines/'+machines[0]['id']+'/spawn',{
-        'directory':str(ROOT),'agent':'codex','sessionType':'simple',
+        'directory':str(ROOT),'agent':agent,'sessionType':'simple',
         'permissionMode':'safe-yolo','name':'CRANIUM measured firmware loop'},jwt)
-    if result.get('type')!='success':raise RuntimeError('Hapimatic could not start the session: '+json.dumps(result))
-    session_id=result['sessionId']
-    api('/api/sessions/'+session_id+'/messages',{'text':(ROOT/'prompts/AUTOPILOT.md').read_text()},jwt)
-    state={'session_id':session_id,'url':URL+'/sessions/'+session_id,'seed':'prompts/AUTOPILOT.md'}
+    if result.get('type')!='success':raise RuntimeError('Hapimatic could not start the agent: '+json.dumps(result))
+    run_id=result['sessionId']
+    api('/api/sessions/'+run_id+'/messages',{'text':(ROOT/'prompts/AUTOPILOT.md').read_text()},jwt)
+    state={'run_id':run_id,'url':URL+'/sessions/'+run_id,'seed':'prompts/AUTOPILOT.md'}
     save(previous,state)
     return state
 
@@ -138,7 +147,7 @@ def main():
     if args.action=='check':
         machines=api('/api/machines',token=jwt)['machines']
         print(json.dumps({'hapimatic_http':200,'online_machines':len(machines),
-                          'saleae_devices':logic_devices(),'model_session_started':False},indent=2));return 0
+                          'saleae_devices':logic_devices(),'agent_started':False},indent=2));return 0
     if args.action=='run':
         readiness=doctor(config())
         if not readiness['ready']:
@@ -146,7 +155,7 @@ def main():
             for why in readiness['blocking']:print(' - '+why)
             print('Run Configure Bench.command after following PHYSICAL-SETUP.md.')
             return 2
-        session=seed_session(jwt);webbrowser.open(session['url'])
+        loop=seed_loop(jwt);webbrowser.open(loop['url'])
     else:webbrowser.open(URL)
     print('Hapimatic:',URL)
     print('If the browser asks for its access token, paste this private local token:')

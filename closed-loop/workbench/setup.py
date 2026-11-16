@@ -12,7 +12,8 @@ import tomllib
 import urllib.request
 import zipfile
 from .build import ROOT,sdk_env
-from .launch import environment
+from .launch import agent_cli
+from .runner import config
 
 
 def download(url,path,digest):
@@ -25,8 +26,15 @@ def download(url,path,digest):
     temp.replace(path)
 
 
-def register_mcp():
-    path=Path.home()/'.codex/config.toml';path.parent.mkdir(parents=True,exist_ok=True)
+def register_mcp(cfg):
+    # agent_config in bench.local.json names the coding agent's TOML file that
+    # lists its MCP servers under [mcp_servers.*]. Without one, register
+    # ./mcp-server as cranium-bench through the agent's own settings.
+    if not cfg.get('agent_config'):
+        print('Register '+str(ROOT/'mcp-server')+' as the MCP server cranium-bench in your coding agent,')
+        print('or set agent_config in bench.local.json and run setup.sh again.')
+        return
+    path=Path(cfg['agent_config']).expanduser();path.parent.mkdir(parents=True,exist_ok=True)
     text=path.read_text() if path.exists() else ''
     before=tomllib.loads(text)
     ours=before.get('mcp_servers',{}).get('cranium-bench')
@@ -34,7 +42,7 @@ def register_mcp():
     if ours:
         if ours.get('command')!=command:raise RuntimeError('cranium-bench already points at another checkout; update that entry intentionally')
         return
-    backup=ROOT/'.state/codex-config.before-mcp.toml'
+    backup=ROOT/'.state/agent-config.before-mcp.toml'
     if not backup.exists():backup.write_text(text);backup.chmod(0o600)
     # Append exactly one project adapter. The CLI MCP-add command in the tested
     # desktop build normalizes away unknown fields in existing servers, so do
@@ -82,11 +90,16 @@ def main():
     subprocess.run(['codesign','--verify','--deep','--strict',str(app)],check=True)
     sdk,env=sdk_env()
     if not (sdk/'zephyr').is_dir():raise RuntimeError('Install NCS 3.4.0 or set CRANIUM_SDK and CRANIUM_TOOLCHAIN')
-    if not shutil.which('codex',path=environment()['PATH']):raise RuntimeError('Install/sign in to Codex before starting an AI session')
-    register_mcp()
+    if not (ROOT/'bench.local.json').exists():shutil.copyfile(ROOT/'bench.example.json',ROOT/'bench.local.json')
+    cfg=config()
+    if not cfg.get('agent'):
+        print('No coding agent set: add agent (and agent_cli if it is not on PATH) to bench.local.json before Start AI Loop.')
+    elif not agent_cli(cfg):
+        raise RuntimeError('Install and sign in to the coding agent named in bench.local.json before starting an AI loop')
+    else:
+        register_mcp(cfg)
     for file in ('bench','mcp-server','setup.sh','Open Workbench.command','Configure Bench.command','Start AI Loop.command'):
         (ROOT/file).chmod(0o755)
-    if not (ROOT/'bench.local.json').exists():shutil.copyfile(ROOT/'bench.example.json',ROOT/'bench.local.json')
     print('CRANIUM software setup ready. No board flashed and no PPK2 output enabled.')
     print('Next: PHYSICAL-SETUP.md, then Configure Bench.command and Start AI Loop.command.')
 

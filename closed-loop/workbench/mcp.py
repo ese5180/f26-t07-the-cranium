@@ -17,7 +17,7 @@ from .power import power_readiness,validate_duration
 
 TOOLS = [
     ('cranium_doctor','Discover selected DK, Saleae and PPK2; read-only, never supplies power.',{}),
-    ('cranium_start_run','Start one real build/flash/Saleae/PPK2 before-after experiment. Requires verified bench wiring; max three runs per session.',{}),
+    ('cranium_start_run','Start one real build/flash/Saleae/PPK2 before-after experiment. Requires verified bench wiring; max three runs per AI loop.',{}),
     ('cranium_start_build','Build both Nordic cores for one profile; does not flash.',{'profile':{'type':'string','enum':['baseline','optimized']}}),
     ('cranium_test','Run host contract and evidence-validator tests; returns a job ID, never a HIL pass.',{}),
     ('cranium_job_status','Read a job state and a bounded output tail. Poll at most once every 10 seconds.',{'job_id':{'type':'string','pattern':'^[a-f0-9]{32}$'}}),
