@@ -66,6 +66,12 @@ def main():
             level=len(line)-len(line.lstrip('#'));title=line[level:].strip()
             story.append(Paragraph(inline(title),styles['Title' if level==1 else 'Heading1' if level==2 else 'Heading2']))
             i+=1;continue
+        if line.startswith('- ['):
+            links=[]
+            while i<len(lines) and lines[i].startswith('- ['):
+                links.append(inline(lines[i][2:]));i+=1
+            story.append(Paragraph(' | '.join(links),styles['Text']))
+            continue
         bullet=re.match(r'^(?:- |\d+\. )(.*)',line)
         paragraph=[bullet.group(1) if bullet else line];i+=1
         while i<len(lines) and lines[i].strip() and not re.match(r'^(?:#|\||```|<!--|- |\d+\. )',lines[i]):
