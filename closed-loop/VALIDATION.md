@@ -10,7 +10,7 @@ NCS manifest recursively resolves 74 projects under deps/ against the matching
 installed SDK; a cold network fetch is not claimed. PPK2-only measure/hold,
 including configuration without a Saleae, are implemented and host-tested.
 
-All 26 host tests pass. Both standalone and full rig paths refuse absent or
+All 29 host tests pass. Both standalone and full rig paths refuse absent or
 unverified hardware before enabling power. No physical measurements or flash
 were performed. Current public source/build fingerprints are recorded in
 evidence/software-validation.json. Historical software-installation checks
