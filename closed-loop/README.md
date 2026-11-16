@@ -316,8 +316,9 @@ Reference: [ese5180/hapimatic-test-v1 at 1816e0a](https://github.com/ese5180/hap
 
 The example is a guideline, not evidence for our board. Public source excludes
 local configuration, credentials, private tokens and user music/history. Use
-`tools/export-kit.py` for a source/HEX kit and `tools/export-readme.py` for a
-README PDF (optional `requirements-docs.txt`).
+`tools/export-kit.py` for a source/HEX kit (from a clone of the original
+repository; inside the CRANIUM repository it refuses to run) and
+`tools/export-readme.py` for a README PDF (optional `requirements-docs.txt`).
 
 ## Licensing and references
 
