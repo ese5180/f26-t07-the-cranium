@@ -29,7 +29,7 @@ def environment():
 
 def agent_cli(cfg):
     name=cfg.get('agent_cli') or cfg.get('agent') or ''
-    return shutil.which(name) if name else None
+    return shutil.which(os.path.expanduser(name)) if name else None
 
 
 def api(path, body=None, token=None):
@@ -143,6 +143,15 @@ def main():
     parser.add_argument('action',choices=['open','configure','run','check'],default='open',nargs='?')
     args=parser.parse_args()
     if args.action=='configure':configure_bench();return 0
+    if args.action=='run':
+        # Before Hapimatic or Logic 2 starts: without its agent the loop cannot run.
+        cfg=config()
+        if not cfg.get('agent'):
+            print('Set agent (Hapimatic\'s name for your coding agent) in bench.local.json, then start the AI loop again.')
+            return 2
+        if not agent_cli(cfg):
+            print('The coding agent set in bench.local.json was not found. Install it and sign in, or set agent_cli to its path.')
+            return 2
     jwt,access=services()
     if args.action=='check':
         machines=api('/api/machines',token=jwt)['machines']
