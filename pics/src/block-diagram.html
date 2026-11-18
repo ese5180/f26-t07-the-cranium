@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Block diagram</title>
+<link rel="stylesheet" href="diagram.css">
+<!-- Rendered to "pics/Block Diagram.png" at 1920 x 1100, scale 2. -->
+</head>
+<body>
+<div class="page" style="height:1100px">
+  <div class="eyebrow">MVP · Device</div>
+  <div class="title">A Pi runs the music; Nordic runs the radio</div>
+
+  <div class="colhead" style="left:70px">Power</div>
+  <div class="colhead" style="left:640px">Processors</div>
+  <div class="colhead" style="left:1330px">Peripherals</div>
+
+  <svg class="wires" width="1920" height="1100" viewBox="0 0 1920 1100">
+    <defs>
+      <marker id="a" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+        <path d="M0,0 L12,6 L0,12 z" style="fill:#4f4c48;stroke:none"/>
+      </marker>
+      <marker id="ap" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+        <path d="M0,0 L12,6 L0,12 z" style="fill:#8a857e;stroke:none"/>
+      </marker>
+    </defs>
+    <!-- power -->
+    <path d="M530,306 H638" marker-end="url(#a)"/>
+    <path d="M300,362 V558" marker-end="url(#a)"/>
+    <path d="M300,672 V868" marker-end="url(#a)"/>
+    <path class="planned" d="M530,926 H638" marker-end="url(#ap)"/>
+    <!-- Pi to peripherals -->
+    <path d="M1180,300 H1328" marker-end="url(#a)"/>
+    <path d="M1182,420 H1328" marker-start="url(#a)" marker-end="url(#a)"/>
+    <path d="M1590,470 V523" marker-end="url(#a)"/>
+    <path d="M1180,456 H1255 V750 H1328" marker-end="url(#a)"/>
+    <!-- Pi to DK, planned -->
+    <path class="planned" d="M910,474 V608" marker-start="url(#ap)" marker-end="url(#ap)"/>
+    <!-- buttons into the DK -->
+    <path d="M1330,930 H1182" marker-end="url(#a)"/>
+  </svg>
+
+  <!-- power column -->
+  <div class="box" style="left:70px;top:250px;width:460px;height:112px">
+    <h3>USB-C wall supply</h3><p>5.1 V / 3 A · no battery in the MVP</p>
+  </div>
+  <div class="box" style="left:70px;top:560px;width:460px;height:112px">
+    <h3>Pi 4 5 V rail</h3><p>powers the display and the USB ports</p>
+  </div>
+  <div class="box" style="left:70px;top:870px;width:460px;height:112px">
+    <h3>Pi USB ports</h3><p>1.2 A shared: FLX4, drive, DK</p>
+  </div>
+  <div class="label" style="left:552px;top:270px">5.1 V</div>
+  <div class="label" style="left:316px;top:446px">5.1 V</div>
+  <div class="label" style="left:316px;top:756px">5 V</div>
+  <div class="label" style="left:545px;top:888px">5 V USB</div>
+  <div class="label" style="left:545px;top:936px">planned</div>
+
+  <!-- processors -->
+  <div class="box soft" style="left:640px;top:250px;width:540px;height:222px">
+    <h3>Raspberry Pi 4 (2 GB)</h3>
+    <p>Raspberry Pi OS · Mixxx (our fork)</p>
+    <p>touchscreen UI · audio out through the FLX4</p>
+    <p>music library from a USB drive</p>
+  </div>
+  <div class="label" style="left:926px;top:506px">UART, planned</div>
+  <div class="label" style="left:926px;top:536px">1.8 V ↔ 3.3 V level shifter</div>
+
+  <div class="box ring" style="left:640px;top:610px;width:540px;height:414px">
+    <h3>nRF7002 DK</h3>
+    <p>Zephyr · MCUboot + TF-M secure boot</p>
+  </div>
+  <div class="box inner" style="left:670px;top:716px;width:480px;height:90px">
+    <h3>nRF5340</h3><p>Bluetooth LE · MQTT · signed OTA · Memfault</p>
+  </div>
+  <div class="box inner" style="left:670px;top:820px;width:480px;height:90px">
+    <h3>nRF7002</h3><p>Wi-Fi 6 companion, 2.4 + 5 GHz</p>
+  </div>
+  <div class="box inner" style="left:670px;top:924px;width:480px;height:84px">
+    <h3>8 MB external flash</h3><p>holds the update slot</p>
+  </div>
+
+  <!-- peripherals -->
+  <div class="label" style="left:1232px;top:264px">DSI</div>
+  <div class="label" style="left:1230px;top:384px">USB</div>
+  <div class="label" style="left:1268px;top:600px">USB</div>
+  <div class="label" style="left:1224px;top:894px">GPIO</div>
+  <div class="label" style="left:1606px;top:482px">sound card out</div>
+
+  <div class="box" style="left:1330px;top:250px;width:520px;height:100px">
+    <h3>7-inch DSI touchscreen</h3><p>800 × 480 capacitive · 5 V from the Pi</p>
+  </div>
+  <div class="box" style="left:1330px;top:370px;width:520px;height:100px">
+    <h3>Pioneer DDJ-FLX4</h3><p>USB: MIDI control + sound card</p>
+  </div>
+  <div class="box" style="left:1330px;top:525px;width:520px;height:100px">
+    <h3>FLX4 audio outputs</h3><p>RCA master · 3.5 mm headphones</p>
+  </div>
+  <div class="box" style="left:1330px;top:700px;width:520px;height:100px">
+    <h3>USB flash drive</h3><p>music library</p>
+  </div>
+  <div class="box" style="left:1330px;top:880px;width:520px;height:100px">
+    <h3>2 buttons</h3><p>on the DK: Bluetooth window, golden image</p>
+  </div>
+
+  <div class="foot" style="top:1050px">Solid lines are in the MVP; dashed lines are planned. The FLX4’s own sound card plays the audio, so the MVP adds no audio hardware.</div>
+</div>
+</body>
+</html>

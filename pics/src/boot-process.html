@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Boot process</title>
+<link rel="stylesheet" href="diagram.css">
+<!-- Rendered to "pics/Boot Process.png" at 1920 x 1790, scale 2. Sizes follow the SIZES rows in docs/demonstrations.md. -->
+<style>
+  .flow { position: absolute; left: 70px; top: 220px; width: 1780px; }
+  .sec { color: var(--muted); font-size: 22px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 22px; }
+  .sec + * { margin-top: 0; }
+  section + section { margin-top: 52px; }
+
+  .chain { display: flex; align-items: flex-start; }
+  .stage { position: static; flex: none; }
+  .stage .box { position: relative; height: 190px; padding: 24px 28px; }
+  .stage .box h3 { font-size: 32px; display: flex; align-items: center; }
+  .stage .box p { font-size: 24px; margin-top: 10px; }
+  .stage .size { font-size: 22px; color: var(--muted); margin: 12px 0 0 4px; }
+  .link { flex: none; width: 64px; height: 190px; }
+  .box.strong .badge { background: #fff; color: var(--accent-strong); }
+
+  .store { display: grid; grid-template-columns: 260px 1fr; row-gap: 14px; align-items: center; }
+  .who b { display: block; font-size: 25px; font-weight: 650; }
+  .who span { display: block; font-size: 21px; color: var(--muted); margin-top: 2px; }
+  .note { display: flex; align-items: center; min-height: 56px; font-size: 22px; color: var(--muted); }
+  .note svg { flex: none; margin: 0 22px 0 160px; }
+  .note.plain { padding-left: 218px; }
+  .bar { display: flex; height: 88px; border: 2px solid var(--ink); border-radius: 12px; overflow: hidden; background: #fff; }
+  .seg { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0 14px; border-left: 2px solid var(--ink); }
+  .seg:first-child { border-left: none; }
+  .seg b { font-size: 23px; font-weight: 700; }
+  .seg span { font-size: 20px; margin-top: 4px; }
+  .seg.run { background: var(--accent-strong); color: #fff; }
+  .seg.soft { background: var(--accent-fill); }
+  .seg.unused { color: #8a857e; font-size: 22px; background: repeating-linear-gradient(135deg, #f1eee9 0 14px, #fff 14px 28px); }
+
+  .steps { display: grid; grid-template-columns: repeat(5, 1fr); column-gap: 24px; }
+  .step { border-top: 5px solid var(--accent-strong); padding-top: 22px; }
+  .step.else { border-top: 4px dashed #8a857e; }
+  .step.else .badge { background: #8a857e; }
+  .step h4 { font-size: 30px; font-weight: 650; display: flex; align-items: center; }
+  .step p { font-size: 23px; line-height: 1.42; color: #3f3c39; margin-top: 12px; }
+
+  .recovery { display: grid; grid-template-columns: 330px 1fr; border: 3px dashed var(--accent); border-radius: 14px; padding: 30px 34px; margin-top: 40px; }
+  .recovery b { display: block; font-size: 28px; font-weight: 650; }
+  .recovery span { display: block; font-size: 22px; color: var(--muted); margin-top: 4px; }
+  .recovery p { font-size: 23px; line-height: 1.45; color: #3f3c39; }
+  .fine { font-size: 21px; line-height: 1.45; color: var(--muted); margin-top: 30px; }
+</style>
+</head>
+<body>
+<div class="page" style="height:1790px">
+  <div class="eyebrow">Secure firmware updates · Boot process</div>
+  <div class="title">MCUboot verifies the application core’s image before it runs</div>
+
+  <div class="flow">
+    <section>
+      <div class="sec">On every reset</div>
+      <div class="chain">
+        <div class="stage" style="width:450px">
+          <div class="box"><h3><span class="badge">1</span>MCUboot</h3><p>checks the SHA-256 and the ECDSA P-256 signature of the image, installs a waiting update</p></div>
+          <div class="size">50,324 bytes in a 64 KB partition</div>
+        </div>
+        <svg class="link" viewBox="0 0 64 190"><path d="M8,95 H52" style="fill:none;stroke:#cf4a24;stroke-width:3.5"/><path d="M50,86 L62,95 L50,104 z" style="fill:#cf4a24"/></svg>
+        <div class="stage" style="width:420px">
+          <div class="box"><h3><span class="badge">2</span>TF-M</h3><p>secure world: crypto and encrypted storage, reached through the PSA interface</p></div>
+          <div class="size">130,008 bytes</div>
+        </div>
+        <svg class="link" viewBox="0 0 64 190"><path d="M8,95 H52" style="fill:none;stroke:#cf4a24;stroke-width:3.5"/><path d="M50,86 L62,95 L50,104 z" style="fill:#cf4a24"/></svg>
+        <div class="stage" style="width:400px">
+          <div class="box strong"><h3><span class="badge">3</span>Application</h3><p>non-secure world: Wi-Fi, Bluetooth LE, AWS IoT and the update client</p></div>
+          <div class="size">745,168 bytes</div>
+        </div>
+        <svg class="link" viewBox="0 0 64 190"><path d="M8,95 H52" style="fill:none;stroke:#8a857e;stroke-width:3;stroke-dasharray:8 7"/><path d="M50,86 L62,95 L50,104 z" style="fill:#8a857e"/></svg>
+        <div class="stage" style="width:318px">
+          <div class="box soft"><h3>Network core</h3><p>the Bluetooth controller; MCUboot does not check it</p></div>
+          <div class="size">133,232 bytes, own flash</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec">Where the images are stored</div>
+      <div class="store">
+        <div class="who"><b>Serial recovery</b><span>UART, the way back</span></div>
+        <div class="note"><svg width="36" height="56" viewBox="0 0 36 56"><path d="M18,2 V44" style="fill:none;stroke:#cf4a24;stroke-width:3;stroke-dasharray:7 6"/><path d="M8,40 L18,54 L28,40" style="fill:none;stroke:#cf4a24;stroke-width:3"/></svg>MCUboot writes an image straight into the primary slot, and checks its signature at the restart</div>
+
+        <div class="who"><b>Internal flash</b><span>nRF5340, 1 MB</span></div>
+        <div class="bar">
+          <div class="seg" style="width:150px"><b>MCUboot</b></div>
+          <div class="seg" style="width:200px"><b>TF-M</b></div>
+          <div class="seg run" style="flex:1"><b>Application</b><span>primary slot, 912 KB together with TF-M: the image that runs</span></div>
+          <div class="seg" style="width:104px"><b>vault</b></div>
+        </div>
+
+        <div></div>
+        <div class="note"><svg width="36" height="64" viewBox="0 0 36 64"><path d="M18,6 V58" style="fill:none;stroke:#cf4a24;stroke-width:3"/><path d="M8,16 L18,3 L28,16 M8,48 L18,61 L28,48" style="fill:none;stroke:#cf4a24;stroke-width:3"/></svg>MCUboot swaps the two slots, and swaps them back if the new image is not confirmed</div>
+
+        <div class="who"><b>External flash</b><span>MX25R64, 8 MB, SPI</span></div>
+        <div class="bar">
+          <div class="seg soft" style="flex:1"><b>Secondary slot, 912 KB, at 0x0</b><span>the downloaded image, then the previous image</span></div>
+          <div class="seg unused" style="width:150px">unused</div>
+          <div class="seg" style="width:500px"><b>Golden image, 912 KB, at 0x700000</b><span>a plain signed file, frozen at 1.5.0 until a promotion</span></div>
+        </div>
+
+        <div class="who"><b>Download</b><span>Wi-Fi or Bluetooth LE</span></div>
+        <div class="note"><svg width="36" height="60" viewBox="0 0 36 60"><path d="M18,58 V6" style="fill:none;stroke:#cf4a24;stroke-width:3"/><path d="M8,16 L18,3 L28,16" style="fill:none;stroke:#cf4a24;stroke-width:3"/></svg>The application writes the new image here, whichever way it came. The image that runs stays untouched until the swap</div>
+
+        <div class="who"><b>Golden image</b><span>by hand, Button 2</span></div>
+        <div class="note plain">MCUboot copies it to the primary slot only under a physical gesture, and only if its digest equals the pin. From 1.19.3 a signed promotion from the console replaces both over the air</div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec">An update, step by step</div>
+      <div class="steps">
+        <div class="step"><h4><span class="badge">1</span>Job</h4><p>A job arrives from AWS IoT over MQTT and starts if it is newer. Golden 1.5.0 still waits for Button 1.</p></div>
+        <div class="step"><h4><span class="badge">2</span>Download</h4><p>The application fetches the image over HTTPS on Wi-Fi into the secondary slot and checks its SHA-256.</p></div>
+        <div class="step"><h4><span class="badge">3</span>Verify and swap</h4><p>After a reset MCUboot checks the signature and the version, and swaps the slots.</p></div>
+        <div class="step"><h4><span class="badge">4</span>Trial</h4><p>The new image must reconnect to AWS IoT within 5 minutes. Only then does it confirm itself.</p></div>
+        <div class="step else"><h4><span class="badge">5</span>Otherwise</h4><p>The watchdog or the 5-minute limit resets the board and MCUboot puts the previous image back.</p></div>
+      </div>
+
+      <div class="recovery">
+        <div><b>Serial recovery</b><span>no network, no debugger</span></div>
+        <p>Hold Button 1 during a reset, send a command in the half second after a reset, or have no valid image left: MCUboot stays and takes an image over UART from tools/recover.py. It refuses a wrong signature at the restart. There is no version check and no trial on this path. Tested on the board: a command after a reset (--reset), --console, and no valid image. Not tested on hardware yet: Button 1.</p>
+      </div>
+
+      <p class="fine">Sizes are from the 1.14.0 build for the nRF7002 DK. In that build the signed image of TF-M and the application is 876,412 bytes, in a 933,888-byte slot. Bars are not to scale. A revert skips the version check: see firmware/README.md. The vault is TF-M’s storage for the device key, certificates and Wi-Fi credentials. The network core is flashed over the debug port and is not updated over the air.</p>
+    </section>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Communication diagram</title>
+<link rel="stylesheet" href="diagram.css">
+<!-- Rendered to "pics/Communication Diagram.png" at 1920 x 1110, scale 2. -->
+</head>
+<body>
+<div class="page" style="height:1110px">
+  <div class="eyebrow">MVP · Communication</div>
+  <div class="title">Wi-Fi handles updates and fleet data; Bluetooth is the backup</div>
+
+  <div class="colhead" style="left:70px">The DJ’s gear</div>
+  <div class="colhead" style="left:600px">Cranium unit</div>
+  <div class="colhead" style="left:1270px">Cloud and apps</div>
+
+  <svg class="wires" width="1920" height="1110" viewBox="0 0 1920 1110">
+    <defs>
+      <marker id="a" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+        <path d="M0,0 L12,6 L0,12 z" style="fill:#4f4c48;stroke:none"/>
+      </marker>
+      <marker id="ap" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+        <path d="M0,0 L12,6 L0,12 z" style="fill:#8a857e;stroke:none"/>
+      </marker>
+      <marker id="ar" viewBox="0 0 14 14" refX="13" refY="7" markerWidth="16" markerHeight="16" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+        <path d="M0,0 L14,7 L0,14 z" style="fill:#cf4a24;stroke:none"/>
+      </marker>
+    </defs>
+    <!-- wired, in the unit -->
+    <path d="M472,302 H598" marker-start="url(#a)" marker-end="url(#a)"/>
+    <path d="M270,354 V518" marker-end="url(#a)"/>
+    <path class="planned" d="M850,382 V598" marker-start="url(#ap)" marker-end="url(#ap)"/>
+    <!-- 1: Wi-Fi to AWS -->
+    <path class="radio" d="M1102,685 H1200 V302 H1268" marker-start="url(#ar)" marker-end="url(#ar)"/>
+    <path class="radio" d="M1200,442 H1268" marker-end="url(#ar)"/>
+    <!-- 2: Bluetooth LE to the phone -->
+    <path class="radio" d="M472,912 H535 V700 H598" marker-start="url(#ar)" marker-end="url(#ar)"/>
+    <!-- inside the cloud: IoT rules and Lambda -->
+    <path d="M1800,302 H1845 V752"/>
+    <path d="M1800,442 H1845"/>
+    <path d="M1845,582 H1802" marker-end="url(#a)"/>
+    <path d="M1845,752 H1802" marker-end="url(#a)"/>
+    <path d="M1535,802 V860" marker-start="url(#a)" marker-end="url(#a)"/>
+    <!-- the apps reach the cloud over HTTPS -->
+    <path d="M270,964 V1014 H1535 V966" marker-end="url(#a)"/>
+  </svg>
+
+  <!-- the DJ's gear -->
+  <div class="box" style="left:70px;top:250px;width:402px;height:104px">
+    <h3>Pioneer DDJ-FLX4</h3><p>MIDI control + sound card</p>
+  </div>
+  <div class="label" style="left:512px;top:266px">USB</div>
+  <div class="label" style="left:288px;top:418px">RCA + 3.5 mm</div>
+  <div class="box" style="left:70px;top:520px;width:402px;height:104px">
+    <h3>PA + headphones</h3><p>sound leaves through the FLX4</p>
+  </div>
+  <div class="box" style="left:70px;top:860px;width:402px;height:104px">
+    <h3>Phone app</h3><p>status + updates with no Wi-Fi</p>
+  </div>
+
+  <!-- Cranium unit -->
+  <div class="box soft" style="left:600px;top:250px;width:502px;height:132px">
+    <h3>Raspberry Pi 4 (2 GB)</h3>
+    <p>Mixxx · touchscreen UI · audio</p>
+    <p>music library from a USB drive</p>
+  </div>
+  <div class="label" style="left:868px;top:438px"><span class="badge">3</span><b>UART, planned</b></div>
+  <div class="label" style="left:910px;top:480px">1.8 V ↔ 3.3 V level shifter</div>
+
+  <div class="box strong" style="left:600px;top:600px;width:502px;height:172px">
+    <h3>nRF7002 DK</h3>
+    <p>nRF5340 + nRF7002 Wi-Fi 6</p>
+    <p>Zephyr · MCUboot + TF-M</p>
+    <p>signed OTA · Memfault</p>
+  </div>
+  <div class="label wireless" style="left:1112px;top:700px"><span class="badge">1</span>Wi-Fi</div>
+  <div class="label wireless" style="left:552px;top:792px"><span class="badge">2</span>Bluetooth LE</div>
+  <div class="label" style="left:594px;top:832px">passkey pairing</div>
+
+  <!-- cloud and apps -->
+  <div class="box" style="left:1270px;top:250px;width:530px;height:104px">
+    <h3>AWS IoT Core</h3><p>MQTT with mutual TLS · OTA jobs</p>
+  </div>
+  <div class="box" style="left:1270px;top:390px;width:530px;height:104px">
+    <h3>Amazon S3</h3><p>signed update images over HTTPS</p>
+  </div>
+  <div class="box" style="left:1270px;top:530px;width:530px;height:104px">
+    <h3>Memfault</h3><p>crash reports + diagnostics</p>
+  </div>
+  <div class="box" style="left:1270px;top:700px;width:530px;height:104px">
+    <h3>AWS backend</h3><p>Lambda · API Gateway · DynamoDB · Cognito</p>
+  </div>
+  <div class="label" style="left:1552px;top:814px">HTTPS</div>
+  <div class="box" style="left:1270px;top:862px;width:530px;height:104px">
+    <h3>Console + craniumiot.com</h3><p>deploys need password + authenticator code</p>
+  </div>
+  <div class="label" style="left:1888px;top:420px;transform:rotate(90deg);transform-origin:left top">IoT rules + Lambda</div>
+  <div class="label" style="left:690px;top:980px">HTTPS · the apps sign in to the same console</div>
+
+  <div class="foot" style="top:1052px">Orange lines are wireless, gray lines are wired or cloud links, and the dashed line is planned. Memfault data rides the board’s AWS IoT connection, and a Lambda forwards it.</div>
+</div>
+</body>
+</html>

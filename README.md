@@ -27,7 +27,7 @@ Cranium runs Mixxx, the open source DJ software, on a built-in Raspberry Pi 4 wi
 
 ### 3.2.3 Target Market & Demographics
 
-We’re building a $230 add-on that turns laptop-dependent DJ controllers like the Pioneer DDJ-FLX4 into standalone DJ systems, so DJs can leave their laptops at home without replacing the controller they already own. We’re targeting new and intermediate DJs in the U.S. who own an FLX4 and are moving into parties, events, and mobile gigs, with the broader DJ-controller market estimated at ~$310m annually, 28% of which comes from the U.S., and a current FLX4 userbase of ~500,000 with an additional ~120,000 sold annually. Our first customer interview with an intermediate FLX4 owner validated laptop dependence as the core pain point, with Pioneer’s standalone XDJ line being their main potential alternative.
+We’re building a \$230 add-on that turns laptop-dependent DJ controllers like the Pioneer DDJ-FLX4 into standalone DJ systems, so DJs can leave their laptops at home without replacing the controller they already own. We’re targeting new and intermediate DJs in the U.S. who own an FLX4 and are moving into parties, events, and mobile gigs, with the broader DJ-controller market estimated at ~\$310m annually, 28% of which comes from the U.S., and a current FLX4 userbase of ~500,000 with an additional ~120,000 sold annually. Our first customer interview with an intermediate FLX4 owner validated laptop dependence as the core pain point, with Pioneer’s standalone XDJ line being their main potential alternative.
 
 - Who will be using your product?
   - New and intermediate FLX4 DJs.
@@ -36,18 +36,18 @@ We’re building a $230 add-on that turns laptop-dependent DJ controllers like t
 - Where would you deploy your product?
   - U.S. first through online D2C, then globally.
 - How large is the target market?
-  - ~$28M existing U.S. FLX4 market, growing by $7.1M annually
-- How much do you expect to capture? ~$1.15M/year by Year 3 (about 5,000 units, or 1% adoption, at our $230 price)
+  - ~\$28M existing U.S. FLX4 market, growing by \$7.1M annually
+- How much do you expect to capture? ~\$1.15M/year by Year 3 (about 5,000 units, or 1% adoption, at our \$230 price)
 - What competitors are already in the space?
   - Pioneer’s XDJ systems as the traditional standalone alternative, less desirable standalone systems from Numark and Denon, and DeckShark as an early-stage add-on startup.
-  - Standalone decks start at $699 (Numark Mixstream Pro+), and the closest match, AlphaTheta’s OMNIS-DUO, is $1,499. Some DJs get by with a phone and a DJ app, or a DIY Raspberry Pi build, which takes a tech-savvy user and time
+  - Standalone decks start at \$699 (Numark Mixstream Pro+), and the closest match, AlphaTheta’s OMNIS-DUO, is \$1,499. Some DJs get by with a phone and a DJ app, or a DIY Raspberry Pi build, which takes a tech-savvy user and time
 
 ### 3.2.4 Stakeholders
 
 * Customer perspectives of 3 exact target customers (intermediate level Pioneer FLX4 owners who play small/medium live events)
   * Already held interviews, obtained specific pricing perspectives and target DJ controllers.
   * Price point is targeting to a common tipping point for customers
-    * What they told us: price matters most. They want XDJ-style standalone use for under $250, which is why we price at $230.
+    * What they told us: price matters most. They want XDJ-style standalone use for under \$250, which is why we price at \$230.
   * Battery power is not important to them if it adds cost, so the MVP runs from a USB-C wall supply.
   * It has to feel robust. DeckShark’s 3D-printed hook-on case feels cheap to them, and they would rather slide the controller into a dock or rail, so our casework is a rail plus a screen and board frame.
 * An EE and music technologist we reached through Demetrius’s Drexel contact, for input on audio processing.
@@ -57,13 +57,13 @@ We’re building a $230 add-on that turns laptop-dependent DJ controllers like t
 
 - **Create a device block diagram that details the power architecture, microcontroller, & peripherals**
 
-![1794976437481](image/README/1794976437481.png)
+![Block diagram](<pics/Block Diagram.png>)
 
 - **Create a communication diagram**
 
-![1794976418948](image/README/1794976418948.png)
+![Communication diagram](<pics/Communication Diagram.png>)
 
-Where the design is now. The two diagrams above are from Pitch #1 (September) and still show that proposal: the nRF5340 running the audio engine, a 3.5-inch screen, LE Audio speakers, and the phone as the only internet link. The MVP has moved on since then. Until the diagrams are redrawn, this table is the current architecture.
+The table gives the same architecture in words.
 
 | Block         | Now (MVP)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -124,73 +124,73 @@ The nRF7002 DK is not in the BOM sheet (see Hardware BOM), but it is in this bud
 
 # Hardware BOM
 
-From the Hardware BOM tab of the[Cranium BOM and Cost Model](https://docs.google.com/spreadsheets/d/1DxhXXcjT0Hgploqj7x2QWS54r0ZcuMWR_F7q05EQHGE/edit) sheet. Costs are per unit in USD. The 1K column uses unit prices at a 1,000-unit build, and parts without a volume quote stay at retail. Tax, freight, software and tooling are not in these totals; tooling is in the financial model.
+From the Hardware BOM tab of the [Cranium BOM and Cost Model](https://docs.google.com/spreadsheets/d/1DxhXXcjT0Hgploqj7x2QWS54r0ZcuMWR_F7q05EQHGE/edit) sheet. Costs are per unit in USD. The 1K column uses unit prices at a 1,000-unit build, and parts without a volume quote stay at retail. Tax, freight, software and tooling are not in these totals; tooling is in the financial model.
 
 | Item                 | Description                                                | Manufacturer, part no.                            | Distributor, part no.        | Qty | 1-unit build | 1K build |
 | -------------------- | ---------------------------------------------------------- | ------------------------------------------------- | ---------------------------- | --- | ------------ | -------- |
-| Electrical           |                                                            |                                                   |                              |     | $116.55      | $114.80  |
-| Raspberry Pi         | Raspberry Pi 4 Model B, 2 GB RAM                           | Raspberry Pi Ltd, SC0193                          | CanaKit, PI4-2GB             | 1   | $67.50       | $67.50   |
-| Touchscreen          | Hosyond 7-inch IPS capacitive DSI display, 800 x 480       | Hosyond, 7 Inch Touchscreen IPS DSI Display       | Amazon, B0D3QB7X4Z           | 1   | $38.99       | $38.99   |
-| USB-A to USB-C cable | USB 2.0 data and power cable, 150 mm                       | CviLux USA, DH-20M50054                           | DigiKey, 2987-DH-20M50054-ND | 1   | $1.32        | $1.32    |
-| USB-C power supply   | Official US wall supply, 5.1 V / 3 A, 1.5 m cord           | Raspberry Pi Ltd, SC0218                          | Adafruit, 4298               | 1   | $8.74        | $6.99    |
-| Mechanical, catalog  |                                                            |                                                   |                              |     | $0.86        | $0.86    |
-| ME-OTS-001           | Socket-head screw, 0-80 x 1/16 in, black-oxide alloy steel | Not disclosed, 91251A051                          | McMaster-Carr, 91251A051     | 2   | $0.86        | $0.86    |
-| Mechanical, custom   |                                                            |                                                   |                              |     | $2.11        | $2.11    |
-| ME-001               | Casework: rails                                            | Injection molder (not yet selected), ABS, 0.15 kg |                              | 1   | $0.99        | $0.99    |
-| ME-002               | Casework: screen and board frame                           | Injection molder (not yet selected), ABS, 0.17 kg |                              | 1   | $1.12        | $1.12    |
-| Packaging            |                                                            |                                                   |                              |     | $1.97        | $1.62    |
-| PKG-001              | Corrugated box, white, 10 x 8 x 4 in inside                | ULINE, S-16535                                    | ULINE, S-16535               | 1   | $1.97        | $1.62    |
-| Total per unit       |                                                            |                                                   |                              |     | $121.49      | $119.39  |
+| Electrical           |                                                            |                                                   |                              |     | \$116.55      | \$114.80  |
+| Raspberry Pi         | Raspberry Pi 4 Model B, 2 GB RAM                           | Raspberry Pi Ltd, SC0193                          | CanaKit, PI4-2GB             | 1   | \$67.50       | \$67.50   |
+| Touchscreen          | Hosyond 7-inch IPS capacitive DSI display, 800 x 480       | Hosyond, 7 Inch Touchscreen IPS DSI Display       | Amazon, B0D3QB7X4Z           | 1   | \$38.99       | \$38.99   |
+| USB-A to USB-C cable | USB 2.0 data and power cable, 150 mm                       | CviLux USA, DH-20M50054                           | DigiKey, 2987-DH-20M50054-ND | 1   | \$1.32        | \$1.32    |
+| USB-C power supply   | Official US wall supply, 5.1 V / 3 A, 1.5 m cord           | Raspberry Pi Ltd, SC0218                          | Adafruit, 4298               | 1   | \$8.74        | \$6.99    |
+| Mechanical, catalog  |                                                            |                                                   |                              |     | \$0.86        | \$0.86    |
+| ME-OTS-001           | Socket-head screw, 0-80 x 1/16 in, black-oxide alloy steel | Not disclosed, 91251A051                          | McMaster-Carr, 91251A051     | 2   | \$0.86        | \$0.86    |
+| Mechanical, custom   |                                                            |                                                   |                              |     | \$2.11        | \$2.11    |
+| ME-001               | Casework: rails                                            | Injection molder (not yet selected), ABS, 0.15 kg |                              | 1   | \$0.99        | \$0.99    |
+| ME-002               | Casework: screen and board frame                           | Injection molder (not yet selected), ABS, 0.17 kg |                              | 1   | \$1.12        | \$1.12    |
+| Packaging            |                                                            |                                                   |                              |     | \$1.97        | \$1.62    |
+| PKG-001              | Corrugated box, white, 10 x 8 x 4 in inside                | ULINE, S-16535                                    | ULINE, S-16535               | 1   | \$1.97        | \$1.62    |
+| Total per unit       |                                                            |                                                   |                              |     | \$121.49      | \$119.39  |
 
-Casework is costed as material plus processing: ABS at $3 per kg, with processing at 120% of the material cost.
+Casework is costed as material plus processing: ABS at \$3 per kg, with processing at 120% of the material cost.
 
-Not in the BOM: nRF7002 DK. Each unit also uses a Nordic nRF7002 DK (NRF7002-DK). It carries the nRF5340 that runs our Zephyr firmware, the nRF7002 Wi-Fi 6 companion chip, and the 8 MB external flash that holds the update slot. Nordic hardware comes through the course and sits outside the parts budget, so the DK is left out of the totals above and out of the COGS in the financial model. For reference, it sells for about $53 at U.S. distributors. A production unit would replace the DK with an nRF5340 and nRF7002 on our own board, which is not costed yet.
+Not in the BOM: nRF7002 DK. Each unit also uses a Nordic nRF7002 DK (NRF7002-DK). It carries the nRF5340 that runs our Zephyr firmware, the nRF7002 Wi-Fi 6 companion chip, and the 8 MB external flash that holds the update slot. Nordic hardware comes through the course and sits outside the parts budget, so the DK is left out of the totals above and out of the COGS in the financial model. For reference, it sells for about \$53 at U.S. distributors. A production unit would replace the DK with an nRF5340 and nRF7002 on our own board, which is not costed yet.
 
 # Software BOM
 
-Recurring costs to run the fleet, from the Software BOM tab of the[Cranium BOM and Cost Model](https://docs.google.com/spreadsheets/d/1DxhXXcjT0Hgploqj7x2QWS54r0ZcuMWR_F7q05EQHGE/edit) sheet. Development tools are left out, as the manual asks.
+Recurring costs to run the fleet, from the Software BOM tab of the [Cranium BOM and Cost Model](https://docs.google.com/spreadsheets/d/1DxhXXcjT0Hgploqj7x2QWS54r0ZcuMWR_F7q05EQHGE/edit) sheet. Development tools are left out, as the manual asks.
 
 | Code   | What it pays for                                                                       | Provider                          | Monthly   | Annual    | Notes                                                                                               |
 | ------ | -------------------------------------------------------------------------------------- | --------------------------------- | --------- | --------- | --------------------------------------------------------------------------------------------------- |
-| SW-001 | Device connectivity: MQTT, device shadows, OTA jobs                                    | AWS IoT Core                      | In SW-002 | In SW-002 | Pay per use: $1.00 per million messages and $0.08 per million connection-minutes                    |
-| SW-002 | Cloud backend and console: Lambda, API Gateway, DynamoDB, S3, Cognito, Secrets Manager | Amazon Web Services               | $10.00    | $120.00   | Monthly budget cap set in cloud/infra/budget.yaml; actual use is a few dollars a month for 4 boards |
-| SW-003 | Mixxx DJ software, our fork (dbosket/mixxx, branch cranium), running on the Pi         | Open source, GPL-2.0-or-later     | $0        | $0        | Shipping it means offering the source                                                               |
-| SW-004 | Wi-Fi location for the board map                                                       | AWS Location Service              | In SW-002 | In SW-002 | $1.00 per 1,000 positions, about $0.15 per board per month                                          |
-| SW-005 | Fleet management: crash reporting and diagnostics                                      | Memfault (Nordic)                 | $0        | $0        | Free tier during development; production plan still to be priced                                    |
-| SW-006 | nRF Connect SDK v3.4.0 (Zephyr RTOS, MCUboot)                                          | Nordic Semiconductor, open source | $0        | $0        | Apache-2.0 and Nordic 5-Clause licenses                                                             |
-| SW-007 | Raspberry Pi OS (trixie, arm64)                                                        | Raspberry Pi Ltd, open source     | $0        | $0        | Runs Mixxx and the metrics collector in pi/                                                         |
-| SW-008 | Desktop console app for Windows and Linux                                              | Electron, open source (MIT)       | $0        | $0        |                                                                                                     |
-| SW-009 | Domain (craniumiot.com) and DNS                                                        | Cloudflare                        | $0.92     | $11.00    | DNS is free; the domain renews at about $11 a year                                                  |
-| Total  | Four MVP boards                                                                        |                                   | $10.92    | $131.00   |                                                                                                     |
+| SW-001 | Device connectivity: MQTT, device shadows, OTA jobs                                    | AWS IoT Core                      | In SW-002 | In SW-002 | Pay per use: \$1.00 per million messages and \$0.08 per million connection-minutes                    |
+| SW-002 | Cloud backend and console: Lambda, API Gateway, DynamoDB, S3, Cognito, Secrets Manager | Amazon Web Services               | \$10.00    | \$120.00   | Monthly budget cap set in cloud/infra/budget.yaml; actual use is a few dollars a month for 4 boards |
+| SW-003 | Mixxx DJ software, our fork (dbosket/mixxx, branch cranium), running on the Pi         | Open source, GPL-2.0-or-later     | \$0        | \$0        | Shipping it means offering the source                                                               |
+| SW-004 | Wi-Fi location for the board map                                                       | AWS Location Service              | In SW-002 | In SW-002 | \$1.00 per 1,000 positions, about \$0.15 per board per month                                          |
+| SW-005 | Fleet management: crash reporting and diagnostics                                      | Memfault (Nordic)                 | \$0        | \$0        | Free tier during development; production plan still to be priced                                    |
+| SW-006 | nRF Connect SDK v3.4.0 (Zephyr RTOS, MCUboot)                                          | Nordic Semiconductor, open source | \$0        | \$0        | Apache-2.0 and Nordic 5-Clause licenses                                                             |
+| SW-007 | Raspberry Pi OS (trixie, arm64)                                                        | Raspberry Pi Ltd, open source     | \$0        | \$0        | Runs Mixxx and the metrics collector in pi/                                                         |
+| SW-008 | Desktop console app for Windows and Linux                                              | Electron, open source (MIT)       | \$0        | \$0        |                                                                                                     |
+| SW-009 | Domain (craniumiot.com) and DNS                                                        | Cloudflare                        | \$0.92     | \$11.00    | DNS is free; the domain renews at about \$11 a year                                                  |
+| Total  | Four MVP boards                                                                        |                                   | \$10.92    | \$131.00   |                                                                                                     |
 
-These totals cover the four MVP boards. At scale the cost grows with each board: at today’s 30-second heartbeat a board sends about 100,000 reports a month (about $0.10 in AWS IoT Core), the rules, Lambda and DynamoDB behind them add about 10 to 20 cents, and Wi-Fi location adds about 15 cents. That is roughly $0.35 to $0.45 per board per month, before Memfault’s production plan.
+These totals cover the four MVP boards. At scale the cost grows with each board: at today’s 30-second heartbeat a board sends about 100,000 reports a month (about \$0.10 in AWS IoT Core), the rules, Lambda and DynamoDB behind them add about 10 to 20 cents, and Wi-Fi location adds about 15 cents. That is roughly \$0.35 to \$0.45 per board per month, before Memfault’s production plan.
 
 # Financial Model
 
-The full model is in the Cost Model tab of the[Cranium BOM and Cost Model](https://docs.google.com/spreadsheets/d/1DxhXXcjT0Hgploqj7x2QWS54r0ZcuMWR_F7q05EQHGE/edit) sheet, which follows Framework’s cost model. The figures below come straight from it.
+The full model is in the Cost Model tab of the [Cranium BOM and Cost Model](https://docs.google.com/spreadsheets/d/1DxhXXcjT0Hgploqj7x2QWS54r0ZcuMWR_F7q05EQHGE/edit) sheet, which follows Framework’s cost model. The figures below come straight from it.
 
-Pricing strategy and sale price. We sell direct to consumers online for $230 plus $10 shipping, as a one-time purchase. There is no subscription, and firmware and feature updates are included. At $230 we stay under the $250 our interviewees set for XDJ-style standalone use, and under a third of the price of the cheapest standalone deck, the $699 Numark Mixstream Pro+. Because we sell direct there is no distributor margin to cover, so we can price at about 1.9 times the $122.72 FOB cost rather than the usual 2.5 times.
+Pricing strategy and sale price. We sell direct to consumers online for \$230 plus \$10 shipping, as a one-time purchase. There is no subscription, and firmware and feature updates are included. At \$230 we stay under the \$250 our interviewees set for XDJ-style standalone use, and under a third of the price of the cheapest standalone deck, the \$699 Numark Mixstream Pro+. Because we sell direct there is no distributor margin to cover, so we can price at about 1.9 times the \$122.72 FOB cost rather than the usual 2.5 times.
 
 | Per unit                                                                            | USD     |
 | ----------------------------------------------------------------------------------- | ------- |
-| BOM (1K build)                                                                      | $119.39 |
-| Assembly, test and packout (FATP)                                                   | $2.00   |
-| Yield loss and rework                                                               | $1.33   |
-| COGS at FOB                                                                         | $122.72 |
-| Financing (10% a year for the 30 days between paying the manufacturer and the sale) | $1.01   |
-| COGS with financing                                                                 | $123.72 |
-| Logistics: freight in, warehousing, pick and pack, freight out                      | $8.88   |
-| Payment processing (Stripe, 2.9%)                                                   | $6.96   |
-| Duties                                                                              | $0.00   |
-| COGS fulfilled                                                                      | $139.56 |
-| Support, returns and warranty                                                       | $0.74   |
-| Fixed costs spread over 20,000 units (NRE, tooling, certification, excess stock)    | $8.58   |
-| Internal R&D and SG&A spread over 20,000 units                                      | $17.78  |
-| Fully loaded cost                                                                   | $166.66 |
-| Profit per unit at $240                                                             | $73.34  |
+| BOM (1K build)                                                                      | \$119.39 |
+| Assembly, test and packout (FATP)                                                   | \$2.00   |
+| Yield loss and rework                                                               | \$1.33   |
+| COGS at FOB                                                                         | \$122.72 |
+| Financing (10% a year for the 30 days between paying the manufacturer and the sale) | \$1.01   |
+| COGS with financing                                                                 | \$123.72 |
+| Logistics: freight in, warehousing, pick and pack, freight out                      | \$8.88   |
+| Payment processing (Stripe, 2.9%)                                                   | \$6.96   |
+| Duties                                                                              | \$0.00   |
+| COGS fulfilled                                                                      | \$139.56 |
+| Support, returns and warranty                                                       | \$0.74   |
+| Fixed costs spread over 20,000 units (NRE, tooling, certification, excess stock)    | \$8.58   |
+| Internal R&D and SG&A spread over 20,000 units                                      | \$17.78  |
+| Fully loaded cost                                                                   | \$166.66 |
+| Profit per unit at \$240                                                             | \$73.34  |
 
-Program. The model assumes 20,000 units. Fixed costs are $171,634: product NRE $30,000, module NRE $5,000, product tooling $50,000, module tooling $5,000, certification $10,000, and 3% of the BOM for excess and obsolete stock. Internal costs add $250,000 (development $50,000, internal labor $100,000, indirect marketing $100,000), plus 1% promotional discounting and a $3 direct acquisition cost per sale. With 5% remorse returns and 5% warranty returns, that gives $4.56M in sales, $0.19M from 1,000 refurbished units resold at 80%, $4.75M total revenue against $3.33M total cost, and $1.42M gross profit, a 29.9% margin.
+Program. The model assumes 20,000 units. Fixed costs are \$171,634: product NRE \$30,000, module NRE \$5,000, product tooling \$50,000, module tooling \$5,000, certification \$10,000, and 3% of the BOM for excess and obsolete stock. Internal costs add \$250,000 (development \$50,000, internal labor \$100,000, indirect marketing \$100,000), plus 1% promotional discounting and a \$3 direct acquisition cost per sale. With 5% remorse returns and 5% warranty returns, that gives \$4.56M in sales, \$0.19M from 1,000 refurbished units resold at 80%, \$4.75M total revenue against \$3.33M total cost, and \$1.42M gross profit, a 29.9% margin.
 
-Recurring costs. Cloud and fleet costs (see Software BOM) are not in the Cost Model tab yet. At today’s reporting rate they come to roughly $0.35 to $0.45 per board per month, about $13 to $16 per unit over three years, which the $73 profit per unit covers without a subscription.
+Recurring costs. Cloud and fleet costs (see Software BOM) are not in the Cost Model tab yet. At today’s reporting rate they come to roughly \$0.35 to \$0.45 per board per month, about \$13 to \$16 per unit over three years, which the \$73 profit per unit covers without a subscription.
 
 Not included. The nRF7002 DK sits outside the BOM, so every figure above leaves it out (see Hardware BOM).
