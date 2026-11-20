@@ -22,7 +22,7 @@ let package = Package(
         // commands an upload sends, and the board refuses anything but image list and upload.
         .package(
             url: "https://github.com/NordicSemiconductor/IOS-nRF-Connect-Device-Manager.git",
-            exact: "1.15.0"
+            exact: "1.15.1"
         ),
     ],
     targets: [
