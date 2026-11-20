@@ -1,0 +1,228 @@
+diff --git a/src/test/rx3display_test.cpp b/src/test/rx3display_test.cpp
+index 3389aea..2592a69 100644
+--- a/src/test/rx3display_test.cpp
++++ b/src/test/rx3display_test.cpp
+@@ -3,6 +3,7 @@
+ #include <QtTest>
+ #include <QLabel>
+ #include <QPointer>
++#include <QPushButton>
+ #include <QVBoxLayout>
+ #include "util/fpclassify.h"
+ #include "control/controlpotmeter.h"
+@@ -41,6 +42,90 @@ TEST(Rx3Display, BarsFollowTheBeatGridAcrossTempoChanges) {
+     EXPECT_EQ(QStringLiteral("—"), rx3::bars(-1));
+ }
+ class Rx3ReferenceScaleTest : public MixxxTest {};
++namespace {
++class DragTestViewport : public WReferenceScaler {
++  public:
++    explicit DragTestViewport(QWidget* canvas)
++            : WReferenceScaler(canvas, QSize(1280, 800), nullptr, true) {
++        setWindowFlag(Qt::FramelessWindowHint);
++    }
++    int moveRequests = 0;
++    bool systemMoveSupported = true;
++  protected:
++    bool startWindowMove() override {
++        ++moveRequests;
++        return systemMoveSupported;
++    }
++};
++void sendDragMouse(QWidget* target, QEvent::Type type, QPoint global,
++        Qt::MouseButton button, Qt::MouseButtons buttons) {
++    QMouseEvent event(type, target->mapFromGlobal(global), global, button, buttons,
++            Qt::NoModifier);
++    QCoreApplication::sendEvent(target, &event);
++}
++}
++
++TEST_F(Rx3ReferenceScaleTest, FramelessDragUsesOnlyEmptyTopMarginAndPreservesRemain) {
++    auto* canvas = new QWidget;
++    auto* skinContainer = new QWidget(canvas);
++    skinContainer->setObjectName(QStringLiteral("SkinContainer"));
++    skinContainer->setGeometry(0, 0, 1280, 800);
++    auto* remain = new QPushButton(QStringLiteral("REMAIN"), skinContainer);
++    // Deliberately overlap the 10 px strip, as can happen at a smaller scale.
++    remain->setGeometry(20, 6, 540, 28);
++    QSignalSpy clicks(remain, &QPushButton::clicked);
++    DragTestViewport viewport(canvas);
++    viewport.show();
++    QCoreApplication::processEvents();
++    for (QPoint point : {QPoint(600, 0), QPoint(600, 9)}) {
++        QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, point);
++    }
++    EXPECT_EQ(2, viewport.moveRequests);
++    QTest::mouseClick(skinContainer, Qt::LeftButton, Qt::NoModifier, QPoint(600, 5));
++    EXPECT_EQ(3, viewport.moveRequests);
++    for (QPoint point : {QPoint(600, 10), QPoint(600, 40), QPoint(5, 5),
++                 QPoint(1275, 5), QPoint(30, 8)}) {
++        QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, point);
++    }
++    QTest::mouseClick(canvas, Qt::RightButton, Qt::NoModifier, QPoint(600, 5));
++    EXPECT_EQ(3, viewport.moveRequests);
++    QTest::mouseClick(remain, Qt::LeftButton);
++    EXPECT_EQ(1, clicks.count());
++    EXPECT_EQ(3, viewport.moveRequests);
++    viewport.showFullScreen();
++    QCoreApplication::processEvents();
++    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, QPoint(600, 5));
++    EXPECT_EQ(3, viewport.moveRequests);
++    viewport.showNormal();
++    viewport.setWindowFlag(Qt::FramelessWindowHint, false);
++    viewport.show();
++    QCoreApplication::processEvents();
++    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, QPoint(600, 5));
++    EXPECT_EQ(3, viewport.moveRequests);
++}
++
++TEST_F(Rx3ReferenceScaleTest, DragFallbackMovesWindowAndEndsOnRelease) {
++    auto* canvas = new QWidget;
++    DragTestViewport viewport(canvas);
++    viewport.systemMoveSupported = false;
++    viewport.show();
++    viewport.move(50, 80);
++    QCoreApplication::processEvents();
++    const QPoint origin = viewport.pos();
++    const QPoint press = canvas->mapToGlobal(QPoint(600, 5));
++    sendDragMouse(canvas, QEvent::MouseButtonPress, press, Qt::LeftButton, Qt::LeftButton);
++    sendDragMouse(&viewport, QEvent::MouseMove, press + QPoint(90, 60),
++            Qt::NoButton, Qt::LeftButton);
++    EXPECT_EQ(origin + QPoint(90, 60), viewport.pos());
++    sendDragMouse(&viewport, QEvent::MouseButtonRelease, press + QPoint(90, 60),
++            Qt::LeftButton, Qt::NoButton);
++    sendDragMouse(&viewport, QEvent::MouseMove, press + QPoint(180, 120),
++            Qt::NoButton, Qt::NoButton);
++    EXPECT_EQ(origin + QPoint(90, 60), viewport.pos());
++    EXPECT_EQ(1, viewport.moveRequests);
++    EXPECT_NE(&viewport, QWidget::mouseGrabber());
++}
++
+ TEST_F(Rx3ReferenceScaleTest, ResizesUniformlyWithoutRecreatingWidgetsOrDrifting) {
+     auto* canvas = new QWidget;
+     canvas->setFixedSize(1280, 800);
+diff --git a/src/widget/wreferencescaler.cpp b/src/widget/wreferencescaler.cpp
+index 2c52dba..de98635 100644
+--- a/src/widget/wreferencescaler.cpp
++++ b/src/widget/wreferencescaler.cpp
+@@ -1,9 +1,11 @@
+ #include "widget/wreferencescaler.h"
+ 
+ #include <QLayout>
++#include <QMouseEvent>
+ #include <QRegularExpression>
+ #include <QResizeEvent>
+ #include <QTimer>
++#include <QWindow>
+ #include <algorithm>
+ #include <cmath>
+ 
+@@ -54,6 +56,9 @@ WReferenceScaler::WReferenceScaler(QWidget* canvas, QSize referenceSize, QWidget
+     setPalette(colors);
+     setMinimumSize(referenceSize / 2);
+     canvas->setParent(this);
++    canvas->installEventFilter(this);
++    m_skinContainer = canvas->findChild<QWidget*>(QStringLiteral("SkinContainer"));
++    if (m_skinContainer) m_skinContainer->installEventFilter(this);
+     canvas->resize(referenceSize);
+     canvas->ensurePolished();
+     auto widgets = canvas->findChildren<QWidget*>();
+@@ -68,6 +73,68 @@ WReferenceScaler::WReferenceScaler(QWidget* canvas, QSize referenceSize, QWidget
+     applyScale();
+ }
+ 
++bool WReferenceScaler::startWindowMove() {
++    auto* handle = window()->windowHandle();
++    return handle && handle->startSystemMove();
++}
++
++void WReferenceScaler::finishWindowDrag() {
++    if (!m_dragging) return;
++    m_dragging = false;
++    releaseMouse();
++}
++
++bool WReferenceScaler::handleWindowDrag(QEvent* event) {
++    auto* topLevel = window();
++    const bool movable = topLevel->windowFlags().testFlag(Qt::FramelessWindowHint) &&
++            !topLevel->isFullScreen() && !topLevel->isMaximized();
++    if (!movable || event->type() == QEvent::Hide ||
++            event->type() == QEvent::UngrabMouse) {
++        finishWindowDrag();
++        return false;
++    }
++    if (event->type() != QEvent::MouseButtonPress &&
++            event->type() != QEvent::MouseMove &&
++            event->type() != QEvent::MouseButtonRelease) return false;
++    auto* mouse = static_cast<QMouseEvent*>(event);
++    const QPoint global = mouse->globalPosition().toPoint();
++    if (event->type() == QEvent::MouseButtonPress) {
++        const QPoint local = topLevel->mapFromGlobal(global);
++        const auto* child = m_canvas->childAt(m_canvas->mapFromGlobal(global));
++        // Only the existing empty top margin is draggable. Never intercept a
++        // child control, even if scaling brings REMAIN into the first 10 px.
++        if (mouse->button() != Qt::LeftButton || local.y() < 0 || local.y() >= 10 ||
++                local.x() < 10 || local.x() >= topLevel->width() - 10 ||
++                (child && child != m_skinContainer)) return false;
++        if (!startWindowMove()) {
++            m_dragOffset = global - topLevel->pos();
++            m_dragging = true;
++            grabMouse();
++        }
++    } else {
++        if (!m_dragging) return false;
++        if (event->type() == QEvent::MouseButtonRelease ||
++                !mouse->buttons().testFlag(Qt::LeftButton)) {
++            finishWindowDrag();
++        } else {
++            topLevel->move(global - m_dragOffset);
++        }
++    }
++    mouse->accept();
++    return true;
++}
++
++bool WReferenceScaler::event(QEvent* event) {
++    if (handleWindowDrag(event)) return true;
++    return QWidget::event(event);
++}
++
++bool WReferenceScaler::eventFilter(QObject* watched, QEvent* event) {
++    if ((watched == m_canvas || watched == m_skinContainer) &&
++            handleWindowDrag(event)) return true;
++    return QWidget::eventFilter(watched, event);
++}
++
+ void WReferenceScaler::resizeEvent(QResizeEvent* event) {
+     QWidget::resizeEvent(event);
+     if (m_pending) return;
+diff --git a/src/widget/wreferencescaler.h b/src/widget/wreferencescaler.h
+index 61d9902..a7d3132 100644
+--- a/src/widget/wreferencescaler.h
++++ b/src/widget/wreferencescaler.h
+@@ -15,6 +15,9 @@ class WReferenceScaler : public QWidget {
+ 
+   protected:
+     void resizeEvent(QResizeEvent* event) override;
++    bool event(QEvent* event) override;
++    bool eventFilter(QObject* watched, QEvent* event) override;
++    virtual bool startWindowMove();
+ 
+   private:
+     struct Metrics {
+@@ -25,10 +28,15 @@ class WReferenceScaler : public QWidget {
+         QString style;
+     };
+     void applyScale();
++    bool handleWindowDrag(QEvent* event);
++    void finishWindowDrag();
+     QWidget* m_canvas;
++    QPointer<QWidget> m_skinContainer;
+     QSize m_referenceSize;
+     bool m_fillWindow;
+     std::vector<Metrics> m_metrics;
+     double m_scale = -1;
+     bool m_pending = false;
++    bool m_dragging = false;
++    QPoint m_dragOffset;
+ };

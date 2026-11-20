@@ -1,0 +1,73 @@
+diff --git a/src/widget/woverview.cpp b/src/widget/woverview.cpp
+--- a/src/widget/woverview.cpp
++++ b/src/widget/woverview.cpp
+@@ -793,7 +793,7 @@
+ }
+ 
+ void WOverview::drawEndOfTrackBackground(QPainter* pPainter) {
+-    if (m_endOfTrack) {
++    if (m_endOfTrack && !m_rx3Overview) {
+         PainterScope painterScope(pPainter);
+         pPainter->setOpacity(0.3);
+         pPainter->setBrush(m_endOfTrackColor);
+@@ -957,7 +957,7 @@
+ }
+ 
+ void WOverview::drawEndOfTrackFrame(QPainter* pPainter) {
+-    if (m_endOfTrack) {
++    if (m_endOfTrack && !m_rx3Overview) {
+         PainterScope painterScope(pPainter);
+         pPainter->setOpacity(0.8);
+         pPainter->setPen(QPen(QBrush(m_endOfTrackColor), 1.5 * m_scaleFactor));
+diff --git a/src/test/rx3display_test.cpp b/src/test/rx3display_test.cpp
+--- a/src/test/rx3display_test.cpp
++++ b/src/test/rx3display_test.cpp
+@@ -1962,6 +1962,48 @@
+     factory->setEndOfTrackWarningTime(originalWarning);
+ }
+ 
++TEST_F(Rx3ReferenceScaleTest, Rx3OverviewEndStateKeepsBackgroundAndFrameColors) {
++    const QString group="[Channel1]";
++    ControlObject play(ConfigKey(group,"play"),false,false,false,0);
++    ControlObject position(ConfigKey(group,"playposition"),false,false,false,0.5);
++    ControlObject samples(ConfigKey(group,"track_samples"),false,false,false,48000*2*120);
++    ControlObject rate(ConfigKey(group,"track_samplerate"),false,false,false,48000);
++    ControlObject ratio(ConfigKey(group,"rate_ratio"),false,false,false,1);
++    ControlObject remaining(ConfigKey(group,"time_remaining"),false,false,false,10);
++    ControlObject mode(ConfigKey(group,"rx3_time_remaining"),false,false,false,1);
++    ControlObject end(ConfigKey(group,"end_of_track"),false,false,false,0);
++    struct FactoryScope {
++        FactoryScope() {WaveformWidgetFactory::createInstance();}
++        ~FactoryScope() {WaveformWidgetFactory::destroy();}
++    } factoryScope;
++    for(const bool rx3Overview:{true,false}) {
++        end.set(0);
++        WOverview overview(group,nullptr,config());
++        SkinContext context(config(),QString());QDomDocument xml;
++        ASSERT_TRUE(xml.setContent(QString("<Overview><Rx3Overview>%1</Rx3Overview>"
++                "<BgColor>#000000</BgColor><AxesColor>#00000000</AxesColor>"
++                "<EndOfTrackColor>#c81914</EndOfTrackColor></Overview>")
++                .arg(rx3Overview?"true":"false")));
++        overview.setup(xml.documentElement(),context);overview.resize(300,80);
++        overview.initWithTrack(Track::newTemporary(mixxx::FileAccess(mixxx::FileInfo("/tmp/preview.wav"))));
++        overview.show();QCoreApplication::processEvents();
++        const auto normal=overview.grab().toImage();
++        for(const double seconds:{10.0,0.0}) {
++            remaining.set(seconds);end.set(1);QCoreApplication::processEvents();
++            const auto ending=overview.grab().toImage();
++            if(rx3Overview) EXPECT_EQ(normal,ending);
++            else {
++                EXPECT_NE(normal,ending);
++                const auto background=ending.pixelColor(250,20);
++                const auto frame=ending.pixelColor(250,0);
++                EXPECT_GT(background.red(),background.green()+20);
++                EXPECT_GT(frame.red(),frame.green()+50);
++            }
++            end.set(0);
++        }
++    }
++}
++
+ #include "widget/rx3touchpreview.h"
+ #include "track/track.h"
+ #include "control/controlobject.h"

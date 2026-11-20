@@ -1,0 +1,668 @@
+diff --git a/src/widget/wrx3browser.h b/src/widget/wrx3browser.h
+--- a/src/widget/wrx3browser.h
++++ b/src/widget/wrx3browser.h
+@@ -46,6 +46,8 @@
+ #include "widget/rx3browserplayback.h"
+ #include "preferences/usersettings.h"
+ #include "widget/wrx3trackinfo.h"
++#include "widget/wrx3shortcut.h"
++#include "widget/rx3sourceappearance.h"
+ #include "mixer/playerinfo.h"
+ 
+ class Rx3CategoryDelegate : public QStyledItemDelegate {
+@@ -80,6 +82,31 @@
+     }
+ };
+ 
++class Rx3SourceDelegate : public QStyledItemDelegate {
++  public:
++    using QStyledItemDelegate::QStyledItemDelegate;
++    void paint(QPainter* painter,const QStyleOptionViewItem& option,const QModelIndex& index) const override {
++        if(index.data(Qt::UserRole).toString().isEmpty()) {
++            QStyledItemDelegate::paint(painter,option,index);return;
++        }
++        painter->save();
++        painter->fillRect(option.rect,option.state & QStyle::State_Selected?QColor("#007CE0"):QColor("#1b2026"));
++        const int iconWidth=qRound(option.rect.height()*0.9);
++        const QRect iconRect(option.rect.left(),option.rect.top(),iconWidth,option.rect.height());
++        const int color=index.data(Qt::UserRole+1).toInt();
++        painter->fillRect(iconRect,color?rx3::sourceColor(color):
++                option.state & QStyle::State_Selected?QColor("#007CE0"):QColor("#1b2026"));
++        QFont font("Arial");font.setPixelSize(qMax(12,option.rect.height()/5));painter->setFont(font);painter->setPen(Qt::white);
++        const QString slot=index.data(Qt::UserRole+2).toString();
++        painter->drawText(iconRect,Qt::AlignCenter,QString("▣\n%1").arg(slot));
++        font.setPixelSize(qMax(16,option.rect.height()/3));painter->setFont(font);
++        painter->drawText(option.rect.adjusted(iconWidth+16,0,-16,0),Qt::AlignVCenter|Qt::AlignLeft,slot);
++        painter->drawText(option.rect.adjusted(iconWidth+16,0,-16,0),Qt::AlignVCenter|Qt::AlignRight,
++                index.data(Qt::UserRole+3).toString());
++        painter->restore();
++    }
++};
++
+ class Rx3PreviewTable : public QTableWidget {
+   public:
+     using QTableWidget::QTableWidget;
+@@ -102,19 +129,34 @@
+         auto* layout = new QVBoxLayout(this);
+         layout->setContentsMargins(0,0,0,0); layout->setSpacing(0);
+         auto* header = new QWidget(this); header->setObjectName("RX3BrowserHeader");
+-        auto* h = new QHBoxLayout(header); h->setContentsMargins(0,0,8,0); h->setSpacing(12);
+-        m_source = new QPushButton("▣  SOURCE", header); m_source->setObjectName("RX3SourceButton");
++        m_headerWidget=header;
++        auto* headerLayout=new QVBoxLayout(header);headerLayout->setContentsMargins(0,0,0,0);headerLayout->setSpacing(0);
++        auto* h = new QHBoxLayout;h->setContentsMargins(0,0,0,0);h->setSpacing(4);headerLayout->addLayout(h);
++        m_source = new QPushButton("SOURCE", header); m_source->setObjectName("RX3SourceButton");
+         h->addWidget(m_source);
+         m_source->setStyleSheet("border-top: 2px solid #008baa;");
++        m_headerButtons.push_back(m_source);
++        const auto addHeader=[this,header,h](const QString& text,const QString& name,std::function<void()> action) {
++            auto* button=new QPushButton(text,header);button->setObjectName(name);h->addWidget(button);
++            m_headerButtons.push_back(button);connect(button,&QPushButton::clicked,this,std::move(action));return button;
++        };
++        addHeader("BROWSE","RX3BrowseButton",[this]{browseSelectedSource();});
++        addHeader("TAG LIST","RX3TagListButton",[this]{openSourceSection("TAG LIST");});
++        addHeader("PLAYLIST","RX3PlaylistButton",[this]{openSourceSection("PLAYLIST");});
++        addHeader("SEARCH","RX3SearchButton",[this]{
++            if(m_selectedCategory=="SEARCH" && m_pages->currentIndex()==0) {m_keyboard->show();m_search->setFocus();}
++            else if(prepareSourceNavigation()) openSearch();
++        });
++        addHeader("MENU","RX3BrowserToolsButton",[this]{showTools();});
++        h->addStretch(1);
++        auto* detailRow=new QHBoxLayout;detailRow->setContentsMargins(0,0,0,0);headerLayout->addLayout(detailRow);
++        m_sourceLabel=new QLabel(header);m_sourceLabel->setObjectName("RX3BrowserDeviceLabel");m_sourceLabel->hide();detailRow->addWidget(m_sourceLabel);
+         m_breadcrumb = new QPushButton("COLLECTION", header);m_breadcrumb->setObjectName("RX3BrowserBreadcrumb");
+-        m_breadcrumb->setToolTip("Back");m_breadcrumb->setAccessibleName("Go back");h->addWidget(m_breadcrumb, 1);
++        m_breadcrumb->setToolTip("Back");m_breadcrumb->setAccessibleName("Go back");detailRow->addWidget(m_breadcrumb, 1);
+         connect(m_breadcrumb,&QPushButton::clicked,this,[this]{back();updateNavigationHighlight();});
+-        m_search = new QLineEdit(header); m_search->setPlaceholderText("SEARCH"); m_search->hide(); h->addWidget(m_search,1);
+-        m_searchCount=new QLabel("0",header);m_searchCount->setObjectName("RX3SearchCount");m_searchCount->hide();h->addWidget(m_searchCount);
+-        auto* search = new QPushButton("SEARCH", header); h->addWidget(search);
+-        m_infoButton = new QPushButton("◀  INFO", header); h->addWidget(m_infoButton);
+-        auto* tools=new QPushButton("TOOLS",header);tools->setObjectName("RX3BrowserToolsButton");h->addWidget(tools);
+-        connect(tools,&QPushButton::clicked,this,[this]{showTools();});
++        m_search = new QLineEdit(header); m_search->setPlaceholderText("SEARCH"); m_search->hide(); detailRow->addWidget(m_search,1);
++        m_searchCount=new QLabel("0",header);m_searchCount->setObjectName("RX3SearchCount");m_searchCount->hide();detailRow->addWidget(m_searchCount);
++        m_infoButton = new QPushButton("◀  INFO", header);h->addWidget(m_infoButton);m_headerButtons.push_back(m_infoButton);
+         layout->addWidget(header);
+         m_pages = new QStackedWidget(this); layout->addWidget(m_pages, 1);
+         auto* browse = new QWidget(m_pages); auto* b = new QHBoxLayout(browse);
+@@ -203,6 +245,7 @@
+         auto* sourcePage = new QWidget(m_pages); auto* sl = new QHBoxLayout(sourcePage);
+         sl->setContentsMargins(0,0,0,0); sl->setSpacing(0);
+         m_sources = new Rx3SourceTree(sourcePage); m_sources->setObjectName("RX3BrowserSources");
++        m_sources->setItemDelegate(new Rx3SourceDelegate(m_sources));
+         QScroller::grabGesture(m_sources->viewport(),QScroller::TouchGesture);
+         m_sources->setHeaderLabels({"DEVICE NAME"}); m_sources->setRootIsDecorated(false);
+         sl->addWidget(m_sources, 3);
+@@ -210,21 +253,20 @@
+         m_info->setText("INFO");
+         auto* sourceInfoPanel=new QWidget(sourcePage);sourceInfoPanel->setObjectName("RX3SourceInfoPanel");
+         auto* sourceInfoLayout=new QVBoxLayout(sourceInfoPanel);sourceInfoLayout->setContentsMargins(12,0,12,0);
+-        sourceInfoLayout->addWidget(m_info,3);
++        sourceInfoLayout->setSpacing(0);
++        m_sourceDetails=new QStackedWidget(sourceInfoPanel);sourceInfoLayout->addWidget(m_sourceDetails,3);
++        m_sourceDetails->addWidget(m_info);
++        m_sourceMenu=new WRx3ToolMenu(m_sourceDetails);m_sourceDetails->addWidget(m_sourceMenu);
++        m_sourceMenu->findChild<QListWidget*>("RX3ToolsActions")->setObjectName("RX3SourceSettingsActions");
++        m_sourceMenu->findChild<QPushButton*>("RX3ToolsBack")->setObjectName("RX3SourceSettingsBack");
++        m_sourceMenu->findChild<QLabel*>("RX3ToolsStatus")->setFixedHeight(64);
++        m_sourceMenu->setStyleSheet("#RX3BrowserTools {background:#202020;color:white;} #RX3BrowserTools QLabel {color:white;font-family:Arial;font-size:16px;} #RX3BrowserTools QListWidget {background:#202020;color:white;border:1px solid #aaa;font-family:Arial;font-size:19px;} #RX3BrowserTools QPushButton {background:#202020;color:white;border:1px solid #aaa;min-height:36px;} #RX3SourceSettingsBack[encoderFocus=\"true\"] {background:#007CE0;}");
+         m_sourceSettings=new QPushButton("MY SETTINGS MENU",sourceInfoPanel);m_sourceSettings->setObjectName("RX3SourceSettings");
+         sourceInfoLayout->addWidget(m_sourceSettings);sourceInfoLayout->addStretch(1);
+-        connect(m_sourceSettings,&QPushButton::clicked,this,[]{
+-            ControlObject::set(ConfigKey("[RX3Shortcut]","open"),0);
+-            ControlObject::set(ConfigKey("[RX3Shortcut]","open"),1);
+-            ControlObject::set(ConfigKey("[RX3Shortcut]","open"),0);
+-        });
++        connect(m_sourceSettings,&QPushButton::clicked,this,[this]{openSourceSettings();});
+         sl->addWidget(sourceInfoPanel, 2); m_pages->addWidget(sourcePage);
+         m_tools=new WRx3ToolMenu(m_pages);m_pages->addWidget(m_tools);
+         connect(m_source, &QPushButton::clicked, this, [this]{ showSources(); });
+-        connect(search, &QPushButton::clicked, this, [this]{
+-            if(m_selectedCategory=="SEARCH" && m_pages->currentIndex()==0) {m_keyboard->show();m_search->setFocus();}
+-            else openSearch();
+-        });
+         connect(m_search, &QLineEdit::textChanged, m_library, [this](const QString& query){
+             if(m_selectedCategory=="SEARCH" && deviceReady(m_selectedDevice)) {
+                 if(query.trimmed().isEmpty()) {
+@@ -265,6 +307,11 @@
+         } });
+         makeControl("open", [this](double value){ if(value > 0) openBrowser(); });
+         makeControl("tools",[this](double value){if(value>0) showTools();});
++        makeControl("browse",[this](double value){if(value>0) browseSelectedSource();});
++        makeControl("tag_list",[this](double value){if(value>0) openSourceSection("TAG LIST");});
++        makeControl("playlist",[this](double value){if(value>0) openSourceSection("PLAYLIST");});
++        makeControl("search",[this](double value){if(value>0 && prepareSourceNavigation()) openSearch();});
++        makeControl("my_settings",[this](double value){if(value>0) {showBrowser();showSources();openSourceSettings();}});
+         for(const auto& name:{"play_mode","eject_lock"}) {
+             const auto key=ConfigKey("[RX3Settings]",name);
+             if(!ControlObject::exists(key)) {
+@@ -354,7 +401,10 @@
+         const double scale = qMax(0.6, height()/690.0);
+         m_categories->setFixedWidth(qRound(96*scale));
+         m_searchRail->setFixedWidth(qRound(96*scale));m_searchRail->item(0)->setSizeHint(QSize(qRound(96*scale),qRound(65*scale)));
+-        m_source->setFixedSize(qRound(100*scale), qRound(46*scale));
++        m_headerWidget->setFixedHeight(qRound(78*scale));
++        for(auto* button:m_headerButtons) button->setFixedHeight(qRound(46*scale));
++        m_source->setFixedWidth(qRound(100*scale));
++        m_breadcrumb->setFixedHeight(qRound(32*scale));m_sourceLabel->setFixedHeight(qRound(32*scale));
+         m_search->setMaximumWidth(m_selectedCategory=="SEARCH" ? QWIDGETSIZE_MAX : qRound(400*scale));
+         m_trackInfo->setFixedWidth(qRound(280*scale));
+         m_detailedInfo->setFixedWidth(qRound(560*scale));
+@@ -503,6 +553,7 @@
+     void openBrowser() {
+         showBrowser();
+         m_keyboard->hide();
++        if(m_pages->currentIndex()==1 && deviceReady(sourceDeviceForNavigation())) {chooseSource();return;}
+         // Showing the tab may make Qt restore focus to the folder tree.
+         // Restore our saved logical navigation target after that completes.
+         const auto resume=m_resumeFocus;
+@@ -511,7 +562,7 @@
+     }
+     SidebarModel* model() const { return qobject_cast<SidebarModel*>(m_sidebar->model()); }
+     std::shared_ptr<const mixxx::rekordbox::RuntimeCatalog> catalog() const {
+-        auto* feature = m_backend->rekordboxFeature();
++        auto* feature = m_backend?m_backend->rekordboxFeature():nullptr;
+         return feature ? feature->catalogForRoot(m_currentRoot) : nullptr;
+     }
+     void populateCategories() {
+@@ -647,7 +698,7 @@
+         for(const auto& device:m_devices) if(deviceRoot(device)==root) {m_selectedDevice=device;break;}
+         m_currentRoot=root;
+         m_pages->setCurrentIndex(0);populateCategories();
+-        m_source->setText(QString("▣ USB%1").arg(m_usbSlots.value(root)));
++        m_source->setText("SOURCE");updateSourceAppearance();
+         return true;
+     }
+     void rememberOrigin(const QString& location) {
+@@ -946,8 +997,10 @@
+         if(m_detailedInfo->isVisible()) ControlObject::set(ConfigKey("[RX3Info]","visible"),0);
+         m_keyboard->hide();m_search->hide();m_categories->show();m_searchRail->hide();m_breadcrumb->show();m_searchCount->hide();
+         m_source->setText("SOURCE");
+-        m_pages->setCurrentIndex(1);m_breadcrumb->setText(QString());m_focus=NavigationTarget::Source;
++        m_sourceDetails->setCurrentWidget(m_info);m_settingsRoot.clear();m_sourceActionIndex=-1;
++        m_pages->setCurrentIndex(1);m_breadcrumb->setText("SOURCE");m_focus=NavigationTarget::Source;
+         refreshSources();
++        updateSourceActionHighlight();updateSourceAppearance();
+         m_sources->setFocus();
+     }
+     QString deviceRoot(const QPersistentModelIndex& device) const {
+@@ -958,9 +1011,119 @@
+     }
+     bool deviceReady(const QPersistentModelIndex& device) const {
+         if(!device.isValid() || deviceStatus(device)!="ready") return false;
+-        auto* feature=m_backend->rekordboxFeature();
++        auto* feature=m_backend?m_backend->rekordboxFeature():nullptr;
+         const auto currentCatalog=feature ? feature->catalogForRoot(deviceRoot(device)) : nullptr;
+         return currentCatalog && !currentCatalog->browseMenu().categories.isEmpty();
++    }
++    QPersistentModelIndex sourceDeviceForNavigation() const {
++        if(m_pages->currentIndex()==1) {
++            const int row=m_sources->indexOfTopLevelItem(m_sources->currentItem());
++            return row>=0 && row<int(m_devices.size())?m_devices[row]:QPersistentModelIndex();
++        }
++        return m_selectedDevice;
++    }
++    bool prepareSourceNavigation() {
++        showBrowser();
++        const auto device=sourceDeviceForNavigation();
++        if(!deviceReady(device)) {showSources();return false;}
++        if(m_pages->currentIndex()==1 || device!=m_selectedDevice) chooseSource();
++        return deviceReady(m_selectedDevice);
++    }
++    void browseSelectedSource() {
++        if(!prepareSourceNavigation()) return;
++        m_sourceDetails->setCurrentWidget(m_info);
++        m_pages->setCurrentIndex(0);previewCategory(m_categories->currentRow());
++    }
++    void openSourceSection(const QString& section) {
++        if(!prepareSourceNavigation()) return;
++        if(section=="TAG LIST") {
++            toolTracks(m_tagLists[tagIdentity()].ids(),"TAG LIST");return;
++        }
++        for(int row=0;row<m_categories->count();++row)
++            if(m_categories->item(row)->text().section('\n',1)==section) {
++                m_categories->setCurrentRow(row);selectCategory(row);return;
++            }
++        // An export without playlists still has a valid empty playlist view.
++        m_pages->setCurrentIndex(0);m_selectedCategory=section;m_level=BrowserLevel::Notice;
++        m_library->hide();m_sidebar->hide();m_facets->hide();m_leftColumn->hide();
++        m_emptySpace->hide();setPreview(section,{});m_breadcrumb->setText(section);
++        m_focus=NavigationTarget::Categories;
++    }
++    WRx3Shortcut* settingsService() const {
++        for(auto* widget:window()->findChildren<QWidget*>("RX3Shortcut"))
++            if(auto* service=dynamic_cast<WRx3Shortcut*>(widget)) return service;
++        return nullptr;
++    }
++    bool settingsSourceAvailable() const {
++        const auto device=sourceDeviceForNavigation();
++        return !m_settingsRoot.isEmpty() && device.isValid() && deviceRoot(device)==m_settingsRoot &&
++                QDir(m_settingsRoot).exists();
++    }
++    void openSourceSettings() {
++        if(m_pages->currentIndex()!=1 || !m_sourceSettings->isEnabled()) return;
++        m_settingsRoot=deviceRoot(sourceDeviceForNavigation());
++        if(!settingsSourceAvailable()) return;
++        m_sourceActionIndex=-1;updateSourceActionHighlight();m_sourceDetails->setCurrentWidget(m_sourceMenu);
++        m_sourceMenu->showMenu("MY SETTINGS",{
++            toolAction("LOAD",[this]{
++                if(!settingsSourceAvailable()) {closeSourceSettings();return;}
++                const auto service=settingsService();
++                const auto result=service?service->loadSettings(m_settingsRoot):QString("Settings service unavailable.");
++                m_sourceMenu->findChild<QLabel*>("RX3ToolsStatus")->setToolTip(result);
++                m_sourceMenu->message(result.startsWith("MY SETTINGS loaded")?
++                        "MY SETTINGS loaded. Hardware-only preferences are not applied.":result);
++            }),
++            toolAction("BACKGROUND COLOR",[this]{showSourceColors(false);}),
++            toolAction("WAVEFORM COLOR",[this]{showSourceColors(true);})
++        },[this]{closeSourceSettings();});
++        m_sourceMenu->findChild<QListWidget*>("RX3SourceSettingsActions")->setFocus();
++    }
++    void closeSourceSettings() {
++        m_sourceDetails->setCurrentWidget(m_info);m_settingsRoot.clear();
++        m_sourceActionIndex=m_sources->topLevelItemCount();updateSourceActionHighlight();
++    }
++    void showSourceColors(bool waveform) {
++        if(!settingsSourceAvailable()) {closeSourceSettings();return;}
++        const auto names=waveform?QStringList{"BLUE","RGB","3BAND"}:rx3::sourceColorNames();
++        std::vector<ToolAction> choices;
++        for(int index=0;index<names.size();++index) choices.push_back(toolAction(names[index],[this,index,waveform]{
++            if(!settingsSourceAvailable()) {closeSourceSettings();return;}
++            QString error;
++            if(waveform) {
++                if(auto* service=settingsService()) service->setWaveformColor(index);
++                else error="Settings service unavailable.";
++            } else error=rx3::saveSourceColor(m_settingsRoot,index);
++            if(!error.isEmpty()) {m_sourceMenu->message(error);return;}
++            updateSourceAppearance();openSourceSettings();
++        }));
++        m_sourceMenu->showMenu(waveform?"WAVEFORM COLOR":"BACKGROUND COLOR",std::move(choices),[this]{openSourceSettings();});
++        const int selected=waveform?qRound(ControlObject::get(ConfigKey("[RX3Settings]","waveform_color"))):
++                rx3::readSourceColor(m_settingsRoot);
++        m_sourceMenu->move(selected);
++    }
++    void updateSourceAppearance() {
++        for(int row=0;row<int(m_devices.size());++row) {
++            const auto root=deviceRoot(m_devices[row]);
++            if(auto* item=m_sources->topLevelItem(row)) item->setData(0,Qt::UserRole+1,rx3::readSourceColor(root));
++        }
++        m_sources->viewport()->update();
++        const auto root=m_pages->currentIndex()==1?deviceRoot(sourceDeviceForNavigation()):m_currentRoot;
++        const auto color=rx3::sourceColor(rx3::readSourceColor(root)).name();
++        m_sourceLabel->setText(QString("USB%1").arg(m_usbSlots.value(root)));
++        m_sourceLabel->setStyleSheet("background:"+color+";color:white;padding:8px;font-size:16px;");
++        m_sourceLabel->setVisible(m_pages->currentIndex()!=1 && !root.isEmpty());
++        const int row=m_sources->indexOfTopLevelItem(m_sources->currentItem());
++        if(m_pages->currentIndex()==1 && !m_refreshingSources) updateSourceInfo(row);
++    }
++    void updateSourceActionHighlight() {
++        const int count=m_sources->topLevelItemCount();
++        m_sourceSettings->setProperty("encoderFocus",m_sourceActionIndex==count);
++        m_sourceSettings->style()->unpolish(m_sourceSettings);m_sourceSettings->style()->polish(m_sourceSettings);
++        for(int i=0;i<m_headerButtons.size();++i) {
++            auto* button=m_headerButtons[i];button->setProperty("encoderFocus",m_sourceActionIndex==count+1+i);
++            button->style()->unpolish(button);button->style()->polish(button);button->update();
++        }
++        m_sourceSettings->update();
+     }
+     void onDeviceModelChanged() {
+         if(m_pages->currentIndex()==1) {refreshSources();return;}
+@@ -1011,6 +1174,10 @@
+             }
+             m_sources->topLevelItem(row)->setText(0,QString("▣   USB%1   %2").arg(m_usbSlots.value(root))
+                     .arg(deviceReady(m_devices[row]) ? "›" : deviceStatus(m_devices[row])=="error" ? "ERROR" : "READING…"));
++            m_sources->topLevelItem(row)->setData(0,Qt::UserRole+1,rx3::readSourceColor(root));
++            m_sources->topLevelItem(row)->setData(0,Qt::UserRole+2,QString("USB%1").arg(m_usbSlots.value(root)));
++            m_sources->topLevelItem(row)->setData(0,Qt::UserRole+3,deviceReady(m_devices[row])?"›":
++                    deviceStatus(m_devices[row])=="error"?"ERROR":"READING…");
+         }
+         if(m_devices.empty()) {
+             auto* empty=new QTreeWidgetItem(m_sources,{"NO DEVICE"});
+@@ -1022,6 +1189,8 @@
+         updateSourceInfo(selected);
+     }
+     void updateSourceInfo(int row) {
++        if(!m_settingsRoot.isEmpty() && (row<0 || row>=int(m_devices.size()) ||
++                deviceRoot(m_devices[row])!=m_settingsRoot || !deviceReady(m_devices[row]))) closeSourceSettings();
+         if(row>=0 && row<int(m_devices.size()) && deviceReady(m_devices[row])) {
+             const auto root=deviceRoot(m_devices[row]);
+             qApp->setProperty("rx3SettingsUsbRoot",root);
+@@ -1033,6 +1202,8 @@
+         const bool hasDevice=row>=0 && row<int(m_devices.size());
+         const bool ready=hasDevice && deviceReady(m_devices[row]);
+         m_sourceSettings->setEnabled(ready);
++        for(int i=1;i<=4;++i) m_headerButtons[i]->setEnabled(ready ||
++                (m_pages->currentIndex()!=1 && deviceReady(m_selectedDevice)));
+         if(hasDevice) {
+             const auto data=m_devices[row].data(SidebarModel::DataRole).toList();
+             if(ready) {songs=data.value(3).toString();playlists=data.value(4).toString();}
+@@ -1050,7 +1221,7 @@
+         m_info->setText("<table width='100%' cellspacing='0'><tr><td colspan='2' style='background:#303030;padding:12px'>INFO</td></tr>"+
+                 line("Songs",songs)+line("Playlists",playlists)+line("Date",date)+
+                 line("Total",total+" GB")+line("Available",available+" GB")+
+-                line("Background Color",hasDevice ? "○ Default" : "")+"</table>");
++                line("Background Color",hasDevice ? rx3::sourceColorNames().value(rx3::readSourceColor(deviceRoot(m_devices[row]))) : "")+"</table>");
+     }
+     void chooseSource() {
+         const int row=m_sources->indexOfTopLevelItem(m_sources->currentItem());
+@@ -1063,7 +1234,8 @@
+         qApp->setProperty("rx3SettingsUsbName",QString("USB%1").arg(m_usbSlots.value(m_currentRoot)));
+         qApp->setProperty("rx3SettingsUsbDeviceName",m_selectedDevice.data(Qt::DisplayRole).toString());
+         m_pages->setCurrentIndex(0);
+-        m_source->setText(QString("▣ USB%1").arg(m_usbSlots.value(m_currentRoot)));m_facets->hide();m_sidebar->hide();
++        m_source->setText("SOURCE");m_facets->hide();m_sidebar->hide();
++        m_sourceActionIndex=-1;updateSourceActionHighlight();updateSourceAppearance();
+         m_preview->hide();m_trackInfo->hide();m_loading->hide();m_library->hide();
+         m_emptySpace->show();
+         populateCategories();
+@@ -1077,8 +1249,19 @@
+     }
+     void move(int delta) {
+         if(m_pages->currentWidget()==m_tools) {m_tools->move(delta);return;}
++        if(m_pages->currentIndex()==1 && m_sourceDetails->currentWidget()==m_sourceMenu) {m_sourceMenu->move(delta);return;}
+         if(m_focus==NavigationTarget::Facets) {if(m_facets->count()) m_facets->setCurrentRow(qBound(0,m_facets->currentRow()+delta,m_facets->count()-1));updateFacetPreview();return;}
+-        if(m_focus==NavigationTarget::Source) {if(m_sources->topLevelItemCount()) {int row=m_sources->indexOfTopLevelItem(m_sources->currentItem()); m_sources->setCurrentItem(m_sources->topLevelItem(qBound(0,row+delta,m_sources->topLevelItemCount()-1)));}return;}
++        if(m_focus==NavigationTarget::Source) {
++            const int count=m_sources->topLevelItemCount();
++            const int row=m_sourceActionIndex>=0?m_sourceActionIndex:qMax(0,m_sources->indexOfTopLevelItem(m_sources->currentItem()));
++            m_sourceActionIndex=qBound(0,row+delta,count+m_headerButtons.size());
++            if(m_sourceActionIndex<count) {
++                m_sources->setCurrentItem(m_sources->topLevelItem(m_sourceActionIndex));
++                if(auto* item=m_sources->currentItem()) item->setSelected(true);
++            }
++            else m_sources->clearSelection();
++            updateSourceActionHighlight();return;
++        }
+         if(m_focus==NavigationTarget::Categories) {if(m_categories->count()) {m_categories->setCurrentRow(qBound(0,m_categories->currentRow()+delta,m_categories->count()-1));previewCategory(m_categories->currentRow());}return;}
+         if(m_focus==NavigationTarget::TrackList) {if(auto* table=m_library->getCurrentTrackTableView()) table->moveSelection(delta);return;}
+         QModelIndex index=selectedTreeIndex();
+@@ -1092,8 +1275,14 @@
+     }
+     void enter() {
+         if(m_pages->currentWidget()==m_tools) {m_tools->enter();return;}
++        if(m_pages->currentIndex()==1 && m_sourceDetails->currentWidget()==m_sourceMenu) {m_sourceMenu->enter();return;}
+         if(m_focus==NavigationTarget::Facets) {chooseFacet();return;}
+-        if(m_focus==NavigationTarget::Source) {chooseSource();return;}
++        if(m_focus==NavigationTarget::Source) {
++            const int count=m_sources->topLevelItemCount();
++            if(m_sourceActionIndex==count) m_sourceSettings->click();
++            else if(m_sourceActionIndex>count) m_headerButtons[m_sourceActionIndex-count-1]->click();
++            else chooseSource();return;
++        }
+         if(m_focus==NavigationTarget::Categories) {selectCategory(m_categories->currentRow());return;}
+         // LOAD 1/2 is the only operation that loads the selected row. ENTER
+         // on the track list is deliberately a no-op instead of unexpectedly
+@@ -1103,9 +1292,11 @@
+     }
+     void back() {
+         if(m_pages->currentWidget()==m_tools) {if(m_toolPreview) m_toolPreview->cancel();m_tools->goBack();return;}
++        if(m_pages->currentIndex()==1 && m_sourceDetails->currentWidget()==m_sourceMenu) {m_sourceMenu->goBack();return;}
+         if(m_focus==NavigationTarget::Source) {
+             if(!deviceReady(m_selectedDevice)) return;
+-            m_pages->setCurrentIndex(0); m_source->setText(QString("▣ USB%1").arg(m_usbSlots.value(m_currentRoot)));m_focus=NavigationTarget::Categories; m_categories->setFocus();updateNavigationHighlight();return;
++            m_pages->setCurrentIndex(0);m_source->setText("SOURCE");m_sourceActionIndex=-1;
++            updateSourceActionHighlight();updateSourceAppearance();m_focus=NavigationTarget::Categories; m_categories->setFocus();updateNavigationHighlight();return;
+         }
+         if(m_selectedCategory=="SEARCH") {
+             m_search->clear();m_search->hide();m_keyboard->hide();m_categories->show();
+@@ -1166,7 +1357,9 @@
+     ToolAction audioValue(QString label,QString group,QString key,QString configuredKey = {});
+     void closeTools() {
+         if(m_toolPreview) m_toolPreview->cancel();
++        if(m_toolReturnPage==1) {showSources();return;}
+         m_pages->setCurrentIndex(m_toolReturnPage);m_focus=m_toolReturnFocus;updateNavigationHighlight();
++        updateSourceAppearance();
+     }
+     WRx3ToolMenu* m_tools=nullptr;
+     UserSettingsPointer m_config;
+@@ -1219,6 +1412,13 @@
+     WLibrarySidebar* m_sidebar;
+     QPushButton* m_source;
+     QPushButton* m_sourceSettings;
++    QLabel* m_sourceLabel;
++    QWidget* m_headerWidget;
++    QStackedWidget* m_sourceDetails;
++    WRx3ToolMenu* m_sourceMenu;
++    QString m_settingsRoot;
++    QList<QPushButton*> m_headerButtons;
++    int m_sourceActionIndex=-1;
+     QPushButton* m_breadcrumb;
+     QLabel* m_info;
+     QLineEdit* m_search;
+diff --git a/src/widget/wrx3browsertools.h b/src/widget/wrx3browsertools.h
+--- a/src/widget/wrx3browsertools.h
++++ b/src/widget/wrx3browsertools.h
+@@ -8,8 +8,14 @@
+     return m_backend->rekordboxFeature()->sessionIdentityForRoot(m_currentRoot);
+ }
+ inline void WRx3Browser::showTools() {
++    const bool fromSource=m_pages->currentIndex()==1;
++    if(fromSource) {
++        const auto device=sourceDeviceForNavigation();
++        if(deviceReady(device)) chooseSource();
++        else {m_selectedDevice=QPersistentModelIndex();m_currentRoot.clear();}
++    }
+     if(m_pages->currentWidget()!=m_tools) {
+-        m_toolReturnPage=m_pages->currentIndex();m_toolReturnFocus=m_focus;m_toolTrack.reset();m_toolPlaylist=0;
++        m_toolReturnPage=fromSource?1:m_pages->currentIndex();m_toolReturnFocus=fromSource?NavigationTarget::Source:m_focus;m_toolTrack.reset();m_toolPlaylist=0;
+         if(m_level==BrowserLevel::Tracks) if(auto* table=m_library->getCurrentTrackTableView())
+             if(auto* tracks=dynamic_cast<TrackModel*>(table->model())) m_toolTrack=tracks->getTrack(table->currentIndex());
+         const auto data=selectedTreeIndex().data(SidebarModel::DataRole).toList();
+diff --git a/src/widget/wrx3shortcut.h b/src/widget/wrx3shortcut.h
+--- a/src/widget/wrx3shortcut.h
++++ b/src/widget/wrx3shortcut.h
+@@ -294,11 +294,11 @@
+         }
+         refresh();
+     }
+-    QString loadSettings() {
++    QString loadSettings(const QString& sourceRoot = {}) {
+         if(m_savingSettings) return status("Wait for MY SETTINGS save to finish before loading.");
+         for(int deck=1;deck<=2;++deck) if(ControlObject::get(ConfigKey(QString("[Channel%1]").arg(deck),"play"))>0)
+             return status("Pause both decks before loading MY SETTINGS.");
+-        const auto root=qApp->property("rx3SettingsUsbRoot").toString();
++        const auto root=sourceRoot.isNull()?qApp->property("rx3SettingsUsbRoot").toString():sourceRoot;
+         if(root.isEmpty() || !QDir(root).exists()) return status("Select a connected USB device in SOURCE first.");
+         QMap<QString,double> pending;QStringList omitted;int files=0;
+         for(const auto& name:{"MYSETTING.DAT","MYSETTING2.DAT","DJMMYSETTING.DAT","DEVSETTING.DAT"}) {
+@@ -347,6 +347,11 @@
+         if(pending.contains("sync")) for(int deck=1;deck<=2;++deck) ControlObject::set(ConfigKey(QString("[Channel%1]").arg(deck),"sync_enabled"),pending.value("sync"));
+         omitted.removeDuplicates();m_config->save();refresh();
+         return status(QString("MY SETTINGS loaded — %1. Not applied: %2.").arg(applied.join(", "),omitted.join(", ")));
++    }
++    void setWaveformColor(int color) {
++        for(auto& row:m_rows) if(row.key=="waveform_color") {
++            choose(row,qBound(0,color,2));refresh();return;
++        }
+     }
+     QString saveSettings() {
+         const auto root=qApp->property("rx3SettingsUsbRoot").toString();
+diff --git a/src/widget/wrx3toolmenu.h b/src/widget/wrx3toolmenu.h
+--- a/src/widget/wrx3toolmenu.h
++++ b/src/widget/wrx3toolmenu.h
+@@ -29,7 +29,7 @@
+         m_list=new QListWidget(this);m_list->setObjectName("RX3ToolsActions");
+         m_list->setStyleSheet("QListWidget::item {min-height:40px;} QListWidget::item:selected {background:#007CE0;color:white;}");
+         layout->addWidget(m_list,1);
+-        m_status=new QLabel(this);m_status->setWordWrap(true);layout->addWidget(m_status);
++        m_status=new QLabel(this);m_status->setObjectName("RX3ToolsStatus");m_status->setWordWrap(true);layout->addWidget(m_status);
+         m_backButton=new QPushButton("BACK",this);m_backButton->setObjectName("RX3ToolsBack");layout->addWidget(m_backButton);
+         connect(m_backButton,&QPushButton::clicked,this,[this]{goBack();});
+         connect(m_list,&QListWidget::itemClicked,this,[this]{if(m_editing && m_list->currentRow()!=m_editRow) finishEditing();setFocusIndex(m_list->currentRow());enter();});
+diff --git a/src/widget/rx3sourceappearance.h b/src/widget/rx3sourceappearance.h
+new file mode 100644
+--- /dev/null
++++ b/src/widget/rx3sourceappearance.h
+@@ -0,0 +1,45 @@
++#pragma once
++
++#include <QColor>
++#include <QDir>
++#include <QFile>
++#include <QJsonDocument>
++#include <QJsonObject>
++#include <QSaveFile>
++#include <QStringList>
++
++namespace rx3 {
++inline QStringList sourceColorNames() {
++    return {"DEFAULT","RED","ORANGE","YELLOW","GREEN","AQUA","BLUE","PURPLE"};
++}
++inline QColor sourceColor(int index) {
++    const QStringList colors={"#30343b","#a83232","#ab6425","#8b7c20",
++            "#34764a","#24777c","#285d9a","#754b91"};
++    return QColor(colors.value(index,colors.first()));
++}
++// Nautic's portable accent is separate from rekordbox's proprietary files.
++// Never create or modify a Pioneer DAT/PDB when choosing a display accent.
++inline QString sourceAppearancePath(const QString& root) {
++    return QDir(root).filePath("PIONEER/NAUTIC_BACKGROUND_COLOR.json");
++}
++inline int readSourceColor(const QString& root) {
++    if(root.isEmpty()) return 0;
++    QFile file(sourceAppearancePath(root));
++    if(!file.open(QIODevice::ReadOnly) || file.size()>1024) return 0;
++    const auto object=QJsonDocument::fromJson(file.readAll()).object();
++    const auto value=object.value("color");
++    const int index=value.toInt(-1);
++    return object.value("version").toInt()==1 && value.isDouble() &&
++            value.toDouble()==index && index>=0 && index<sourceColorNames().size()?index:0;
++}
++inline QString saveSourceColor(const QString& root,int color) {
++    if(root.isEmpty() || !QDir(root).exists() || !QDir(QDir(root).filePath("PIONEER")).exists())
++        return "Select a connected rekordbox USB in SOURCE first.";
++    if(color<0 || color>=sourceColorNames().size()) return "Unsupported background color.";
++    QSaveFile file(sourceAppearancePath(root));
++    const auto bytes=QJsonDocument(QJsonObject{{"version",1},{"color",color}}).toJson(QJsonDocument::Compact);
++    if(!file.open(QIODevice::WriteOnly) || file.write(bytes)!=bytes.size() || !file.commit())
++        return "Unable to save background color to this USB. Check write access.";
++    return {};
++}
++} // namespace rx3
+diff --git a/src/test/rx3display_test.cpp b/src/test/rx3display_test.cpp
+--- a/src/test/rx3display_test.cpp
++++ b/src/test/rx3display_test.cpp
+@@ -4,6 +4,7 @@
+ #include <QLabel>
+ #include <QPointer>
+ #include <QPushButton>
++#include <QStandardItemModel>
+ #include <QVBoxLayout>
+ #include "util/fpclassify.h"
+ #include "control/controlpotmeter.h"
+@@ -973,6 +974,23 @@
+     static void backTools(WRx3Browser& browser) {browser.back();}
+     static void filterTools(WRx3Browser& browser) {browser.showFilterTools();browser.m_pages->setCurrentWidget(browser.m_tools);}
+     static void playbackTools(WRx3Browser& browser) {browser.showPlaybackTools();browser.m_pages->setCurrentWidget(browser.m_tools);}
++    static void isolatedSources(WRx3Browser& browser,QStandardItemModel& devices,int selected) {
++        browser.m_sources->clear();browser.m_devices.clear();
++        for(int row=0;row<devices.rowCount();++row) {
++            const QPersistentModelIndex device(devices.index(row,0));browser.m_devices.push_back(device);
++            const auto root=browser.deviceRoot(device);browser.m_usbSlots.insert(root,row+1);
++            auto* item=new QTreeWidgetItem(browser.m_sources,{QString("USB%1").arg(row+1)});
++            item->setData(0,Qt::UserRole,root);item->setData(0,Qt::UserRole+2,item->text(0));
++            item->setData(0,Qt::UserRole+3,"›");
++        }
++        browser.m_sources->setCurrentItem(browser.m_sources->topLevelItem(selected));
++        // Isolated presentation fixture, without a parsed library catalog.
++        browser.m_sourceSettings->setEnabled(true);
++    }
++    static QString navigationSource(WRx3Browser& browser) {return browser.deviceRoot(browser.sourceDeviceForNavigation());}
++    static WRx3ToolMenu* sourceSettings(WRx3Browser& browser) {return browser.m_sourceMenu;}
++    static bool sourceSettingsOpen(WRx3Browser& browser) {return browser.m_sourceDetails->currentWidget()==browser.m_sourceMenu;}
++    static void previousBrowseSource(WRx3Browser& browser,int row) {browser.m_selectedDevice=browser.m_devices[row];}
+ 
+ 
+ };
+@@ -1157,6 +1175,90 @@
+     EXPECT_TRUE(panel.loadSettings().contains("MY SETTINGS loaded"));EXPECT_EQ(0.16,range.get());
+     qApp->setProperty("rx3SettingsUsbRoot",QString());
+ }
++TEST_F(Rx3ReferenceScaleTest, SourceMySettingsLoadsHighlightedUsbWithoutOpeningShortcut) {
++    ControlObject play(ConfigKey("[Channel1]","play"));
++    ControlPotmeter range(ConfigKey("[Channel1]","rateRange"),0.01,4);range.set(0.06);
++    QTemporaryDir usb1,usb2;ASSERT_TRUE(usb1.isValid());ASSERT_TRUE(usb2.isValid());
++    QStandardItemModel devices;
++    for(const auto& root:{usb1.path(),usb2.path()}) {
++        ASSERT_TRUE(QDir(root).mkdir("PIONEER"));auto* item=new QStandardItem(root);
++        item->setData(QVariantList{root,"USB","ready"},SidebarModel::DataRole);devices.appendRow(item);
++    }
++    const auto settings=rx3SettingsFixture("MYSETTING.DAT",{{36,0x82}});
++    QFile file(QDir(usb2.path()).filePath("PIONEER/MYSETTING.DAT"));ASSERT_TRUE(file.open(QIODevice::WriteOnly));
++    ASSERT_EQ(settings.size(),file.write(settings));file.close();
++    PlayerInfo::create();
++    {
++        QWidget canvas;canvas.resize(1280,800);canvas.show();WRx3Shortcut shortcut(config(),nullptr,&canvas);
++        SidebarModel model;auto* sidebar=new WLibrarySidebar;sidebar->setModel(&model);
++        WRx3Browser browser(new WLibrary(nullptr),sidebar,nullptr,&canvas,config());
++        browser.resize(1280,690);browser.show();QCoreApplication::processEvents();
++        QFile style(qEnvironmentVariable("NAUTIC_BROWSER_QA_STYLE"));
++        if(style.open(QIODevice::ReadOnly)) browser.setStyleSheet(QString::fromUtf8(style.readAll()));
++        Rx3BrowserTestAccess::isolatedSources(browser,devices,1);
++        Rx3BrowserTestAccess::previousBrowseSource(browser,0);
++        EXPECT_EQ(usb2.path(),Rx3BrowserTestAccess::navigationSource(browser));
++        auto* button=browser.findChild<QPushButton*>("RX3SourceSettings");ASSERT_TRUE(button);button->click();
++        ASSERT_TRUE(Rx3BrowserTestAccess::sourceSettingsOpen(browser));EXPECT_FALSE(shortcut.isVisible());
++        auto* actions=browser.findChild<QListWidget*>("RX3SourceSettingsActions");ASSERT_TRUE(actions);
++        ASSERT_EQ(3,actions->count());EXPECT_EQ("LOAD",actions->item(0)->text());
++        EXPECT_EQ("BACKGROUND COLOR",actions->item(1)->text());EXPECT_EQ("WAVEFORM COLOR",actions->item(2)->text());
++        // Another presentation may alter the global property; LOAD owns the menu's USB.
++        qApp->setProperty("rx3SettingsUsbRoot",usb1.path());
++        Rx3BrowserTestAccess::enterTools(browser);EXPECT_EQ(0.16,range.get());EXPECT_FALSE(shortcut.isVisible());
++        const auto output=qEnvironmentVariable("NAUTIC_BROWSER_QA_DIR");
++        if(!output.isEmpty()) ASSERT_TRUE(browser.grab().save(QDir(output).filePath("source-my-settings.png")));
++        Rx3BrowserTestAccess::moveTools(browser,3);Rx3BrowserTestAccess::enterTools(browser);
++        EXPECT_FALSE(Rx3BrowserTestAccess::sourceSettingsOpen(browser));
++        Rx3BrowserTestAccess::isolatedSources(browser,devices,0);button->click();
++        range.set(0.06);Rx3BrowserTestAccess::enterTools(browser);EXPECT_EQ(0.06,range.get());
++        bool missing=false;for(auto* label:Rx3BrowserTestAccess::sourceSettings(browser)->findChildren<QLabel*>())
++            missing|=label->text().contains("No rekordbox MY SETTINGS");
++        EXPECT_TRUE(missing);EXPECT_EQ(usb1.path(),Rx3BrowserTestAccess::navigationSource(browser));
++        EXPECT_FALSE(shortcut.isVisible());
++    }
++    PlayerInfo::destroy();qApp->setProperty("rx3SettingsUsbRoot",QString());
++}
++TEST_F(Rx3ReferenceScaleTest, SourceHeaderOrderAndEncoderReachSettingsAndMenuWithoutUsb) {
++    PlayerInfo::create();
++    {
++        SidebarModel model;auto* sidebar=new WLibrarySidebar;sidebar->setModel(&model);
++        WRx3Browser browser(new WLibrary(nullptr),sidebar,nullptr,nullptr,config());
++        browser.resize(1280,690);browser.show();QCoreApplication::processEvents();
++        const QStringList names={"RX3SourceButton","RX3BrowseButton","RX3TagListButton","RX3PlaylistButton","RX3SearchButton","RX3BrowserToolsButton"};
++        const QStringList texts={"SOURCE","BROWSE","TAG LIST","PLAYLIST","SEARCH","MENU"};
++        int previous=-1;
++        for(int i=0;i<names.size();++i) {
++            auto* button=browser.findChild<QPushButton*>(names[i]);ASSERT_TRUE(button);
++            EXPECT_EQ(texts[i],button->text());EXPECT_GT(button->x(),previous);previous=button->x();
++            if(i>=1 && i<=4) EXPECT_FALSE(button->isEnabled());
++        }
++        Rx3BrowserTestAccess::moveTools(browser,1);
++        auto* settings=browser.findChild<QPushButton*>("RX3SourceSettings");ASSERT_TRUE(settings);
++        EXPECT_TRUE(settings->property("encoderFocus").toBool());EXPECT_FALSE(settings->isEnabled());
++        Rx3BrowserTestAccess::enterTools(browser);EXPECT_FALSE(Rx3BrowserTestAccess::sourceSettingsOpen(browser));
++        Rx3BrowserTestAccess::moveTools(browser,6);
++        auto* menu=browser.findChild<QPushButton*>("RX3BrowserToolsButton");ASSERT_TRUE(menu);
++        EXPECT_TRUE(menu->property("encoderFocus").toBool());Rx3BrowserTestAccess::enterTools(browser);
++        auto* actions=browser.findChild<QListWidget*>("RX3ToolsActions");ASSERT_TRUE(actions);EXPECT_TRUE(actions->isVisible());
++        Rx3BrowserTestAccess::moveTools(browser,100);Rx3BrowserTestAccess::enterTools(browser);
++        EXPECT_FALSE(actions->isVisible());EXPECT_EQ("SOURCE",browser.findChild<QPushButton*>("RX3BrowserBreadcrumb")->text());
++    }
++    PlayerInfo::destroy();
++}
++TEST(Rx3SourceAppearance, PortableAccentIsPerUsbAndPreservesRekordboxFiles) {
++    QTemporaryDir usb1,usb2;ASSERT_TRUE(usb1.isValid());ASSERT_TRUE(usb2.isValid());
++    for(const auto& root:{usb1.path(),usb2.path()}) ASSERT_TRUE(QDir(root).mkdir("PIONEER"));
++    const QString settingsPath=QDir(usb1.path()).filePath("PIONEER/MYSETTING.DAT");
++    const auto original=rx3SettingsFixture("MYSETTING.DAT",{{36,0x81}});
++    QFile settings(settingsPath);ASSERT_TRUE(settings.open(QIODevice::WriteOnly));ASSERT_EQ(original.size(),settings.write(original));settings.close();
++    ASSERT_TRUE(rx3::saveSourceColor(usb1.path(),6).isEmpty());EXPECT_EQ(6,rx3::readSourceColor(usb1.path()));
++    EXPECT_EQ(0,rx3::readSourceColor(usb2.path()));EXPECT_FALSE(rx3::saveSourceColor(usb2.path(),99).isEmpty());
++    ASSERT_TRUE(settings.open(QIODevice::ReadOnly));EXPECT_EQ(original,settings.readAll());settings.close();
++    QFile corrupt(rx3::sourceAppearancePath(usb1.path()));ASSERT_TRUE(corrupt.open(QIODevice::WriteOnly));
++    corrupt.write("{\"version\":1,\"color\":2.5}");corrupt.close();EXPECT_EQ(0,rx3::readSourceColor(usb1.path()));
++    EXPECT_FALSE(rx3::saveSourceColor("/missing-nautic-usb",1).isEmpty());
++}
+ TEST_F(Rx3ReferenceScaleTest, RenderShortcutAtReferenceAndFullscreenSizes) {
+     const auto output=qEnvironmentVariable("NAUTIC_RX3_RENDER_DIR");
+     if(output.isEmpty()) GTEST_SKIP()<<"Set NAUTIC_RX3_RENDER_DIR for visual QA";

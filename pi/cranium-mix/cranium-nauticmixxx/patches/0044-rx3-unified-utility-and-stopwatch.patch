@@ -1,0 +1,544 @@
+diff --git a/src/test/rx3display_test.cpp b/src/test/rx3display_test.cpp
+--- a/src/test/rx3display_test.cpp
++++ b/src/test/rx3display_test.cpp
+@@ -1240,9 +1240,9 @@
+         Rx3BrowserTestAccess::moveTools(browser,6);
+         auto* menu=browser.findChild<QPushButton*>("RX3BrowserToolsButton");ASSERT_TRUE(menu);
+         EXPECT_TRUE(menu->property("encoderFocus").toBool());Rx3BrowserTestAccess::enterTools(browser);
+-        auto* actions=browser.findChild<QListWidget*>("RX3ToolsActions");ASSERT_TRUE(actions);EXPECT_TRUE(actions->isVisible());
++        auto* utility=browser.findChild<WRx3Utility*>("RX3Utility");ASSERT_TRUE(utility);EXPECT_TRUE(utility->isVisible());
+         Rx3BrowserTestAccess::moveTools(browser,100);Rx3BrowserTestAccess::enterTools(browser);
+-        EXPECT_FALSE(actions->isVisible());EXPECT_EQ("SOURCE",browser.findChild<QPushButton*>("RX3BrowserBreadcrumb")->text());
++        EXPECT_FALSE(utility->isVisible());EXPECT_EQ("SOURCE",browser.findChild<QPushButton*>("RX3BrowserBreadcrumb")->text());
+     }
+     PlayerInfo::destroy();
+ }
+@@ -1631,6 +1631,13 @@
+     const auto output=qEnvironmentVariable("NAUTIC_RX3_RENDER_DIR");
+     if(!output.isEmpty()) ASSERT_TRUE(canvas.grab().save(QDir(output).filePath("countdown-1100.png")));
+     timer->setOpen(false);
++    if(!output.isEmpty()) {
++        Rx3Countdown preview;Rx3CountdownRail stopwatch(&preview,[]{},nullptr);
++        for(int height:{28,42}) {
++            stopwatch.resize(560*height/28,height);stopwatch.show();QCoreApplication::processEvents();
++            ASSERT_TRUE(stopwatch.grab().save(QDir(output).filePath(QString("countdown-rail-%1.png").arg(height))));
++        }
++    }
+ }
+ TEST_F(Rx3ReferenceScaleTest, ShortcutUsesBrowserPageAndRestoresPreviousPage) {
+     ControlObject page(ConfigKey("[Tab]","current"),false,false,false,0);
+@@ -2385,14 +2392,21 @@
+             ControlObject::set(ConfigKey("[RX3Shortcut]",key),0);
+         };
+         shortcutPulse("open",1);shortcutPulse("move",1);shortcutPulse("enter",1);
+-        EXPECT_FALSE(shortcut.isVisible()); // SHORTCUT → TOOLS remains available without USB or mouse.
++        EXPECT_FALSE(shortcut.isVisible()); // The established gesture now opens UTILITY without USB or mouse.
++        auto* table=browser.findChild<QTableWidget*>("RX3UtilitySettings");ASSERT_TRUE(table);
++        int fxIndex=-1,index=0;
++        for(int row=0;row<table->rowCount();++row) {
++            if(table->columnSpan(row,0)==2) continue;
++            if(table->item(row,0)->text()=="BEAT FX") fxIndex=index;
++            ++index;
++        }
++        ASSERT_GE(fxIndex,0);Rx3BrowserTestAccess::moveTools(browser,fxIndex);Rx3BrowserTestAccess::enterTools(browser);
+         auto* list=browser.findChild<QListWidget*>("RX3ToolsActions");ASSERT_TRUE(list);
+         auto select=[&](const QString& prefix) {
+             int row=-1;for(int i=0;i<list->count();++i) if(list->item(i)->text().startsWith(prefix)) {row=i;break;}
+             ASSERT_GE(row,0)<<prefix.toStdString();
+             Rx3BrowserTestAccess::moveTools(browser,row-list->currentRow());Rx3BrowserTestAccess::enterTools(browser);
+         };
+-        select("BEAT FX");
+         const auto slot=effects.getEffectChain(WRx3BeatFx::unitGroup())->getEffectSlot(0);
+         select("EFFECT:");Rx3BrowserTestAccess::moveTools(browser,1);
+         ASSERT_TRUE(slot->isLoaded());EXPECT_DOUBLE_EQ(0,ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"enabled")));
+@@ -2492,41 +2506,87 @@
+         auto* button=browser.findChild<QPushButton*>("RX3BrowserToolsButton");ASSERT_TRUE(button);
+         auto* breadcrumb=browser.findChild<QPushButton*>("RX3BrowserBreadcrumb");ASSERT_TRUE(breadcrumb);
+         EXPECT_EQ("SOURCE",breadcrumb->text());
+-        button->click();EXPECT_EQ("MENU",breadcrumb->text());
+-        auto* actions=browser.findChild<QListWidget*>("RX3ToolsActions");ASSERT_TRUE(actions);
+-        int utilityIndex=-1;for(int i=0;i<actions->count();++i) if(actions->item(i)->text()=="UTILITY") utilityIndex=i;
+-        ASSERT_GE(utilityIndex,0);Rx3BrowserTestAccess::moveTools(browser,utilityIndex);Rx3BrowserTestAccess::enterTools(browser);
++        button->click();EXPECT_EQ("UTILITY",breadcrumb->text());
+         auto* utility=browser.findChild<WRx3Utility*>("RX3Utility");ASSERT_TRUE(utility);EXPECT_TRUE(utility->isVisible());
+-        EXPECT_EQ("UTILITY",breadcrumb->text());EXPECT_TRUE(button->property("active").toBool());
++        EXPECT_TRUE(button->property("active").toBool());
+         EXPECT_FALSE(browser.findChild<QPushButton*>("RX3SourceButton")->property("active").toBool());
+         Rx3BrowserTestAccess::backTools(browser);
+-        EXPECT_FALSE(utility->isVisible());EXPECT_EQ("MENU",breadcrumb->text());
+-        Rx3BrowserTestAccess::moveTools(browser,100);Rx3BrowserTestAccess::enterTools(browser);EXPECT_EQ("SOURCE",breadcrumb->text());
++        EXPECT_FALSE(utility->isVisible());EXPECT_EQ("SOURCE",breadcrumb->text());
+         QTimer* hold=nullptr;for(auto* timer:browser.findChildren<QTimer*>()) if(timer->isSingleShot() && timer->interval()==2000) hold=timer;
+         ASSERT_TRUE(hold);hold->setInterval(20);
+         QTest::mousePress(button,Qt::LeftButton);QTest::qWait(30);EXPECT_TRUE(utility->isVisible());
+         QTest::mouseRelease(button,Qt::LeftButton);EXPECT_TRUE(utility->isVisible());EXPECT_EQ("UTILITY",breadcrumb->text());
+         auto* table=utility->findChild<QTableWidget*>("RX3UtilitySettings");ASSERT_TRUE(table);
+         QStringList categories;for(int i=0;i<table->rowCount();++i) if(table->columnSpan(i,0)==2) categories.push_back(table->item(i,0)->text());
+-        EXPECT_EQ((QStringList{"DECK","MIXER","GENERAL"}),categories);
++        EXPECT_EQ((QStringList{"DECK","MIXER","EFFECTS","BROWSER","RECORDING","DISPLAY","GENERAL"}),categories);
++        const QMap<QString,QString> actionsByCategory{
++                {"PLAYBACK OPTIONS","DECK"},{"DECK 1 MEMORY CUES / LOOPS","DECK"},
++                {"DECK 2 MEMORY CUES / LOOPS","DECK"},{"SHORTCUT / MY SETTINGS","DECK"},
++                {"MIXER / MIC / AUX / BOOTH","MIXER"},{"BEAT FX","EFFECTS"},
++                {"TAG LIST / TAG TRACK","BROWSER"},{"PLAYLIST BANK","BROWSER"},
++                {"TRACK FILTER","BROWSER"},{"RELATED KEY","BROWSER"},
++                {"PREVIEW SELECTED TRACK","BROWSER"},{"USB RECORDING","RECORDING"}};
++        QMap<QString,int> indices;QString category;int index=0;
++        for(int row=0;row<table->rowCount();++row) {
++            const QString name=table->item(row,0)->text();
++            if(table->columnSpan(row,0)==2) {category=name;continue;}
++            if(actionsByCategory.contains(name)) {
++                EXPECT_EQ(actionsByCategory.value(name),category);
++                EXPECT_EQ("OPEN ›",table->item(row,1)->text());indices[name]=index;
++            }
++            EXPECT_FALSE(name.contains("LCD"));EXPECT_NE("TOUCH DISPLAY CALIBRATION",name);
++            EXPECT_NE("AUTO STANDBY",name);EXPECT_NE("SCREEN SAVER",name);
++            EXPECT_NE("MIXER MODE",name);EXPECT_NE("MASTER ATTENUATOR",name);
++            EXPECT_NE("MIC OUT TO BOOTH",name);EXPECT_NE("ON AIR DISPLAY",name);
++            ++index;
++        }
++        EXPECT_EQ(actionsByCategory.size(),indices.size());
++        auto* actions=browser.findChild<QListWidget*>("RX3ToolsActions");ASSERT_TRUE(actions);
++        int selectedIndex=0;
++        for(auto it=indices.cbegin();it!=indices.cend();++it) {
++            if(it.key()=="SHORTCUT / MY SETTINGS") continue;
++            Rx3BrowserTestAccess::moveTools(browser,it.value()-selectedIndex);selectedIndex=it.value();
++            const int selectedRow=table->currentRow();
++            Rx3BrowserTestAccess::enterTools(browser);
++            EXPECT_TRUE(actions->isVisible());EXPECT_FALSE(utility->isVisible());
++            EXPECT_EQ("UTILITY / "+it.key(),breadcrumb->text());
++            Rx3BrowserTestAccess::backTools(browser);
++            EXPECT_TRUE(utility->isVisible());EXPECT_EQ("UTILITY",breadcrumb->text());
++            EXPECT_EQ(selectedRow,table->currentRow());
++        }
+         const auto renders=qEnvironmentVariable("NAUTIC_RX3_RENDER_DIR");
+         if(!renders.isEmpty()) {
++            Rx3BrowserTestAccess::moveTools(browser,-selectedIndex);selectedIndex=0;
+             ASSERT_TRUE(browser.grab().save(QDir(renders).filePath("utility-deck-1280.png")));
+-            Rx3BrowserTestAccess::moveTools(browser,13);
+-            for(int row=0;row<table->rowCount();++row) if(table->item(row,0)->text()=="MIXER")
+-                table->scrollToItem(table->item(row,0),QAbstractItemView::PositionAtTop);
+-            QCoreApplication::processEvents();
+-            ASSERT_TRUE(browser.grab().save(QDir(renders).filePath("utility-mixer-1280.png")));
+-            Rx3BrowserTestAccess::moveTools(browser,8);
+-            for(int row=0;row<table->rowCount();++row) if(table->item(row,0)->text()=="GENERAL")
+-                table->scrollToItem(table->item(row,0),QAbstractItemView::PositionAtTop);
+-            QCoreApplication::processEvents();
+-            ASSERT_TRUE(browser.grab().save(QDir(renders).filePath("utility-general-1280.png")));
++            for(const auto& section:QStringList{"MIXER","BROWSER","DISPLAY","GENERAL"}) {
++                for(int row=0;row<table->rowCount();++row) if(table->item(row,0)->text()==section)
++                    table->scrollToItem(table->item(row,0),QAbstractItemView::PositionAtTop);
++                QCoreApplication::processEvents();
++                ASSERT_TRUE(browser.grab().save(QDir(renders).filePath("utility-"+section.toLower()+"-1280.png")));
++            }
+         }
+         button->click();EXPECT_FALSE(utility->isVisible());EXPECT_EQ("SOURCE",breadcrumb->text());
+         EXPECT_FALSE(shortcut.isVisible());EXPECT_TRUE(browser.findChild<QPushButton*>("RX3SourceButton")->property("active").toBool());
+     }
+     PlayerInfo::destroy();
++}
++
++TEST_F(Rx3ReferenceScaleTest, UtilityActionCanReplaceMenuAndRowsMatchBrowserColors) {
++    WRx3Utility utility(nullptr);utility.resize(640,440);utility.show();
++    int executions=0;
++    WRx3Utility::Setting action{"BROWSER","OPEN ACTION",{},[]{return QString("OPEN ›");},{},{},{}};
++    action.execute=[&]{++executions;utility.present({{"GENERAL","REPLACEMENT",{},[]{return QString("DONE");},{},{},{}}},[]{});};
++    utility.present({action,{"BROWSER","SECOND",{},[]{return QString("VALUE");},{},{},{}},
++            {"BROWSER","THIRD",{},[]{return QString("VALUE");},{},{},{}}},[]{});
++    QCoreApplication::processEvents();
++    auto* table=utility.findChild<QTableWidget*>("RX3UtilitySettings");ASSERT_TRUE(table);
++    const auto image=table->viewport()->grab().toImage();
++    const auto black=table->visualItemRect(table->item(2,0));
++    const auto gray=table->visualItemRect(table->item(3,0));
++    EXPECT_EQ(QColor("#000000"),image.pixelColor(150,black.center().y()));
++    EXPECT_EQ(QColor("#262626"),image.pixelColor(150,gray.center().y()));
++    EXPECT_EQ(QColor("#777777"),image.pixelColor(table->columnViewportPosition(1)-1,gray.center().y()));
++    utility.enter();EXPECT_EQ(1,executions);EXPECT_EQ("REPLACEMENT",table->item(1,0)->text());
+ }
+ 
+ TEST_F(Rx3ReferenceScaleTest, UtilityWaveformDivisionsWithoutPhrasesFallsBackToTimeScale) {
+diff --git a/src/widget/wrx3browser.h b/src/widget/wrx3browser.h
+--- a/src/widget/wrx3browser.h
++++ b/src/widget/wrx3browser.h
+@@ -150,9 +150,10 @@
+         auto* menu=addHeader("MENU","RX3BrowserToolsButton",[this]{
+             if(m_menuHeld) {m_menuHeld=false;return;}
+             if(m_menuHoldTimer) m_menuHoldTimer->stop();
+-            if(m_pages->currentWidget()==m_utility) closeUtility();else showTools();
++            if(m_pages->currentWidget()==m_utility) closeUtility();
++            else showUtility();
+         });
+-        menu->setToolTip("MENU · Hold 2 seconds for UTILITY");
++        menu->setToolTip("MENU / UTILITY");
+         menu->setAccessibleName("MENU / UTILITY");
+         m_menuHoldTimer=new QTimer(this);m_menuHoldTimer->setSingleShot(true);m_menuHoldTimer->setInterval(2000);
+         connect(menu,&QPushButton::pressed,this,[this]{m_menuHeld=false;m_menuHoldTimer->start();});
+@@ -848,7 +849,7 @@
+         if(label=="HISTORY") {showHistory();return;}
+         if(label=="FOLDER") {showFolder(m_currentRoot);return;}
+         if(label=="MATCHING") {showMatching();return;}
+-        if(label=="REC") {showRecordingTools();m_pages->setCurrentWidget(m_tools);return;}
++        if(label=="REC") {showUtility();openUtilityTools("USB RECORDING",[this]{showRecordingTools();});return;}
+         const QHash<QString,QString> fields={{"ARTIST","artist"},{"ALBUM","album"},
+                 {"ALBUMS","album"},{"GENRE","genre"},{"KEY","key"},
+                 {"BPM","bpm"},{"RATING","rating"},{"YEAR","year"},
+@@ -1371,11 +1372,14 @@
+     void showTools();
+     void showUtility();
+     void closeUtility() {
++        if(m_toolPreview) m_toolPreview->cancel();
++        m_utilitySessionActive=false;
+         m_pages->setCurrentIndex(m_utilityReturnPage);m_focus=m_utilityReturnFocus;
+         m_breadcrumb->setText(m_utilityReturnBreadcrumb);updateSourceAppearance();
+         updateNavigationHighlight();
+     }
+     void showTagTools();
++    void openUtilityTools(QString title,std::function<void()> open);
+     void showBankTools();
+     void showFilterTools();
+     void showMemoryTools(int deck);
+@@ -1392,23 +1396,15 @@
+     using ToolAction=WRx3ToolMenu::Action;
+     static ToolAction toolAction(QString label,std::function<void()> execute) {return {[label]{return label;},std::move(execute),{}};}
+     ToolAction audioValue(QString label,QString group,QString key,QString configuredKey = {});
+-    void closeTools() {
+-        if(m_toolPreview) m_toolPreview->cancel();
+-        if(m_toolReturnPage==1) {showSources();return;}
+-        m_pages->setCurrentIndex(m_toolReturnPage);m_focus=m_toolReturnFocus;updateNavigationHighlight();
+-        m_breadcrumb->setText(m_toolReturnBreadcrumb);
+-        updateSourceAppearance();
+-    }
+     WRx3ToolMenu* m_tools=nullptr;
+     WRx3Utility* m_utility=nullptr;
+     QTimer* m_menuHoldTimer=nullptr;
+     bool m_menuHeld=false;
++    bool m_utilitySessionActive=false;
+     int m_utilityReturnPage=0;
+     NavigationTarget m_utilityReturnFocus=NavigationTarget::Source;
+-    QString m_utilityReturnBreadcrumb,m_toolReturnBreadcrumb;
++    QString m_utilityReturnBreadcrumb;
+     UserSettingsPointer m_config;
+-    int m_toolReturnPage=0;
+-    NavigationTarget m_toolReturnFocus=NavigationTarget::TrackList;
+     TrackPointer m_toolTrack;
+     quint32 m_toolPlaylist=0;
+     rx3::TrackFilter m_filter;
+diff --git a/src/widget/wrx3browsertools.h b/src/widget/wrx3browsertools.h
+--- a/src/widget/wrx3browsertools.h
++++ b/src/widget/wrx3browsertools.h
+@@ -7,42 +7,15 @@
+     const auto current=catalog();if(!current) return {};
+     return m_backend->rekordboxFeature()->sessionIdentityForRoot(m_currentRoot);
+ }
++// The shared legacy "tools" command remains an alias for the unified menu.
+ inline void WRx3Browser::showTools() {
+-    if(m_pages->currentWidget()!=m_tools) m_toolReturnBreadcrumb=m_breadcrumb->text();
+-    const bool fromSource=m_pages->currentIndex()==1;
+-    if(fromSource) {
+-        const auto device=sourceDeviceForNavigation();
+-        if(deviceReady(device)) chooseSource();
+-        else {m_selectedDevice=QPersistentModelIndex();m_currentRoot.clear();}
+-    }
+-    if(m_pages->currentWidget()!=m_tools) {
+-        m_toolReturnPage=fromSource?1:m_pages->currentIndex();m_toolReturnFocus=fromSource?NavigationTarget::Source:m_focus;m_toolTrack.reset();m_toolPlaylist=0;
+-        if(m_level==BrowserLevel::Tracks) if(auto* table=m_library->getCurrentTrackTableView())
+-            if(auto* tracks=dynamic_cast<TrackModel*>(table->model())) m_toolTrack=tracks->getTrack(table->currentIndex());
+-        const auto data=selectedTreeIndex().data(SidebarModel::DataRole).toList();
+-        if(m_level==BrowserLevel::Hierarchy && data.size()>=3) m_toolPlaylist=data[2].toUInt();
+-    }
+-    showBrowser();m_keyboard->hide();m_pages->setCurrentWidget(m_tools);
+-    m_sourceLabel->hide();m_breadcrumb->setText("MENU");
+-    m_tools->showMenu("TOOLS",{
+-        toolAction("TAG LIST / TAG TRACK",[this]{showTagTools();}),
+-        toolAction("PLAYLIST BANK",[this]{showBankTools();}),
+-        toolAction("TRACK FILTER",[this]{showFilterTools();}),
+-        toolAction("RELATED KEY",[this]{
+-            if(!m_toolTrack || !catalog()) {m_tools->message("Select a USB track first.");return;}
+-            rx3::TrackFilter filter;filter.referenceKey=m_toolTrack->getKeyText();filter.keyMode=1;
+-            auto ids=filter.apply(catalog()->tracks());ids.removeAll(m_toolTrack->getSourceBinding().rekordboxId());
+-            toolTracks(ids,"RELATED KEY");}),
+-        toolAction("BEAT FX",[this]{showBeatFxTools();}),
+-        toolAction("PLAYBACK OPTIONS",[this]{showPlaybackTools();}),
+-        toolAction("DECK 1 MEMORY CUES / LOOPS",[this]{showMemoryTools(1);}),
+-        toolAction("DECK 2 MEMORY CUES / LOOPS",[this]{showMemoryTools(2);}),
+-        toolAction("PREVIEW SELECTED TRACK",[this]{showPreviewTools();}),
+-        toolAction("USB RECORDING",[this]{showRecordingTools();}),
+-        toolAction("MIXER / MIC / AUX / BOOTH",[this]{showAudioTools();}),
+-        toolAction("SHORTCUT / MY SETTINGS",[this]{closeTools();ControlObject::set(ConfigKey("[RX3Shortcut]","open"),1);ControlObject::set(ConfigKey("[RX3Shortcut]","open"),0);}),
+-        toolAction("UTILITY",[this]{showUtility();})
+-    },[this]{closeTools();});
++    showUtility();
++}
++inline void WRx3Browser::openUtilityTools(QString title,std::function<void()> open) {
++    m_pages->setCurrentWidget(m_tools);m_sourceLabel->hide();
++    m_breadcrumb->setText("UTILITY / "+title);
++    m_tools->showMenu(title,{},[this]{showUtility();});
++    if(open) open();
+ }
+ inline void WRx3Browser::toolTracks(const QList<quint32>& ids,const QString& name) {
+     if(!catalog() || !m_backend->rekordboxFeature()->showTrackIds(m_currentRoot,ids,name)) {
+@@ -94,7 +67,7 @@
+         actions.push_back(toolAction(QString("BANK %1 — ASSIGN SELECTED PLAYLIST").arg(slot),[this,key,nameKey,slot]{
+             if(!m_config || !catalog()) {m_tools->message("Select a USB playlist first.");return;}
+             const auto playlist=catalog()->findPlaylist(m_toolPlaylist);
+-            if(!playlist || playlist->isFolder) {m_tools->message("Open PLAYLIST and select a playlist before opening TOOLS.");return;}
++            if(!playlist || playlist->isFolder) {m_tools->message("Open PLAYLIST and select a playlist before opening UTILITY.");return;}
+             m_config->setValue(key,QString::number(playlist->rekordboxId));m_config->setValue(nameKey,playlist->name);m_config->save();
+             m_tools->message(QString("BANK %1: %2").arg(slot).arg(playlist->name));
+         }));
+@@ -325,7 +298,7 @@
+         ControlObject::set(ConfigKey("[RX3BeatFx]","xpad_hold"),editing?1:0);
+     }});
+     for(int bank=0;bank<4;++bank) {
+-        actions.push_back({[panel,bank,effects]() -> QString {auto* fx=panel();const auto manifest=fx?effects->getBackendManager()->getManifestFromUniqueId(fx->bankId(bank)):EffectManifestPointer();return QString("BANK %1: %2 — PRESS TO RECALL / EDIT TOOLS BELOW").arg(bank+1).arg(manifest?manifest->displayName().toUpper():QString("EMPTY"));},[this,panel,bank]{if(auto* fx=panel()) {if(fx->bankId(bank).isEmpty()) m_tools->message("Select an effect and use STORE below to assign this bank.");else fx->recallBank(bank);}},{}});
++        actions.push_back({[panel,bank,effects]() -> QString {auto* fx=panel();const auto manifest=fx?effects->getBackendManager()->getManifestFromUniqueId(fx->bankId(bank)):EffectManifestPointer();return QString("BANK %1: %2 — PRESS TO RECALL / EDIT CONTROLS BELOW").arg(bank+1).arg(manifest?manifest->displayName().toUpper():QString("EMPTY"));},[this,panel,bank]{if(auto* fx=panel()) {if(fx->bankId(bank).isEmpty()) m_tools->message("Select an effect and use STORE below to assign this bank.");else fx->recallBank(bank);}},{}});
+         actions.push_back(toolAction(QString("STORE SELECTED EFFECT IN BANK %1").arg(bank+1),[panel,slot,bank]{if(auto* fx=panel()) fx->registerBank(bank,slot->getManifest());}));
+         actions.push_back(toolAction(QString("CLEAR BANK %1").arg(bank+1),[panel,bank]{if(auto* fx=panel()) fx->clearBank(bank);}));
+     }
+diff --git a/src/widget/wrx3browserutility.h b/src/widget/wrx3browserutility.h
+--- a/src/widget/wrx3browserutility.h
++++ b/src/widget/wrx3browserutility.h
+@@ -5,15 +5,32 @@
+ 
+ inline void WRx3Browser::showUtility() {
+     if(m_pages->currentWidget()==m_utility) return;
++    if(m_utilitySessionActive && m_pages->currentWidget()==m_tools) {
++        m_pages->setCurrentWidget(m_utility);m_sourceLabel->hide();
++        m_breadcrumb->setText("UTILITY");m_utility->refresh();return;
++    }
+     m_utilityReturnPage=m_pages->currentIndex();m_utilityReturnFocus=m_focus;
+     m_utilityReturnBreadcrumb=m_breadcrumb->text();
++    if(m_utilityReturnPage==1) {
++        const auto device=sourceDeviceForNavigation();
++        if(deviceReady(device)) chooseSource();
++        else {m_selectedDevice=QPersistentModelIndex();m_currentRoot.clear();}
++    }
++    m_toolTrack.reset();m_toolPlaylist=0;
++    if(m_level==BrowserLevel::Tracks) if(auto* table=m_library->getCurrentTrackTableView())
++        if(auto* tracks=dynamic_cast<TrackModel*>(table->model())) m_toolTrack=tracks->getTrack(table->currentIndex());
++    const auto data=selectedTreeIndex().data(SidebarModel::DataRole).toList();
++    if(m_level==BrowserLevel::Hierarchy && data.size()>=3) m_toolPlaylist=data[2].toUInt();
++    m_utilitySessionActive=true;
+     showBrowser();m_keyboard->hide();m_pages->setCurrentWidget(m_utility);
+     m_sourceLabel->hide();m_breadcrumb->setText("UTILITY");
+     QPointer<WRx3Shortcut> service(settingsService());
+     using Setting=WRx3Utility::Setting;
+     std::vector<Setting> settings;
+-    const auto unavailable=[&settings](QString category,QString name,QString explanation) {
+-        settings.push_back({category,name,{},[]{return QString("UNAVAILABLE");},{},{},explanation});
++    const auto action=[this,&settings](QString category,QString name,std::function<void()> open) {
++        Setting setting{category,name,{},[]{return QString("OPEN ›");},{},{},{}};
++        setting.execute=[this,name,open]{openUtilityTools(name,open);};
++        settings.push_back(std::move(setting));
+     };
+     const auto shared=[&settings,service](QString category,QString name,QString key,
+             QStringList labels,QList<double> values,QString explanation={}) {
+@@ -39,24 +56,31 @@
+     shared("DECK","NEEDLE LOCK","needle_lock",{"UNLOCK","LOCK"},{0,1});
+     shared("DECK","QUANTIZE BEAT VALUE (DECK)","quantize_beat",{"1/8","1/4","1/2","1 Beat"},{0.125,0.25,0.5,1});
+     shared("DECK","HOT CUE AUTO LOAD","hotcue_autoload",{"OFF","rekordbox SETTING","ON"},{2,1,0});
+-    unavailable("DECK","HOT CUE COLOR","Hot cue color switching is not implemented; imported cue colors remain in use.");
+     shared("DECK","AUTO CUE LEVEL","auto_cue_level",{"-78 dB","-72 dB","-66 dB","-60 dB","-54 dB","-48 dB","-42 dB","-36 dB","MEMORY"},
+             {-78,-72,-66,-60,-54,-48,-42,-36,0},"Applies to both decks; MEMORY uses the first stored memory cue.");
+     shared("DECK","SLIP FLASHING","slip_flashing",{"OFF","ON"},{0,1});
+-    unavailable("DECK","ON AIR DISPLAY","On Air display switching is not implemented.");
+-    unavailable("DECK","VINYL SPEED ADJUST","TOUCH / RELEASE mode selection is not implemented; SHORTCUT retains the current stop-time controls.");
+     shared("DECK","PLAY MODE","play_mode",{"CONTINUE","SINGLE"},{0,1},"REPEAT and ALL REPEAT are not implemented; available modes are CONTINUE and SINGLE.");
+-    shared("DECK","WAVEFORM CURRENT POSITION","waveform_current_position",{"LEFT","CENTER"},{0,1});
+-    shared("DECK","WAVEFORM DIVISIONS","waveform_divisions",{"TIME SCALE","PHRASE"},{0,1});
+-    unavailable("DECK","IMAGE ON JOG DISPLAY","No supported jog-display image control is exposed by NauticMixxx yet.");
++    action("DECK","PLAYBACK OPTIONS",[this]{showPlaybackTools();});
++    action("DECK","DECK 1 MEMORY CUES / LOOPS",[this]{showMemoryTools(1);});
++    action("DECK","DECK 2 MEMORY CUES / LOOPS",[this]{showMemoryTools(2);});
++    action("DECK","SHORTCUT / MY SETTINGS",[this]{closeUtility();ControlObject::set(ConfigKey("[RX3Shortcut]","open"),1);ControlObject::set(ConfigKey("[RX3Shortcut]","open"),0);});
+     shared("MIXER","EQUALIZER CURVE","eq_mode",{"EQUALIZER","ISOLATOR"},{0,1});
+     shared("MIXER","CHANNEL FADER CURVE","channel_curve",{"CURVE1","CURVE2","CURVE3"},{0,1,2});
+-    unavailable("MIXER","MASTER ATTENUATOR","Independent output attenuation is not implemented; MASTER level remains available in TOOLS.");
+-    unavailable("MIXER","BOOTH MONITOR ATTENUATOR","Independent output attenuation is not implemented; BOOTH level remains available in TOOLS when configured.");
+-    unavailable("MIXER","MIC OUT TO BOOTH","Independent microphone-to-booth routing is not implemented.");
+-    unavailable("MIXER","MIC OUT TO MASTER REC","Independent microphone-to-recording routing is not implemented.");
+     shared("MIXER","HEADPHONES MONO SPLIT/STEREO","headphones",{"MONO SPLIT","STEREO"},{1,0});
+-    unavailable("MIXER","MIXER MODE","NauticMixxx uses software mixing; standalone hardware mixer mode is controlled by the device.");
++    action("MIXER","MIXER / MIC / AUX / BOOTH",[this]{showAudioTools();});
++    action("EFFECTS","BEAT FX",[this]{showBeatFxTools();});
++    action("BROWSER","TAG LIST / TAG TRACK",[this]{showTagTools();});
++    action("BROWSER","PLAYLIST BANK",[this]{showBankTools();});
++    action("BROWSER","TRACK FILTER",[this]{showFilterTools();});
++    action("BROWSER","RELATED KEY",[this]{
++        if(!m_toolTrack || !catalog()) {m_tools->message("Select a USB track first.");return;}
++        rx3::TrackFilter filter;filter.referenceKey=m_toolTrack->getKeyText();filter.keyMode=1;
++        auto ids=filter.apply(catalog()->tracks());ids.removeAll(m_toolTrack->getSourceBinding().rekordboxId());
++        toolTracks(ids,"RELATED KEY");});
++    action("BROWSER","PREVIEW SELECTED TRACK",[this]{showPreviewTools();});
++    action("RECORDING","USB RECORDING",[this]{showRecordingTools();});
++    shared("DISPLAY","WAVEFORM CURRENT POSITION","waveform_current_position",{"LEFT","CENTER"},{0,1});
++    shared("DISPLAY","WAVEFORM DIVISIONS","waveform_divisions",{"TIME SCALE","PHRASE"},{0,1});
+     if(m_config) {
+         QStringList locales{"en_US"};
+         const QDir directory(m_config->getResourcePath()+"translations/");
+@@ -73,12 +97,7 @@
+                 [this,locales](int index){if(index<0 || index>=locales.size()) return false;
+                     m_config->setValue(ConfigKey("[Config]","Locale"),locales[index]);m_config->save();return true;},
+                 "Restart NauticMixxx to apply the language. New profiles default to English."});
+-    } else unavailable("GENERAL","LANGUAGE","Settings profile unavailable.");
+-    unavailable("GENERAL","LCD BRIGHTNESS","Display brightness is managed by the operating system.");
+-    unavailable("GENERAL","JOG LCD BRIGHTNESS","No supported jog-display brightness control is exposed by NauticMixxx yet.");
+-    unavailable("GENERAL","SCREEN SAVER","RX3-style inactivity screen saver is not implemented.");
+-    unavailable("GENERAL","TOUCH DISPLAY CALIBRATION","Touch calibration is managed by the operating system or display driver.");
+-    unavailable("GENERAL","AUTO STANDBY","RX3-style automatic standby is not implemented.");
++    }
+     settings.push_back({"GENERAL","VERSION No.",{},[]{return QStringLiteral(NAUTICMIX_VERSION);},{},{},"NauticMixxx application version."});
+     m_utility->present(std::move(settings),[this]{closeUtility();});
+ }
+diff --git a/src/widget/wrx3countdown.h b/src/widget/wrx3countdown.h
+--- a/src/widget/wrx3countdown.h
++++ b/src/widget/wrx3countdown.h
+@@ -52,8 +52,18 @@
+         const double scale=height()/28.0;
+         QFont font("Arial");font.setPixelSize(qMax(9,qRound(13*scale)));painter.setFont(font);
+         painter.setPen(QColor("#ddd"));
+-        painter.drawText(QRectF(8*scale,0,160*scale,height()),Qt::AlignVCenter,
+-                "◷  REMAIN  "+Rx3Countdown::text(m_timer->seconds()));
++        // A vector stopwatch stays legible regardless of the platform's font.
++        painter.save();painter.setRenderHint(QPainter::Antialiasing);
++        painter.translate(8*scale,height()/2.0-7*scale);painter.scale(scale,scale);
++        painter.setPen(QPen(QColor("#ddd"),1.2,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
++        painter.drawEllipse(QRectF(1,4,10,10));
++        painter.drawLine(QPointF(6,1),QPointF(6,4));
++        painter.drawLine(QPointF(4,1),QPointF(8,1));
++        painter.drawLine(QPointF(10,4),QPointF(11,3));
++        painter.drawLine(QPointF(6,6),QPointF(6,9));
++        painter.drawLine(QPointF(6,9),QPointF(8,10));painter.restore();
++        painter.drawText(QRectF(26*scale,0,140*scale,height()),Qt::AlignVCenter,
++                "REMAIN  "+Rx3Countdown::text(m_timer->seconds()));
+         const QRectF bar(170*scale,height()/2.0-2*scale,qMax(0.0,width()-178*scale),4*scale);
+         painter.fillRect(bar,QColor("#111111"));
+         painter.fillRect(QRectF(bar.topLeft(),QSizeF(bar.width()*m_timer->fraction(),bar.height())),Qt::white);
+diff --git a/src/widget/wrx3shortcut.h b/src/widget/wrx3shortcut.h
+--- a/src/widget/wrx3shortcut.h
++++ b/src/widget/wrx3shortcut.h
+@@ -188,7 +188,7 @@
+         Row loadRow;loadRow.key="usb_load";loadRow.frame=loadFrame;
+         loadRow.buttons={m_load};m_rows.push_back(loadRow);
+         auto* toolsFrame=new QFrame(this);auto* toolsLayout=new QVBoxLayout(toolsFrame);toolsLayout->setContentsMargins(0,0,0,0);
+-        auto* tools=new QPushButton("TOOLS",toolsFrame);
++        auto* tools=new QPushButton("UTILITY",toolsFrame);
+         toolsLayout->addWidget(tools);toolsFrame->setFixedHeight(30);titleRow->insertWidget(titleRow->count()-1,toolsFrame);connect(tools,&QPushButton::clicked,this,[this]{openTools();});
+         Row toolsRow;toolsRow.key="browser_tools";toolsRow.frame=toolsFrame;toolsRow.buttons={tools};m_rows.push_back(toolsRow);
+         Row closeRow;closeRow.key="close";closeRow.frame=closeFrame;closeRow.buttons={close};m_rows.push_back(closeRow);
+diff --git a/src/widget/wrx3toolmenu.h b/src/widget/wrx3toolmenu.h
+--- a/src/widget/wrx3toolmenu.h
++++ b/src/widget/wrx3toolmenu.h
+@@ -27,7 +27,8 @@
+         auto* layout=new QVBoxLayout(this);
+         m_title=new QLabel(this);layout->addWidget(m_title);
+         m_list=new QListWidget(this);m_list->setObjectName("RX3ToolsActions");
+-        m_list->setStyleSheet("QListWidget::item {min-height:40px;} QListWidget::item:selected {background:#007CE0;color:white;}");
++        m_list->setAlternatingRowColors(true);
++        m_list->setStyleSheet("QListWidget {background:#000;alternate-background-color:#262626;} QListWidget::item {min-height:40px;border:0;} QListWidget::item:selected {background:#007CE0;color:white;}");
+         layout->addWidget(m_list,1);
+         m_status=new QLabel(this);m_status->setObjectName("RX3ToolsStatus");m_status->setWordWrap(true);layout->addWidget(m_status);
+         m_backButton=new QPushButton("BACK",this);m_backButton->setObjectName("RX3ToolsBack");layout->addWidget(m_backButton);
+diff --git a/src/widget/wrx3utility.h b/src/widget/wrx3utility.h
+--- a/src/widget/wrx3utility.h
++++ b/src/widget/wrx3utility.h
+@@ -3,6 +3,7 @@
+ #include <QComboBox>
+ #include <QHeaderView>
+ #include <QLabel>
++#include <QPainter>
+ #include <QKeyEvent>
+ #include <QPushButton>
+ #include <QStyle>
+@@ -15,6 +16,18 @@
+ 
+ // A setting is read from its owner, not copied into a second settings store.
+ // Turning while editing previews a choice; enter commits, back cancels.
++class Rx3UtilityTable : public QTableWidget {
++  public:
++    using QTableWidget::QTableWidget;
++  protected:
++    void paintEvent(QPaintEvent* event) override {
++        QTableWidget::paintEvent(event);
++        QPainter painter(viewport());painter.setPen(QColor("#777777"));
++        const int divider=columnViewportPosition(1)-1;
++        painter.drawLine(divider,0,divider,viewport()->height());
++    }
++};
++
+ class WRx3Utility : public QWidget {
+   public:
+     struct Setting {
+@@ -24,12 +37,13 @@
+         std::function<int()> selected;
+         std::function<bool(int)> apply;
+         QString explanation;
++        std::function<void()> execute{};
+     };
+     explicit WRx3Utility(QWidget* parent) : QWidget(parent) {
+         setObjectName("RX3Utility");
+         setStyleSheet("#RX3Utility {background:#202020;color:white;} "
+-                "#RX3Utility QTableWidget {background:#202020;alternate-background-color:#292b30;color:white;border:0;font:16px Arial;} "
+-                "#RX3Utility QTableWidget::item {padding:8px;border-bottom:1px solid #35373d;} "
++                "#RX3Utility QTableWidget {background:#000;alternate-background-color:#262626;color:white;border:0;font:16px Arial;} "
++                "#RX3Utility QTableWidget::item {padding:8px;border:0;} "
+                 "#RX3Utility QTableWidget::item:selected {background:#007CE0;color:white;} "
+                 "#RX3Utility QComboBox {background:#007CE0;color:white;border:1px solid white;padding:6px;font:16px Arial;} "
+                 "#RX3Utility QComboBox QAbstractItemView {background:#202020;color:white;selection-background-color:#007CE0;} "
+@@ -38,7 +52,7 @@
+                 "#RX3UtilityBack[encoderFocus=\"true\"] {background:#007CE0;}");
+         auto* layout = new QVBoxLayout(this);
+         layout->setContentsMargins(0,0,0,8);
+-        m_table = new QTableWidget(this);
++        m_table = new Rx3UtilityTable(this);
+         m_table->setObjectName("RX3UtilitySettings");
+         m_table->setColumnCount(2);
+         m_table->horizontalHeader()->hide();m_table->verticalHeader()->hide();
+@@ -75,7 +89,7 @@
+                 category=setting.category;const int row=m_table->rowCount();
+                 m_table->insertRow(row);
+                 auto* header=new QTableWidgetItem(category);
+-                header->setFlags(Qt::ItemIsEnabled);header->setBackground(QColor("#353941"));
++                header->setFlags(Qt::ItemIsEnabled);header->setBackground(QColor("#303030"));
+                 auto font=header->font();font.setBold(true);header->setFont(font);
+                 m_table->setItem(row,0,header);m_table->setSpan(row,0,1,2);
+                 m_table->setRowHeight(row,34);
+@@ -86,17 +100,19 @@
+             m_table->setItem(row,1,new QTableWidgetItem);
+             m_table->setRowHeight(row,42);
+         }
+-        focus(0);refresh();
++        focus(0);refresh();m_table->scrollToTop();
+     }
+     void move(int ticks) {
+         if(m_editor) m_editor->setCurrentIndex(std::clamp(m_editor->currentIndex()+ticks,0,m_editor->count()-1));
+         else focus(std::clamp(m_focus+ticks,0,int(m_settings.size())));
+     }
++    void message(const QString& text) {m_status->setText(text);}
+     void enter() {
+         if(m_editor) {commit();return;}
+         if(m_focus==int(m_settings.size())) {back();return;}
+         if(m_focus<0 || m_focus>=int(m_settings.size())) return;
+         const auto& setting=m_settings[m_focus];
++        if(setting.execute) {const auto execute=setting.execute;execute();return;}
+         if(!setting.apply || setting.choices.isEmpty()) {
+             m_status->setText(setting.explanation);return;
+         }
+@@ -116,7 +132,7 @@
+             auto* item=m_table->item(m_settingRows[i],1);
+             item->setText(setting.value?setting.value():"UNAVAILABLE");
+             item->setToolTip(setting.explanation);
+-            item->setForeground(setting.apply?QColor(Qt::white):QColor("#aaa"));
++            item->setForeground(setting.apply || setting.execute?QColor(Qt::white):QColor("#aaa"));
+         }
+     }
+   protected:
+@@ -141,7 +157,7 @@
+             const int row=m_settingRows[index];m_table->selectRow(row);
+             m_table->scrollToItem(m_table->item(row,0));
+             m_status->setText(m_settings[index].explanation.isEmpty()?
+-                    "Turn to select · Press to choose a value":m_settings[index].explanation);
++                    (m_settings[index].execute?"Turn to select · Press to open":"Turn to select · Press to choose a value"):m_settings[index].explanation);
+         } else m_status->setText("Press to return");
+         m_back->setProperty("encoderFocus",atBack);
+         m_back->style()->unpolish(m_back);m_back->style()->polish(m_back);m_back->update();

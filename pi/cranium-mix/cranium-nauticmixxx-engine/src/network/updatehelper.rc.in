@@ -1,0 +1,22 @@
+#include <windows.h>
+IDI_ICON1 ICON "@CMAKE_CURRENT_SOURCE_DIR@/res/images/icons/ic_mixxx.ico"
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION @NAUTIC_UPDATE_FILEVERSION@,0
+ PRODUCTVERSION @NAUTIC_UPDATE_FILEVERSION@,0
+ FILETYPE VFT_APP
+BEGIN
+ BLOCK "StringFileInfo"
+ BEGIN
+  BLOCK "040904b0"
+  BEGIN
+   VALUE "ProductName", "NauticMixxx\0"
+   VALUE "FileDescription", "NauticMixxx update installer helper\0"
+   VALUE "FileVersion", "@NAUTICMIX_VERSION@\0"
+   VALUE "ProductVersion", "@NAUTICMIX_VERSION@\0"
+  END
+ END
+ BLOCK "VarFileInfo"
+ BEGIN
+  VALUE "Translation", 0x409, 1200
+ END
+END

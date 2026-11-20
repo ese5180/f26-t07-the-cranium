@@ -1,0 +1,188 @@
+diff --git a/src/widget/wrx3browser.h b/src/widget/wrx3browser.h
+--- a/src/widget/wrx3browser.h
++++ b/src/widget/wrx3browser.h
+@@ -113,7 +113,7 @@
+         m_searchCount=new QLabel("0",header);m_searchCount->setObjectName("RX3SearchCount");m_searchCount->hide();h->addWidget(m_searchCount);
+         auto* search = new QPushButton("SEARCH", header); h->addWidget(search);
+         m_infoButton = new QPushButton("◀  INFO", header); h->addWidget(m_infoButton);
+-        auto* tools=new QPushButton("TOOLS",header);h->addWidget(tools);
++        auto* tools=new QPushButton("TOOLS",header);tools->setObjectName("RX3BrowserToolsButton");h->addWidget(tools);
+         connect(tools,&QPushButton::clicked,this,[this]{showTools();});
+         layout->addWidget(header);
+         m_pages = new QStackedWidget(this); layout->addWidget(m_pages, 1);
+@@ -1016,9 +1016,7 @@
+             auto* empty=new QTreeWidgetItem(m_sources,{"NO DEVICE"});
+             empty->setFlags(Qt::NoItemFlags);
+         }
+-        auto* tools=new QTreeWidgetItem(m_sources,{"TOOLS  ›"});
+-        tools->setData(0,Qt::UserRole,QStringLiteral("rx3:tools"));
+-        if (m_devices.empty() || previousRoot=="rx3:tools") selected=m_sources->indexOfTopLevelItem(tools);
++        if(m_devices.empty()) selected=0;
+         m_sources->setCurrentItem(m_sources->topLevelItem(selected));
+         m_refreshingSources=false;
+         updateSourceInfo(selected);
+@@ -1031,11 +1029,6 @@
+             qApp->setProperty("rx3SettingsUsbDeviceName",m_devices[row].data(Qt::DisplayRole).toString());
+         } else qApp->setProperty("rx3SettingsUsbRoot",QString());
+         if(m_refreshingSources) return;
+-        if(auto* item=m_sources->topLevelItem(row);item && item->data(0,Qt::UserRole).toString()=="rx3:tools") {
+-            m_sourceSettings->setEnabled(false);
+-            m_info->setText("<b>TOOLS</b><br><br>Press the browser encoder to open Beat FX, mixer, playback and USB workflow controls.<br><br>Turn to select · Press to edit · Hold to go back");
+-            return;
+-        }
+         QString songs,playlists,total,available,date;
+         const bool hasDevice=row>=0 && row<int(m_devices.size());
+         const bool ready=hasDevice && deviceReady(m_devices[row]);
+@@ -1060,7 +1053,6 @@
+                 line("Background Color",hasDevice ? "○ Default" : "")+"</table>");
+     }
+     void chooseSource() {
+-        if(auto* item=m_sources->currentItem();item && item->data(0,Qt::UserRole).toString()=="rx3:tools") {showTools();return;}
+         const int row=m_sources->indexOfTopLevelItem(m_sources->currentItem());
+         if(row<0 || row>=int(m_devices.size())) return;
+         const QModelIndex device=m_devices[row];
+diff --git a/src/widget/wrx3toolmenu.h b/src/widget/wrx3toolmenu.h
+--- a/src/widget/wrx3toolmenu.h
++++ b/src/widget/wrx3toolmenu.h
+@@ -3,6 +3,7 @@
+ #include <QLabel>
+ #include <QListWidget>
+ #include <QPushButton>
++#include <QStyle>
+ #include <QVBoxLayout>
+ #include <functional>
+ #include <vector>
+@@ -22,33 +23,34 @@
+     };
+     explicit WRx3ToolMenu(QWidget* parent) : QWidget(parent) {
+         setObjectName("RX3BrowserTools");
+-        setStyleSheet("#RX3BrowserTools {background:#202020;color:white;} #RX3BrowserTools QLabel {color:white;font-family:Arial;font-size:16px;} #RX3BrowserTools QListWidget {background:#202020;color:white;border:0;font-family:Arial;font-size:16px;} #RX3BrowserTools QPushButton {background:#202020;color:white;border:1px solid white;min-height:36px;}");
++        setStyleSheet("#RX3BrowserTools {background:#202020;color:white;} #RX3BrowserTools QLabel {color:white;font-family:Arial;font-size:16px;} #RX3BrowserTools QListWidget {background:#202020;color:white;border:0;font-family:Arial;font-size:16px;} #RX3BrowserTools QPushButton {background:#202020;color:white;border:1px solid white;min-height:36px;} #RX3ToolsBack[encoderFocus=\"true\"] {background:#007CE0;color:white;}");
+         auto* layout=new QVBoxLayout(this);
+         m_title=new QLabel(this);layout->addWidget(m_title);
+         m_list=new QListWidget(this);m_list->setObjectName("RX3ToolsActions");
+         m_list->setStyleSheet("QListWidget::item {min-height:40px;} QListWidget::item:selected {background:#007CE0;color:white;}");
+         layout->addWidget(m_list,1);
+         m_status=new QLabel(this);m_status->setWordWrap(true);layout->addWidget(m_status);
+-        auto* back=new QPushButton("BACK",this);layout->addWidget(back);
+-        connect(back,&QPushButton::clicked,this,[this]{goBack();});
+-        connect(m_list,&QListWidget::itemClicked,this,[this]{if(m_editing && m_list->currentRow()!=m_editRow) finishEditing();enter();});
++        m_backButton=new QPushButton("BACK",this);m_backButton->setObjectName("RX3ToolsBack");layout->addWidget(m_backButton);
++        connect(m_backButton,&QPushButton::clicked,this,[this]{goBack();});
++        connect(m_list,&QListWidget::itemClicked,this,[this]{if(m_editing && m_list->currentRow()!=m_editRow) finishEditing();setFocusIndex(m_list->currentRow());enter();});
+     }
+     void showMenu(QString title,std::vector<Action> actions,std::function<void()> back) {
+         finishEditing();
+         m_actions=std::move(actions);m_back=std::move(back);m_editing=false;
+         m_title->setText(std::move(title));m_list->clear();
+         for (const auto& action:m_actions) m_list->addItem(action.label());
+-        if (!m_actions.empty()) m_list->setCurrentRow(0);
++        setFocusIndex(0);
+         message("Turn to select · Press to open or edit · Hold to go back");
+     }
+     void move(int delta) {
+-        const int row=m_list->currentRow();
++        const int row=m_backFocused?int(m_actions.size()):m_list->currentRow();
+         if (row<0) return;
+         if (m_editing) {const auto adjust=m_actions[row].adjust;if(adjust) adjust(delta);refresh();}
+-        else m_list->setCurrentRow(std::clamp(row+delta,0,int(m_actions.size())-1));
++        else setFocusIndex(std::clamp(row+delta,0,int(m_actions.size())));
+     }
+     void enter() {
+-        const int row=m_list->currentRow();if (row<0) return;
++        if(m_backFocused) {goBack();return;}
++        const int row=m_list->currentRow();if (row<0 || row>=int(m_actions.size())) return;
+         if (m_actions[row].adjust) {
+             m_editing=!m_editing;
+             m_editRow = m_editing ? row : -1;
+@@ -66,6 +68,13 @@
+   protected:
+     void hideEvent(QHideEvent* event) override {finishEditing(); QWidget::hideEvent(event);}
+   private:
++    void setFocusIndex(int index) {
++        m_backFocused=index==int(m_actions.size());
++        m_list->setCurrentRow(m_backFocused?-1:index);
++        if(m_backFocused) m_list->clearSelection();
++        m_backButton->setProperty("encoderFocus",m_backFocused);
++        m_backButton->style()->unpolish(m_backButton);m_backButton->style()->polish(m_backButton);m_backButton->update();
++    }
+     void finishEditing() {
+         if (!m_editing) return;
+         const auto state=m_editRow>=0 && m_editRow<int(m_actions.size()) ? m_actions[m_editRow].editState : std::function<void(bool)>();
+@@ -75,7 +84,9 @@
+     QLabel* m_title;
+     QLabel* m_status;
+     QListWidget* m_list;
++    QPushButton* m_backButton;
+     std::vector<Action> m_actions;
+     std::function<void()> m_back;
+     bool m_editing=false;
++    bool m_backFocused=false;
+ };
+diff --git a/src/test/rx3display_test.cpp b/src/test/rx3display_test.cpp
+--- a/src/test/rx3display_test.cpp
++++ b/src/test/rx3display_test.cpp
+@@ -2220,7 +2220,45 @@
+ }
+ 
+ 
++TEST_F(Rx3ReferenceScaleTest, ToolMenuEncoderReachesBackAfterLastActionAndPreservesTouch) {
++    WRx3ToolMenu menu(nullptr);menu.resize(640,400);menu.show();
++    int first=0,last=0,backs=0;
++    menu.showMenu("TOOLS",{
++        {[]{return QString("FIRST");},[&]{++first;},{},{}},
++        {[]{return QString("LAST");},[&]{++last;},{},{}}
++    },[&]{++backs;});
++    auto* list=menu.findChild<QListWidget*>("RX3ToolsActions");ASSERT_TRUE(list);
++    auto* back=menu.findChild<QPushButton*>("RX3ToolsBack");ASSERT_TRUE(back);
++    menu.move(1);EXPECT_EQ(1,list->currentRow());
++    menu.move(1);EXPECT_EQ(-1,list->currentRow());
++    EXPECT_TRUE(back->property("encoderFocus").toBool());EXPECT_TRUE(list->selectedItems().isEmpty());
++    menu.move(100);menu.enter();EXPECT_EQ(1,backs);EXPECT_EQ(0,last);
++    menu.move(-1);EXPECT_EQ(1,list->currentRow());EXPECT_FALSE(back->property("encoderFocus").toBool());
++    menu.enter();EXPECT_EQ(1,last);
++    menu.move(1);QCoreApplication::processEvents();
++    QTest::mouseClick(list->viewport(),Qt::LeftButton,Qt::NoModifier,list->visualItemRect(list->item(0)).center());
++    EXPECT_EQ(1,first);EXPECT_FALSE(back->property("encoderFocus").toBool());
++    back->click();EXPECT_EQ(2,backs);
++}
++
++TEST_F(Rx3ReferenceScaleTest, ToolMenuBackEndsEditingAndHandlesEmptyAndReplacedMenus) {
++    WRx3ToolMenu menu(nullptr);int value=0,backs=0;bool held=false;
++    const auto root=[&]{++backs;menu.showMenu("ROOT",{},[&]{++backs;});};
++    menu.showMenu("EDIT",{{[]{return QString("VALUE");},{},[&](int delta){value+=delta;},[&](bool editing){held=editing;}}},root);
++    auto* back=menu.findChild<QPushButton*>("RX3ToolsBack");ASSERT_TRUE(back);
++    menu.enter();EXPECT_TRUE(held);menu.move(3);EXPECT_EQ(3,value);
++    menu.goBack();EXPECT_FALSE(held);EXPECT_EQ(0,backs);
++    EXPECT_FALSE(back->property("encoderFocus").toBool());
++    menu.move(1);EXPECT_TRUE(back->property("encoderFocus").toBool());
++    menu.enter();EXPECT_EQ(1,backs);EXPECT_TRUE(back->property("encoderFocus").toBool());
++    menu.move(-100);menu.enter();EXPECT_EQ(2,backs);
++}
++
+ TEST_F(Rx3ReferenceScaleTest, BeatFxToolsEncoderSelectsStoresAndReleasesPadOnExit) {
++    struct FactoryScope {
++        FactoryScope() {WaveformWidgetFactory::createInstance();}
++        ~FactoryScope() {WaveformWidgetFactory::destroy();}
++    } factoryScope;
+     auto factory=std::make_shared<ChannelHandleFactory>();
+     EffectsManager effects(config(),factory);
+     for(const auto& group:QStringList{"[MasterOutput]","[Master]","[Channel1]","[Channel2]","[Microphone]","[Microphone2]","[Auxiliary1]"})
+@@ -2237,8 +2275,15 @@
+         canvas.resize(1280,800);browser.resize(1280,690);canvas.show();browser.show();QCoreApplication::processEvents();
+         Rx3BrowserTestAccess::sources(browser);QCoreApplication::processEvents();
+         auto* sources=browser.findChild<QTreeWidget*>();ASSERT_TRUE(sources);
+-        ASSERT_TRUE(sources->currentItem());EXPECT_EQ("rx3:tools",sources->currentItem()->data(0,Qt::UserRole).toString());
+-        Rx3BrowserTestAccess::enterTools(browser); // SOURCE → TOOLS, using the same controller ENTER.
++        ASSERT_EQ(1,sources->topLevelItemCount());EXPECT_EQ("NO DEVICE",sources->topLevelItem(0)->text(0));
++        EXPECT_TRUE(browser.findChild<QPushButton*>("RX3BrowserToolsButton"));
++        WRx3Shortcut shortcut(config(),&effects,&canvas);
++        const auto shortcutPulse=[](const QString& key,double value) {
++            ControlObject::set(ConfigKey("[RX3Shortcut]",key),value);
++            ControlObject::set(ConfigKey("[RX3Shortcut]",key),0);
++        };
++        shortcutPulse("open",1);shortcutPulse("move",1);shortcutPulse("enter",1);
++        EXPECT_FALSE(shortcut.isVisible()); // SHORTCUT → TOOLS remains available without USB or mouse.
+         auto* list=browser.findChild<QListWidget*>("RX3ToolsActions");ASSERT_TRUE(list);
+         auto select=[&](const QString& prefix) {
+             int row=-1;for(int i=0;i<list->count();++i) if(list->item(i)->text().startsWith(prefix)) {row=i;break;}

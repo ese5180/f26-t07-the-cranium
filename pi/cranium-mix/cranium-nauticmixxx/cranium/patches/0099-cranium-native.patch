@@ -1,0 +1,2786 @@
+diff --git a/src/controllers/controllermanager.cpp b/src/controllers/controllermanager.cpp
+index f7722b099495773cfc5e94ae7c5a0f4afb04be17..356b63ae851599e3be33e5b7208a509c7d71adc5 100644
+--- a/src/controllers/controllermanager.cpp
++++ b/src/controllers/controllermanager.cpp
+@@ -19,6 +19,7 @@
+ 
+ #ifdef __PORTMIDI__
+ #include "controllers/midi/portmidienumerator.h"
++#include "controllers/midi/portmidicontroller.h"
+ #endif
+ 
+ #ifdef __HSS1394__
+@@ -153,7 +154,10 @@ ControllerManager::ControllerManager(UserSettingsPointer pConfig)
+ 
+     m_pollTimer.setInterval(kPollInterval.toIntegerMillis());
+     connect(&m_pollTimer, &QTimer::timeout, this, &ControllerManager::slotPollDevices);
+-    m_discoveryTimer.setInterval(3000);
++    m_discoveryTimer.setInterval(1000);
++    connect(this, &ControllerManager::requestCraniumRefresh, this, &ControllerManager::slotDiscoverFirstController);
++    connect(this, &ControllerManager::requestCraniumControllerEnabled, this, &ControllerManager::slotSetCraniumControllerEnabled);
++
+     connect(&m_discoveryTimer, &QTimer::timeout,
+             this, &ControllerManager::slotDiscoverFirstController);
+ 
+@@ -241,18 +245,72 @@ void ControllerManager::slotShutdown() {
+ }
+ 
+ void ControllerManager::slotDiscoverFirstController() {
+-    // Enumerator implementations replace their Controller objects on each
+-    // scan. Rescanning is safe only while there are no active objects that a
+-    // preferences page or MIDI script could still reference.
+-    if (getControllers().isEmpty()) {
+-        slotSetUpDevices();
++#if defined(__LINUX__) && defined(__PORTMIDI__)
++    for (auto* enumerator : std::as_const(m_enumerators)) {
++        auto* midi = qobject_cast<PortMidiEnumerator*>(enumerator);
++        if (!midi || !midi->needsRefresh()) continue;
++        // Refresh only MIDI. Other backends may delete objects during a query.
++        // PortMidi keeps detached objects alive for queued UI calls and reuses
++        // them on reconnect, avoiding dangling preferences/learning pointers.
++        const auto devices = midi->queryDevices();
++        bool hadMidiDevices = false;
++        {
++            const auto locker = lockMutex(&m_mutex);
++            for (auto i = m_controllers.begin(); i != m_controllers.end();) {
++                if (qobject_cast<PortMidiController*>(*i)) {
++                    hadMidiDevices = true;
++                    i = m_controllers.erase(i);
++                } else ++i;
++            }
++            m_controllers.append(devices);
++        }
++        const auto paths = getMappingPaths(m_pConfig);
++        for (auto* device : devices) setUpController(device, paths);
++        pollIfAnyControllersOpen();
++        if (hadMidiDevices || !devices.isEmpty()) emit devicesChanged();
++    }
++#else
++    if (getControllers().isEmpty()) slotSetUpDevices();
++#endif
++    updateCraniumStatus();
++}
++
++QVariantList ControllerManager::craniumControllerStatus() const {
++    const auto locker = lockMutex(&m_mutex);
++    return m_craniumStatus;
++}
++
++void ControllerManager::updateCraniumStatus() {
++    QVariantList status;
++    for (auto* controller : getControllers()) {
++        if (!controller->isInputDevice()) continue;
++        const auto mapping = controller->getMapping();
++        const QString filename = mapping ? QFileInfo(mapping->filePath()).fileName() : QString();
++        QString label = filename;
++        if (filename == "Pioneer-DDJ-FLX4-RX3.midi.xml") label = "Cranium FLX4 mapping";
++        else label.replace("NauticMixxx", "Cranium").replace("Nautic", "Cranium");
++        status << QVariantMap{{"name", controller->getName()}, {"enabled", controller->isOpen()},
++                {"output", controller->isOutputDevice()}, {"mapping", label}};
++    }
++    const auto locker = lockMutex(&m_mutex);
++    m_craniumStatus = status;
++}
++
++void ControllerManager::slotSetCraniumControllerEnabled(QString name, bool enabled) {
++    for (auto* controller : getControllers()) {
++        if (controller->getName() != name) continue;
++        if (enabled) setUpController(controller, getMappingPaths(m_pConfig));
++        else closeController(controller);
++        pollIfAnyControllersOpen();
++        updateCraniumStatus();
++        m_pConfig->save();
++        break;
+     }
+ }
+ 
+ void ControllerManager::updateControllerList() {
+-    // NOTE: Currently this function is only called on startup. If hotplug is added, changes to the
+-    // controller list must be synchronized with dlgprefcontrollers to avoid dangling connections
+-    // and possible crashes.
++    // Initial scan of every backend. Linux runtime refreshes only PortMidi,
++    // which retains Controller objects until shutdown for preference UI safety.
+     auto locker = lockMutex(&m_mutex);
+     if (m_enumerators.isEmpty()) {
+         qWarning() << "updateControllerList called but no enumerators have been added!";
+@@ -310,105 +368,110 @@ void ControllerManager::slotSetUpDevices() {
+     const QList<Controller*> deviceList = getControllerList(false, true);
+     QStringList mappingPaths(getMappingPaths(m_pConfig));
+ 
+-    for (Controller* pController : deviceList) {
+-        QString name = pController->getName();
++    for (Controller* controller : deviceList) {
++        setUpController(controller, mappingPaths);
++    }
+ 
+-        if (pController->isOpen()) {
+-            pController->close();
+-        }
++    pollIfAnyControllersOpen();
++    updateCraniumStatus();
++}
+ 
+-        // The filename for this device name.
+-        QString deviceName = sanitizeDeviceName(name);
+-
+-        QString automaticMapping;
+-        const QString rx3Mapping = nauticRx3MappingForDevice(name);
+-        const bool isInpulse500 =
+-                rx3Mapping == QString::fromLatin1(kInpulse500Rx3Mapping);
+-        if (!rx3Mapping.isEmpty()) {
+-            QFileInfo customMapping = findMappingFile(rx3Mapping, mappingPaths);
+-            if (customMapping.exists()) {
+-                automaticMapping = customMapping.absoluteFilePath();
+-            }
++void ControllerManager::setUpController(Controller* pController, const QStringList& mappingPaths) {
++    QString name = pController->getName();
++
++    if (pController->isOpen()) {
++        pController->close();
++    }
++
++    // The filename for this device name.
++    QString deviceName = sanitizeDeviceName(name);
++
++    QString automaticMapping;
++    const QString rx3Mapping = nauticRx3MappingForDevice(name);
++    const bool isInpulse500 =
++            rx3Mapping == QString::fromLatin1(kInpulse500Rx3Mapping);
++    if (!rx3Mapping.isEmpty()) {
++        QFileInfo customMapping = findMappingFile(rx3Mapping, mappingPaths);
++        if (customMapping.exists()) {
++            automaticMapping = customMapping.absoluteFilePath();
+         }
+-        if (automaticMapping.isEmpty() && !isInpulse500) {
+-            for (const QString& path : mappingPaths) {
+-                const QDir mappingDir(path);
+-                for (const QString& fileName : mappingDir.entryList(
+-                             {QStringLiteral("*.midi.xml"),
+-                                     QStringLiteral("*.hid.xml"),
+-                                     QStringLiteral("*.bulk.xml")},
+-                             QDir::Files, QDir::Name)) {
+-                    const QFileInfo candidate(mappingDir.filePath(fileName));
+-                    const MappingInfo info(candidate.absoluteFilePath());
+-                    if (info.isValid() &&
+-                            (pController->matchMapping(info) ||
+-                                    (fileName.endsWith(QStringLiteral(".midi.xml")) &&
+-                                            mappingHasExactMidiId(
+-                                                    candidate.absoluteFilePath(), name)))) {
+-                        automaticMapping = candidate.absoluteFilePath();
+-                        break;
+-                    }
+-                }
+-                if (!automaticMapping.isEmpty()) {
++    }
++    if (automaticMapping.isEmpty() && !isInpulse500) {
++        for (const QString& path : mappingPaths) {
++            const QDir mappingDir(path);
++            for (const QString& fileName : mappingDir.entryList(
++                         {QStringLiteral("*.midi.xml"),
++                                 QStringLiteral("*.hid.xml"),
++                                 QStringLiteral("*.bulk.xml")},
++                         QDir::Files, QDir::Name)) {
++                const QFileInfo candidate(mappingDir.filePath(fileName));
++                const MappingInfo info(candidate.absoluteFilePath());
++                if (info.isValid() &&
++                        (pController->matchMapping(info) ||
++                                (fileName.endsWith(QStringLiteral(".midi.xml")) &&
++                                        mappingHasExactMidiId(
++                                                candidate.absoluteFilePath(), name)))) {
++                    automaticMapping = candidate.absoluteFilePath();
+                     break;
+                 }
+             }
++            if (!automaticMapping.isEmpty()) {
++                break;
++            }
+         }
+-        if (!automaticMapping.isEmpty()) {
+-            m_pConfig->setValue(ConfigKey(kSettingsGroup, deviceName), automaticMapping);
+-            m_pConfig->setValue(ConfigKey("[Controller]", deviceName), 1);
+-        } else if (isInpulse500) {
+-            qWarning() << "NauticMixxx RX3 mapping for Inpulse 500 is missing";
+-            continue;
+-        }
++    }
++    if (!automaticMapping.isEmpty()) {
++        m_pConfig->setValue(ConfigKey(kSettingsGroup, deviceName), automaticMapping);
++        m_pConfig->setValue(ConfigKey("[Controller]", deviceName), 1);
++    } else if (isInpulse500) {
++        qWarning() << "NauticMixxx RX3 mapping for Inpulse 500 is missing";
++        return;
++    }
+ 
+-        // Check if device is enabled
+-        if (!m_pConfig->getValue(ConfigKey("[Controller]", deviceName), 0)) {
+-            continue;
+-        }
++    // Check if device is enabled
++    if (!m_pConfig->getValue(ConfigKey("[Controller]", deviceName), 0)) {
++        return;
++    }
+ 
+-        // Check if device has a configured mapping
+-        QString mappingFilePath = getConfiguredMappingFileForDevice(deviceName);
+-        if (mappingFilePath.isEmpty()) {
+-            continue;
+-        }
++    // Check if device has a configured mapping
++    QString mappingFilePath = getConfiguredMappingFileForDevice(deviceName);
++    if (mappingFilePath.isEmpty()) {
++        return;
++    }
+ 
+-        qDebug() << "Searching for controller mapping" << mappingFilePath
+-                 << "in paths:" << mappingPaths.join(",");
+-        QFileInfo mappingFile = findMappingFile(mappingFilePath, mappingPaths);
+-        if (!mappingFile.exists()) {
+-            qDebug() << "Could not find" << mappingFilePath << "in any mapping path.";
+-            continue;
+-        }
++    qDebug() << "Searching for controller mapping" << mappingFilePath
++             << "in paths:" << mappingPaths.join(",");
++    QFileInfo mappingFile = findMappingFile(mappingFilePath, mappingPaths);
++    if (!mappingFile.exists()) {
++        qDebug() << "Could not find" << mappingFilePath << "in any mapping path.";
++        return;
++    }
+ 
+-        std::shared_ptr<LegacyControllerMapping> pMapping =
+-                LegacyControllerMappingFileHandler::loadMapping(
+-                        mappingFile, resourceMappingsPath(m_pConfig));
++    std::shared_ptr<LegacyControllerMapping> pMapping =
++            LegacyControllerMappingFileHandler::loadMapping(
++                    mappingFile, resourceMappingsPath(m_pConfig));
+ 
+-        if (!pMapping) {
+-            continue;
+-        }
+-        pMapping->loadSettings(m_pConfig, pController->getName());
++    if (!pMapping) {
++        return;
++    }
++    pMapping->loadSettings(m_pConfig, pController->getName());
+ 
+-        // This runs on the main thread but LegacyControllerMapping is not thread safe, so clone it.
+-        pController->setMapping(std::move(pMapping));
++    // This runs on the main thread but LegacyControllerMapping is not thread safe, so clone it.
++    pController->setMapping(std::move(pMapping));
+ 
+-        // If we are in safe mode, skip opening controllers.
+-        if (CmdlineArgs::Instance().getSafeMode()) {
+-            qDebug() << "We are in safe mode -- skipping opening controller.";
+-            continue;
+-        }
++    // If we are in safe mode, skip opening controllers.
++    if (CmdlineArgs::Instance().getSafeMode()) {
++        qDebug() << "We are in safe mode -- skipping opening controller.";
++        return;
++    }
+ 
+-        qDebug() << "Opening controller:" << name;
++    qDebug() << "Opening controller:" << name;
+ 
+-        int value = pController->open();
+-        if (value != 0) {
+-            qWarning() << "There was a problem opening" << name;
+-            continue;
+-        }
++    int value = pController->open();
++    if (value != 0) {
++        qWarning() << "There was a problem opening" << name;
++        return;
+     }
+-
+-    pollIfAnyControllersOpen();
+ }
+ 
+ void ControllerManager::pollIfAnyControllersOpen() {
+@@ -523,6 +586,10 @@ void ControllerManager::slotApplyMapping(Controller* pController,
+         qWarning() << "slotApplyMapping got invalid controller!";
+         return;
+     }
++    if (!getControllers().contains(pController)) {
++        qWarning() << "Ignoring mapping Apply for a disconnected controller";
++        return;
++    }
+ 
+     closeController(pController);
+     ConfigKey key(kSettingsGroup, sanitizeDeviceName(pController->getName()));
+diff --git a/src/controllers/controllermanager.h b/src/controllers/controllermanager.h
+index 853664591c745de7d12d1f34297b576760cf2daa..b0f7c9fa94f3f163814e6ea86b39369311863d8c 100644
+--- a/src/controllers/controllermanager.h
++++ b/src/controllers/controllermanager.h
+@@ -3,6 +3,7 @@
+ #include <QMutex>
+ #include <QSharedPointer>
+ #include <QTimer>
++#include <QVariant>
+ #include <memory>
+ 
+ #include "controllers/controllerenumerator.h"
+@@ -43,6 +44,8 @@ class ControllerManager : public QObject {
+     void setUpDevices() { emit requestSetUpDevices(); };
+ 
+     static QList<QString> getMappingPaths(UserSettingsPointer pConfig);
++    QVariantList craniumControllerStatus() const;
++
+ 
+   signals:
+     void devicesChanged();
+@@ -50,8 +53,11 @@ class ControllerManager : public QObject {
+     void requestShutdown();
+     void requestInitialize();
+     void mappingApplied(bool applied);
++    void requestCraniumRefresh();
++    void requestCraniumControllerEnabled(QString name, bool enabled);
+ 
+   public slots:
++    void slotSetCraniumControllerEnabled(QString name, bool enabled);
+     void slotApplyMapping(Controller* pController,
+             std::shared_ptr<LegacyControllerMapping> pMapping,
+             bool bEnabled);
+@@ -71,6 +77,8 @@ class ControllerManager : public QObject {
+ 
+   private:
+     void updateControllerList();
++    void updateCraniumStatus();
++    void setUpController(Controller* controller, const QStringList& mappingPaths);
+     void startPolling();
+     void stopPolling();
+     void pollIfAnyControllersOpen();
+@@ -84,6 +92,7 @@ class ControllerManager : public QObject {
+     mutable QMutex m_mutex;
+     QList<ControllerEnumerator*> m_enumerators;
+     QList<Controller*> m_controllers;
++    QVariantList m_craniumStatus;
+     QThread* m_pThread;
+     QSharedPointer<MappingInfoEnumerator> m_pMainThreadUserMappingEnumerator;
+     QSharedPointer<MappingInfoEnumerator> m_pMainThreadSystemMappingEnumerator;
+diff --git a/src/controllers/midi/portmidicontroller.cpp b/src/controllers/midi/portmidicontroller.cpp
+index 9a3223ec9932019debc6a0b5d602f100e74d304d..49034bfebc599bac5801900b91c58adad76df12a 100644
+--- a/src/controllers/midi/portmidicontroller.cpp
++++ b/src/controllers/midi/portmidicontroller.cpp
+@@ -25,16 +25,25 @@ PortMidiController::PortMidiController(const PmDeviceInfo* inputDeviceInfo,
+     // Note: We prepend the input stream's index to the device's name to prevent
+     // duplicate devices from causing mayhem.
+     //setDeviceName(QString("%1. %2").arg(QString::number(m_iInputDeviceIndex), inputDeviceInfo->name));
+-    if (inputDeviceInfo) {
+-        setInputDevice(inputDeviceInfo->input);
+-        m_pInputDevice.reset(new PortMidiDevice(
+-            inputDeviceInfo, inputDeviceIndex));
+-    }
+-    if (outputDeviceInfo) {
+-        setOutputDevice(outputDeviceInfo->output);
+-        m_pOutputDevice.reset(new PortMidiDevice(
+-            outputDeviceInfo, outputDeviceIndex));
+-    }
++    attachDevices(inputDeviceInfo, outputDeviceInfo, inputDeviceIndex, outputDeviceIndex);
++}
++
++void PortMidiController::detachDevices() {
++    if (isOpen()) close();
++    // Both wrappers must be gone before Pm_Terminate invalidates their info.
++    m_pInputDevice.reset();
++    m_pOutputDevice.reset();
++    setInputDevice(false);
++    setOutputDevice(false);
++}
++
++void PortMidiController::attachDevices(const PmDeviceInfo* inputDeviceInfo,
++        const PmDeviceInfo* outputDeviceInfo, int inputDeviceIndex, int outputDeviceIndex) {
++    DEBUG_ASSERT(!isOpen());
++    setInputDevice(inputDeviceInfo && inputDeviceInfo->input);
++    setOutputDevice(outputDeviceInfo && outputDeviceInfo->output);
++    m_pInputDevice.reset(inputDeviceInfo ? new PortMidiDevice(inputDeviceInfo, inputDeviceIndex) : nullptr);
++    m_pOutputDevice.reset(outputDeviceInfo ? new PortMidiDevice(outputDeviceInfo, outputDeviceIndex) : nullptr);
+ }
+ 
+ PortMidiController::~PortMidiController() {
+@@ -49,7 +58,7 @@ int PortMidiController::open() {
+         return -1;
+     }
+ 
+-    if (getName() == MIXXX_PORTMIDI_NO_DEVICE_STRING) {
++    if (!m_pInputDevice || getName() == MIXXX_PORTMIDI_NO_DEVICE_STRING) {
+         return -1;
+     }
+ 
+@@ -75,6 +84,7 @@ int PortMidiController::open() {
+         PmError err = m_pOutputDevice->openOutput();
+         if (err != pmNoError) {
+             qCWarning(m_logBase) << "PortMidi error:" << Pm_GetErrorText(err);
++            if (m_pInputDevice && m_pInputDevice->isOpen()) m_pInputDevice->close();
+             return -2;
+         }
+     }
+diff --git a/src/controllers/midi/portmidicontroller.h b/src/controllers/midi/portmidicontroller.h
+index d2480861ae5ea2ae351746865b95f7d2ef025ef5..15b051692963aca5e2d9105386fcfef72ba95b6c 100644
+--- a/src/controllers/midi/portmidicontroller.h
++++ b/src/controllers/midi/portmidicontroller.h
+@@ -55,6 +55,13 @@ class PortMidiController : public MidiController {
+             int outputDeviceIndex);
+     ~PortMidiController() override;
+ 
++    // Keep this QObject alive while a Linux hotplug scan refreshes PortMidi's
++    // global device table. Preferences and queued signals may still reference it.
++    void detachDevices();
++    void attachDevices(const PmDeviceInfo* inputDeviceInfo,
++            const PmDeviceInfo* outputDeviceInfo,
++            int inputDeviceIndex, int outputDeviceIndex);
++
+   private slots:
+     bool poll() override;
+ 
+diff --git a/src/controllers/midi/portmidienumerator.cpp b/src/controllers/midi/portmidienumerator.cpp
+index e7c3a3800f88bb896fa11723afa88f4b20ec8648..95ce902d5f3af874111d656fbda6fbae5c649c06 100644
+--- a/src/controllers/midi/portmidienumerator.cpp
++++ b/src/controllers/midi/portmidienumerator.cpp
+@@ -3,6 +3,12 @@
+ #include <portmidi.h>
+ 
+ #include <QRegularExpression>
++#include <QDir>
++#include <QFile>
++#include <QFileInfo>
++#ifdef __LINUX__
++#include <sys/stat.h>
++#endif
+ 
+ #include "controllers/midi/portmidicontroller.h"
+ #include "moc_portmidienumerator.cpp"
+@@ -10,6 +16,25 @@
+ 
+ namespace {
+ 
++QStringList midiHardwareTopology() {
++    QStringList result;
++#ifdef __LINUX__
++    // Only hardware raw-MIDI nodes: opening our own ALSA sequencer ports must
++    // not trigger an endless rescan. Inode + ctime distinguish a fast reconnect
++    // at the same card number from the original node.
++    const QDir sound(QStringLiteral("/dev/snd"));
++    for (const auto& name : sound.entryList({QStringLiteral("midiC*D*")}, QDir::System | QDir::Files, QDir::Name)) {
++        struct stat node;
++        if (::stat(QFile::encodeName(sound.filePath(name)).constData(), &node) == 0) {
++            result << QStringLiteral("%1:%2:%3:%4").arg(name)
++                              .arg(qulonglong(node.st_ino)).arg(qlonglong(node.st_ctim.tv_sec))
++                              .arg(qlonglong(node.st_ctim.tv_nsec));
++        }
++    }
++#endif
++    return result;
++}
++
+ const auto kMidiThroughPortPrefix = QLatin1String("MIDI Through Port");
+ 
+ bool recognizeDevice(const PmDeviceInfo& deviceInfo) {
+@@ -100,6 +125,8 @@ bool namesMatchAllowableEdgeCases(const QString& input_name,
+ } // namespace
+ 
+ PortMidiEnumerator::PortMidiEnumerator() {
++    m_topology = midiHardwareTopology();
++    m_pendingTopology = m_topology;
+     PmError err = Pm_Initialize();
+     // Based on reading the source, it's not possible for this to fail.
+     if (err != pmNoError) {
+@@ -109,10 +136,9 @@ PortMidiEnumerator::PortMidiEnumerator() {
+ 
+ PortMidiEnumerator::~PortMidiEnumerator() {
+     qDebug() << "Deleting PortMIDI devices...";
+-    QListIterator<Controller*> dev_it(m_devices);
+-    while (dev_it.hasNext()) {
+-        delete dev_it.next();
+-    }
++    qDeleteAll(m_allDevices);
++    m_allDevices.clear();
++    m_devices.clear();
+     PmError err = Pm_Terminate();
+     // Based on reading the source, it's not possible for this to fail.
+     if (err != pmNoError) {
+@@ -120,6 +146,19 @@ PortMidiEnumerator::~PortMidiEnumerator() {
+     }
+ }
+ 
++bool PortMidiEnumerator::needsRefresh() {
++#ifdef __LINUX__
++    const auto current = midiHardwareTopology();
++    if (current != m_pendingTopology) {
++        m_pendingTopology = current;
++        return false; // Wait one more discovery tick for USB enumeration to settle.
++    }
++    return current != m_topology || m_devices.isEmpty();
++#else
++    return false;
++#endif
++}
++
+ bool shouldLinkInputToOutput(const QString& input_name,
+         const QString& output_name) {
+     // Early exit.
+@@ -180,14 +219,26 @@ bool shouldLinkInputToOutput(const QString& input_name,
+ QList<Controller*> PortMidiEnumerator::queryDevices() {
+     qDebug() << "Scanning PortMIDI devices:";
+ 
+-    int iNumDevices = Pm_CountDevices();
+-
+-    QListIterator<Controller*> dev_it(m_devices);
+-    while (dev_it.hasNext()) {
+-        delete dev_it.next();
++#ifdef __LINUX__
++    // Pm_CountDevices is a snapshot taken at Pm_Initialize, not a live scan.
++    // Close streams/scripts first, keep stable Controller objects, then rebuild
++    // the snapshot. This runs on the controller thread, between poll callbacks.
++    for (auto* device : m_allDevices) device->detachDevices();
++    m_devices.clear();
++    m_topology = midiHardwareTopology();
++    m_pendingTopology = m_topology;
++    Pm_Terminate();
++    const auto initialized = Pm_Initialize();
++    if (initialized != pmNoError) {
++        qWarning() << "PortMidi refresh failed:" << Pm_GetErrorText(initialized);
++        return {};
+     }
+-
++#else
++    qDeleteAll(m_allDevices);
++    m_allDevices.clear();
+     m_devices.clear();
++#endif
++    int iNumDevices = Pm_CountDevices();
+ 
+     const PmDeviceInfo* inputDeviceInfo = nullptr;
+     const PmDeviceInfo* outputDeviceInfo = nullptr;
+@@ -256,11 +307,19 @@ QList<Controller*> PortMidiEnumerator::queryDevices() {
+         // device (outputDeviceInfo != NULL).
+ 
+         //.... so create our (aggregate) MIDI device!
+-        PortMidiController* currentDevice =
+-                new PortMidiController(inputDeviceInfo,
+-                        outputDeviceInfo,
+-                        inputDevIndex,
+-                        outputDevIndex);
++        PortMidiController* currentDevice = nullptr;
++        const auto name = QString::fromLocal8Bit(inputDeviceInfo->name);
++        for (auto* candidate : m_allDevices) {
++            if (candidate->getName() == name && !m_devices.contains(candidate)) {
++                currentDevice = candidate;
++                currentDevice->attachDevices(inputDeviceInfo, outputDeviceInfo, inputDevIndex, outputDevIndex);
++                break;
++            }
++        }
++        if (!currentDevice) {
++            currentDevice = new PortMidiController(inputDeviceInfo, outputDeviceInfo, inputDevIndex, outputDevIndex);
++            m_allDevices.append(currentDevice);
++        }
+         m_devices.push_back(currentDevice);
+     }
+     return m_devices;
+diff --git a/src/controllers/midi/portmidienumerator.h b/src/controllers/midi/portmidienumerator.h
+index 21548c90dd3a7295bbf29d399311fd467f185d21..56b49d6150f031f611e001299b847a9d7ce0aa6e 100644
+--- a/src/controllers/midi/portmidienumerator.h
++++ b/src/controllers/midi/portmidienumerator.h
+@@ -1,6 +1,9 @@
+ #pragma once
+ 
+ #include "controllers/midi/midienumerator.h"
++#include <QStringList>
++
++class PortMidiController;
+ 
+ /// This class handles discovery and enumeration of DJ controllers that appear under the PortMIDI cross-platform API.
+ class PortMidiEnumerator : public MidiEnumerator {
+@@ -10,9 +13,14 @@ class PortMidiEnumerator : public MidiEnumerator {
+     ~PortMidiEnumerator() override;
+ 
+     QList<Controller*> queryDevices() override;
++    bool needsRefresh();
+ 
+   private:
++    // Retain detached objects until shutdown to protect preference-page pointers.
++    QList<PortMidiController*> m_allDevices;
+     QList<Controller*> m_devices;
++    QStringList m_topology;
++    QStringList m_pendingTopology;
+ };
+ 
+ // For testing.
+diff --git a/src/library/library.cpp b/src/library/library.cpp
+index fe961a607f82605813c5e81f9b6e821f7bb5cd75..5e7073b7712c52365a186ee7dc1b7827344b3cc8 100644
+--- a/src/library/library.cpp
++++ b/src/library/library.cpp
+@@ -573,6 +573,31 @@ void Library::slotLoadTrack(TrackPointer pTrack) {
+ }
+ 
+ void Library::slotLoadLocationToPlayer(const QString& location, const QString& group, bool play) {
++    // Deck drop targets receive a local filename, not the browser's runtime
++    // TrackPointer. Resolve it back into the active USB catalog before the
++    // normal collection path can turn it into a metadata-only audio file.
++    if (auto* feature = rekordboxFeature()) {
++        QString root;
++        const auto canonical = QFileInfo(location).canonicalFilePath();
++        const auto source = feature->infoForLocation(
++                canonical.isEmpty() ? QDir::cleanPath(location) : canonical, &root);
++        if (source) {
++            QString error;
++            const auto track = feature->temporaryTrackForRoot(
++                    root, source->rekordboxId, &error);
++            if (track) {
++                emit loadTrackToPlayer(track, group, play);
++            } else {
++                kLogger.warning() << "Cannot load dropped Rekordbox USB track" << error;
++            }
++            return;
++        }
++    }
++    if (m_pConfig->getValue<bool>(mixxx::library::prefs::kUsbOnlyModeConfigKey, false) &&
++            mixxx::rekordbox::isReadOnlyPath(location)) {
++        kLogger.warning() << "Cannot load uncatalogued USB file; select a ready SOURCE first";
++        return;
++    }
+     auto trackRef = TrackRef::fromFilePath(location);
+     TrackPointer pTrack = m_pTrackCollectionManager->getOrAddTrack(trackRef);
+     if (pTrack) {
+diff --git a/src/mixxxmainwindow.cpp b/src/mixxxmainwindow.cpp
+index c9160e5246ae6a28468495bc1a3477ebd06dc005..73a41a1df6d79fa2806024e36b5c3efd32a7e757 100644
+--- a/src/mixxxmainwindow.cpp
++++ b/src/mixxxmainwindow.cpp
+@@ -36,6 +36,10 @@
+ #endif
+ #include "control/controlindicatortimer.h"
+ #include "control/controlproxy.h"
++#include "control/controlpushbutton.h"
++#include "widget/wcraniumsettings.h"
++#include <QDesktopServices>
++#include <QResizeEvent>
+ #include "network/startupupdatechecker.h"
+ #include "library/library.h"
+ #include "library/library_prefs.h"
+@@ -315,6 +319,18 @@ void MixxxMainWindow::initialize() {
+             m_pCoreServices->getLibrary());
+     m_pPrefDlg->setWindowIcon(QIcon(MIXXX_ICON_PATH));
+     m_pPrefDlg->setHidden(true);
++    // Touch access from the RX3 MENU, even while the desktop menubar is hidden.
++    for (const auto* name : {"open_controllers", "open_audio", "open_preferences"}) {
++        auto* command = new ControlPushButton(ConfigKey("[Cranium]", name));
++        command->setParent(m_pPrefDlg);
++        connect(command, &ControlObject::valueChanged, m_pPrefDlg,
++                [this, action = QString::fromLatin1(name)](double value) {
++                    if (value <= 0) return;
++                    showCraniumSettings(action == "open_controllers" ? 0 : action == "open_audio" ? 1 : 2);
++                });
++    }
++
++    initializeCraniumAppliance();
+     connect(m_pPrefDlg,
+             &DlgPreferences::tooltipModeChanged,
+             this,
+@@ -360,6 +376,10 @@ void MixxxMainWindow::initialize() {
+     do {
+         retryClicked = false;
+         SoundDeviceStatus result = m_pCoreServices->getSoundManager()->setupDevices();
++        if (qEnvironmentVariableIsSet("CRANIUM_APPLIANCE")) {
++            if (result != SoundDeviceStatus::Ok) qWarning() << "Cranium startup audio unavailable:" << int(result);
++            break; // Show in-app audio setup rather than desktop startup dialogs.
++        }
+         if (result == SoundDeviceStatus::ErrorDeviceCount ||
+                 result == SoundDeviceStatus::ErrorExcessiveOutputChannel) {
+             if (soundDeviceBusyDlg(&retryClicked) != QDialog::Accepted) {
+@@ -377,7 +397,8 @@ void MixxxMainWindow::initialize() {
+     // that says "mixxx will barely work with no outs".
+     // In case of persisting errors, the user has already received a message
+     // above. So we can just check the output count here.
+-    while (m_pCoreServices->getSoundManager()->getConfig().getOutputs().count() == 0) {
++    while (!qEnvironmentVariableIsSet("CRANIUM_APPLIANCE") &&
++            m_pCoreServices->getSoundManager()->getConfig().getOutputs().count() == 0) {
+         // Exit when we press the Exit button in the noSoundDlg dialog
+         // only call it if result != OK
+         bool continueClicked = false;
+@@ -416,6 +437,7 @@ void MixxxMainWindow::initialize() {
+     // Show the menubar after the launch image is replaced by the skin widget,
+     // otherwise it would shift the launch image shortly before the skin is visible.
+     m_pMenuBar->show();
++    updateCraniumFullscreen();
+     if (rx3Skin && !isFullScreen()) {
+         // Discard a saved maximized/windowed size, but keep the window position.
+         setWindowState(windowState() & ~(Qt::WindowMaximized | Qt::WindowMinimized));
+@@ -643,6 +665,9 @@ MixxxMainWindow::~MixxxMainWindow() {
+ #endif
+ 
+     qDebug() << t.elapsed(false).debugMillisWithUnit() << "deleting DlgPreferences";
++    if (qEnvironmentVariableIsSet("CRANIUM_APPLIANCE"))
++        for (const auto* scheme : {"http", "https", "file", "mailto"}) QDesktopServices::unsetUrlHandler(scheme);
++    delete m_craniumSettings; m_craniumSettings = nullptr;
+     delete m_pPrefDlg;
+ 
+     m_pCoreServices->getControlIndicatorTimer()->setLegacyVsyncEnabled(false);
+@@ -716,7 +741,7 @@ void MixxxMainWindow::alwaysHideMenuBarDlg() {
+             "<br>") // line break for some extra margin to the checkbox
+                            .arg(hideBtnLabel, showBtnLabel);
+ 
+-    QMessageBox msg;
++    QMessageBox msg(this);
+     msg.setIcon(QMessageBox::Question);
+     msg.setWindowTitle(title);
+     msg.setText(desc);
+@@ -741,7 +766,7 @@ void MixxxMainWindow::alwaysHideMenuBarDlg() {
+ 
+ QDialog::DialogCode MixxxMainWindow::soundDeviceErrorDlg(
+         const QString &title, const QString &text, bool* retryClicked) {
+-    QMessageBox msgBox;
++    QMessageBox msgBox(this);
+     msgBox.setIcon(QMessageBox::Warning);
+     msgBox.setWindowTitle(title);
+     msgBox.setText(text);
+@@ -840,7 +865,7 @@ QDialog::DialogCode MixxxMainWindow::soundDeviceErrorMsgDlg(
+ }
+ 
+ QDialog::DialogCode MixxxMainWindow::noOutputDlg(bool* continueClicked) {
+-    QMessageBox msgBox;
++    QMessageBox msgBox(this);
+     msgBox.setIcon(QMessageBox::Warning);
+     msgBox.setWindowTitle(tr("No Output Devices"));
+     msgBox.setText(
+@@ -893,6 +918,7 @@ QDialog::DialogCode MixxxMainWindow::noOutputDlg(bool* continueClicked) {
+ }
+ 
+ void MixxxMainWindow::slotUpdateWindowTitle(TrackPointer pTrack) {
++    if (qEnvironmentVariableIsSet("CRANIUM_APPLIANCE")) { setWindowTitle("CRANIUM"); return; }
+     QString appTitle = VersionStore::applicationName();
+     QString filePath;
+ 
+@@ -1244,6 +1270,10 @@ void MixxxMainWindow::slotViewFullScreen(bool toggle) {
+ }
+ 
+ void MixxxMainWindow::slotOptionsPreferences() {
++    if (qEnvironmentVariableIsSet("CRANIUM_APPLIANCE") &&
++            !QFileInfo::exists(qEnvironmentVariable("XDG_RUNTIME_DIR") + "/cranium-developer")) {
++        showCraniumSettings(2); return;
++    }
+     m_pPrefDlg->show();
+     m_pPrefDlg->raise();
+     m_pPrefDlg->activateWindow();
+@@ -1277,6 +1307,13 @@ void MixxxMainWindow::slotNoVinylControlInputConfigured() {
+ }
+ 
+ void MixxxMainWindow::slotNoDeckPassthroughInputConfigured() {
++    if (qEnvironmentVariableIsSet("CRANIUM_APPLIANCE") &&
++            !QFileInfo::exists(qEnvironmentVariable("XDG_RUNTIME_DIR") + "/cranium-developer")) {
++        showCraniumSettings(1);
++        m_craniumSettings->notice("No deck input is assigned. Advanced input routing is available in Developer Tools.");
++        return;
++    }
++
+     if (m_noPassthroughInputDialog && m_noPassthroughInputDialog->isVisible()) {
+         // Don't show redundant dialogs.
+         // They might be triggered be repeated controller or keyboard and
+@@ -1304,6 +1341,13 @@ void MixxxMainWindow::slotNoDeckPassthroughInputConfigured() {
+ }
+ 
+ void MixxxMainWindow::slotNoMicrophoneInputConfigured() {
++    if (qEnvironmentVariableIsSet("CRANIUM_APPLIANCE") &&
++            !QFileInfo::exists(qEnvironmentVariable("XDG_RUNTIME_DIR") + "/cranium-developer")) {
++        showCraniumSettings(1);
++        m_craniumSettings->notice("No microphone input is assigned. Advanced input routing is available in Developer Tools.");
++        return;
++    }
++
+     if (m_noMicInputDialog && m_noMicInputDialog->isVisible()) {
+         // Don't show redundant dialogs.
+         // They might be triggered be repeated controller or keyboard and
+@@ -1331,6 +1375,13 @@ void MixxxMainWindow::slotNoMicrophoneInputConfigured() {
+ }
+ 
+ void MixxxMainWindow::slotNoAuxiliaryInputConfigured() {
++    if (qEnvironmentVariableIsSet("CRANIUM_APPLIANCE") &&
++            !QFileInfo::exists(qEnvironmentVariable("XDG_RUNTIME_DIR") + "/cranium-developer")) {
++        showCraniumSettings(1);
++        m_craniumSettings->notice("No auxiliary input is assigned. Advanced input routing is available in Developer Tools.");
++        return;
++    }
++
+     if (m_noAuxInputDialog && m_noAuxInputDialog->isVisible()) {
+         // Don't show redundant dialogs.
+         // They might be triggered be repeated controller or keyboard and
+@@ -1684,3 +1735,5 @@ void MixxxMainWindow::initializationProgressUpdate(int progress, const QString&
+     }
+     qApp->processEvents();
+ }
++
++#include "mixxxmainwindow_cranium.h"
+diff --git a/src/mixxxmainwindow.h b/src/mixxxmainwindow.h
+index 834ee87edcb7744f9392b93fb11423ea0549fc5a..4e2971c8b5abbbcd7b0211a79a2b331c7964d6a0 100644
+--- a/src/mixxxmainwindow.h
++++ b/src/mixxxmainwindow.h
+@@ -10,6 +10,9 @@
+ #include "util/parented_ptr.h"
+ 
+ class ControlObject;
++class CraniumSettings;
++class QResizeEvent;
++class QUrl;
+ class DlgDeveloperTools;
+ class DlgPreferences;
+ class DlgKeywheel;
+@@ -102,7 +105,18 @@ class MixxxMainWindow : public QMainWindow {
+     bool eventFilter(QObject *obj, QEvent *event) override;
+     void closeEvent(QCloseEvent *event) override;
+ 
++  private slots:
++    void slotCraniumExternalUrl(const QUrl& url);
++
++  protected:
++    void resizeEvent(QResizeEvent* event) override;
++
+   private:
++    void showCraniumSettings(int page);
++    void initializeCraniumAppliance();
++    void updateCraniumFullscreen();
++    CraniumSettings* m_craniumSettings = nullptr;
++
+     void initializeWindow();
+     void checkForStartupUpdate();
+     nautic::IntegratedUpdater* m_integratedUpdater = nullptr;
+diff --git a/src/mixxxmainwindow_cranium.h b/src/mixxxmainwindow_cranium.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..b0c0c9344ee14643d19a30bda22b0e04068044d5
+--- /dev/null
++++ b/src/mixxxmainwindow_cranium.h
+@@ -0,0 +1,219 @@
++#pragma once
++#include <QDir>
++#include <QFile>
++#include <QProcess>
++#include <QScreen>
++#include <QTimer>
++#include <QCoreApplication>
++#include <QJsonDocument>
++#include <QJsonObject>
++#include <QJsonArray>
++#include "controllers/controllermanager.h"
++#include "soundio/soundmanager.h"
++#include "soundio/craniumaudio.h"
++
++namespace {
++bool craniumDeveloperActive() {
++    return QFileInfo::exists(qEnvironmentVariable("XDG_RUNTIME_DIR") + "/cranium-developer");
++}
++QList<SoundDevicePointer> craniumAudioDeviceList(const std::shared_ptr<SoundManager>& sound) {
++    QList<SoundDevicePointer> result;
++    for(const auto& api:sound->getHostAPIList())result.append(sound->getDeviceList(api,true,false));
++    return result;
++}
++QString craniumAudioDisplayName(const SoundDevicePointer& device) {
++    auto name=device->getDisplayName();
++    if(name.contains("bcm2835",Qt::CaseInsensitive)||name.contains("raspberry",Qt::CaseInsensitive))
++        name=name.contains("HDMI",Qt::CaseInsensitive)?QString("HDMI output"):
++                name.contains("headphone",Qt::CaseInsensitive)?QString("Built-in headphones"):QString("Built-in audio");
++    return name+" · "+device->getHostAPI();
++}
++QString craniumAudioId(const SoundDevicePointer& device) {
++    const auto& id=device->getDeviceId();
++    return device->getHostAPI()+"|"+id.name+"|"+id.alsaHwDevice+
++            (id.alsaHwDevice.isEmpty()?"|"+QString::number(id.portAudioIndex):QString());
++}
++QString craniumUsbStatus() {
++#ifdef __LINUX__
++    for(const auto& entry:QDir("/sys/bus/usb/devices").entryList(QDir::Dirs|QDir::NoDotAndDotDot)) {
++        QFile product("/sys/bus/usb/devices/"+entry+"/product");
++        if(product.open(QIODevice::ReadOnly)&&QString::fromUtf8(product.readAll()).contains("FLX4",Qt::CaseInsensitive))
++            return "USB controller detected. MIDI connection status is shown below.";
++    }
++    return "No USB controller detected. Check the USB data cable and controller port.";
++#else
++    return "USB MIDI connection status";
++#endif
++}
++bool craniumPlaying() {
++    for(const auto& family:{qMakePair(QString("num_decks"),QString("[Channel%1]")),
++            qMakePair(QString("num_samplers"),QString("[Sampler%1]")),
++            qMakePair(QString("num_preview_decks"),QString("[PreviewDeck%1]"))}) {
++        const int count=static_cast<int>(ControlObject::get(ConfigKey("[App]",family.first)));
++        for(int index=1;index<=count;++index)
++            if(ControlObject::toBool(ConfigKey(family.second.arg(index),"play")))return true;
++    }
++    return ControlObject::toBool(ConfigKey("[AutoDJ]","enabled"));
++}
++}
++
++void MixxxMainWindow::showCraniumSettings(int page) {
++    if(!m_craniumSettings) {
++        const auto controller=m_pCoreServices->getControllerManager();
++        const auto sound=m_pCoreServices->getSoundManager();
++        CraniumSettings::Services services;
++        services.controllers=[controller]{return controller->craniumControllerStatus();};
++        services.usbStatus=craniumUsbStatus;
++        services.enableController=[controller](QString name,bool enabled){emit controller->requestCraniumControllerEnabled(name,enabled);};
++        services.refreshControllers=[controller]{emit controller->requestCraniumRefresh();};
++        services.playing=craniumPlaying;
++        services.deckState=[](int deck){const auto group=QString("[Channel%1]").arg(deck);return QVariantMap{
++            {"loaded",ControlObject::get(ConfigKey(group,"track_loaded"))>0},
++            {"playing",ControlObject::toBool(ConfigKey(group,"play"))}};};
++        services.toggleDeck=[](int deck)->QString{const auto group=QString("[Channel%1]").arg(deck);
++            if(ControlObject::get(ConfigKey(group,"track_loaded"))<=0)return QString("Load a track on deck %1 first.").arg(deck);
++            ControlObject::set(ConfigKey(group,"play"),ControlObject::toBool(ConfigKey(group,"play"))?0:1);return {};};
++        auto scannedDevices=std::make_shared<QVariantList>();auto scanReady=std::make_shared<bool>(false);
++
++        services.developer=craniumDeveloperActive;
++        services.audioDevices=[sound,scannedDevices,scanReady](bool refresh){
++            if(*scanReady)return *scannedDevices;
++            Q_UNUSED(refresh); // Refresh is an independent process; never restart the engine here.
++            QVariantList result;
++            for(const auto& device:craniumAudioDeviceList(sound)) {
++                if(device->getNumOutputChannels()<mixxx::audio::ChannelCount::stereo() || device->getDeviceId().name==kNetworkDeviceInternalName)continue;
++                result << QVariantMap{{"id",craniumAudioId(device)},
++                        {"name",craniumAudioDisplayName(device)},
++                        {"channels",int(device->getNumOutputChannels().value())}};
++            }
++            return result;
++        };
++        services.refreshAudio=[this,sound,scannedDevices,scanReady](std::function<void(QVariantList,QString)> complete){
++            // Probe separately: Refresh never closes live streams or blocks the UI.
++            auto* process=new QProcess(this);auto* deadline=new QTimer(process);deadline->setSingleShot(true);
++            auto finished=std::make_shared<bool>(false);
++            const auto finish=[process,deadline,finished,complete](QVariantList devices,QString error){
++                if(*finished)return;*finished=true;deadline->stop();complete(std::move(devices),std::move(error));
++                if(process->state()==QProcess::NotRunning)process->deleteLater();
++            };
++            connect(process,qOverload<int,QProcess::ExitStatus>(&QProcess::finished),this,
++                    [process,finish,finished,scannedDevices,scanReady,sound](int code,QProcess::ExitStatus status){
++                if(*finished){process->deleteLater();return;}
++                if(code!=0||status!=QProcess::NormalExit){finish({},"Audio refresh failed. Your current setup is unchanged.");return;}
++                const auto document=QJsonDocument::fromJson(process->readAllStandardOutput());
++                if(!document.isObject()||!document.object().value("devices").isArray()){
++                    finish({},"Audio refresh failed. Your current setup is unchanged.");return;}
++                QVariantList devices=document.object().value("devices").toArray().toVariantList();
++                // A driver can omit its currently open endpoint in another process.
++                const auto configured=sound->getConfig().getDevices();
++                for(const auto& device:craniumAudioDeviceList(sound))if(configured.contains(device->getDeviceId())&&device->getNumOutputChannels().value()>=2&&device->getDeviceId().name!=kNetworkDeviceInternalName){
++                    const auto id=craniumAudioId(device);bool present=false;
++                    for(const auto& entry:devices)if(entry.toMap().value("id").toString()==id){present=true;break;}
++                    if(!present)devices<<QVariantMap{{"id",id},{"name",QString(craniumAudioDisplayName(device)+" (current setup)")},{"channels",int(device->getNumOutputChannels().value())}};
++                }
++                *scannedDevices=devices;*scanReady=true;finish(devices,{});
++            });
++            connect(process,&QProcess::errorOccurred,this,[finish](QProcess::ProcessError error){
++                if(error==QProcess::FailedToStart)finish({},"Audio refresh is unavailable. Your current setup is unchanged.");});
++            connect(deadline,&QTimer::timeout,this,[process,finish]{process->kill();finish({},"Audio refresh took too long. Your current setup is unchanged. Try again.");});
++            const auto helper=qEnvironmentVariable("CRANIUM_AUDIO_PROBE_HELPER",QCoreApplication::applicationDirPath()+"/audio-probe.py");
++            process->start("/usr/bin/python3",{helper});deadline->start(12000);
++        };
++        services.audioRouting=[sound]{
++            QVariantMap routing;const auto outputs=sound->getConfig().getOutputs();
++            const auto devices=craniumAudioDeviceList(sound);
++            for(auto i=outputs.constBegin();i!=outputs.constEnd();++i) {
++                const auto type=i.value().getType();if(type!=AudioPath::AudioPathType::Main&&type!=AudioPath::AudioPathType::Headphones)continue;
++                for(const auto& device:devices)if(device->getDeviceId()==i.key()) {
++                    const QString key=type==AudioPath::AudioPathType::Main?"main":"headphones";
++                    routing[key]=craniumAudioId(device);routing[key+"Base"]=int(i.value().getChannelGroup().getChannelBase());break;
++                }
++            }
++            return routing;
++        };
++        services.applyAudio=[sound,scanReady](QString mainId,int mainBase,QString headId,int headBase)->QString{
++            if(craniumPlaying())return "Stop playback before changing audio setup.";
++            if(mainId.isEmpty())return "Choose an available master output device.";
++            const auto previous=sound->getConfig();bool knownMaster=false,knownHead=headId.isEmpty();
++            for(const auto& device:craniumAudioDeviceList(sound)){
++                if(craniumAudioId(device)==mainId && mainBase+1<device->getNumOutputChannels().value())knownMaster=true;
++                if(craniumAudioId(device)==headId && headBase+1<device->getNumOutputChannels().value())knownHead=true;
++            }
++            const bool refreshed=*scanReady && (!knownMaster || !knownHead);bool attempted=false;
++            if(refreshed)sound->clearAndQueryDevices();
++            *scanReady=false;
++            const auto apply=[&]()->QString{
++            SoundDevicePointer mainDevice,headDevice;
++            for(const auto& device:craniumAudioDeviceList(sound)) {
++                if(craniumAudioId(device)==mainId)mainDevice=device;
++                if(craniumAudioId(device)==headId)headDevice=device;
++            }
++            if(!mainDevice)return "Choose an available master output device.";
++            if(!headId.isEmpty()&&!headDevice)return "The selected headphone device is no longer available.";
++            auto candidate=previous;
++            const CraniumAudioEndpoint master{mainDevice->getDeviceId(),mainDevice->getHostAPI(),int(mainDevice->getNumOutputChannels().value())};
++            std::optional<CraniumAudioEndpoint> headphones;
++            if(headDevice)headphones=CraniumAudioEndpoint{headDevice->getDeviceId(),headDevice->getHostAPI(),int(headDevice->getNumOutputChannels().value())};
++            const auto validation=craniumAudioRouting(previous,master,mainBase,headphones,headBase,&candidate);
++            if(!validation.isEmpty())return validation;
++            const auto rates=sound->getSampleRates(mainDevice->getHostAPI());
++            if(!rates.contains(candidate.getSampleRate()))candidate.setSampleRate(mainDevice->getDefaultSampleRate());
++            attempted=true;const auto status=sound->setConfig(candidate);
++            return status==SoundDeviceStatus::Ok?QString():QString("Could not open the selected audio output. ")+sound->getLastErrorMessage(status);
++            };
++            const auto error=apply();
++            if(!error.isEmpty()&&(refreshed||attempted)){
++                const auto restored=sound->setConfig(previous);previous.writeToDisk();
++                if(restored==SoundDeviceStatus::Ok)return error+" Previous setup restored.";
++                return error+" Reconnect the previous device or choose another output.";
++            }
++            return error;
++        };
++        services.setDeveloper=[this](bool enabled){
++            if(!QFileInfo::exists("/usr/local/bin/cranium-session"))return QString("Desktop controls are unavailable on this installation.");
++            QProcess command;command.start("/usr/local/bin/cranium-session",{enabled?"developer":"kiosk"});
++            if(!command.waitForFinished(3000)||command.exitCode()!=0)return QString("Desktop mode could not change. Cranium is still available.");
++            QTimer::singleShot(0,this,[this]{updateCraniumFullscreen();});
++            return enabled?QString("Developer desktop enabled. Use RETURN TO CRANIUM MODE when finished."):QString("Cranium mode restored.");
++        };
++        services.advanced=[this]{if(!craniumDeveloperActive())return;m_pPrefDlg->show();m_pPrefDlg->raise();m_pPrefDlg->activateWindow();};
++        services.close=[this]{m_craniumSettings->hide();if(m_pCentralWidget)m_pCentralWidget->show();updateCraniumFullscreen();};
++        m_craniumSettings=new CraniumSettings(std::move(services),this);
++    }
++    if(m_pCentralWidget)m_pCentralWidget->hide();
++    m_craniumSettings->setGeometry(contentsRect());m_craniumSettings->openPage(page);
++    m_craniumSettings->show();m_craniumSettings->raise();
++    emit m_pCoreServices->getControllerManager()->requestCraniumRefresh();
++    updateCraniumFullscreen();
++}
++
++void MixxxMainWindow::resizeEvent(QResizeEvent* event) {
++    QMainWindow::resizeEvent(event);
++    if(m_craniumSettings)m_craniumSettings->setGeometry(contentsRect());
++}
++
++void MixxxMainWindow::updateCraniumFullscreen() {
++    if(!qEnvironmentVariableIsSet("CRANIUM_APPLIANCE")||craniumDeveloperActive())return;
++    if(!isFullScreen())showFullScreen();
++    if(m_pMenuBar)m_pMenuBar->hide();
++    setWindowTitle("CRANIUM");
++    if(m_craniumSettings&&m_craniumSettings->isVisible()){m_craniumSettings->setGeometry(contentsRect());m_craniumSettings->raise();}
++}
++
++void MixxxMainWindow::initializeCraniumAppliance() {
++    if(!qEnvironmentVariableIsSet("CRANIUM_APPLIANCE"))return;
++    for(const auto* scheme:{"http","https","file","mailto"})QDesktopServices::setUrlHandler(scheme,this,"slotCraniumExternalUrl");
++    auto* timer=new QTimer(this);timer->setInterval(500);
++    connect(timer,&QTimer::timeout,this,[this]{updateCraniumFullscreen();});timer->start();
++    setWindowTitle("CRANIUM");
++}
++
++void MixxxMainWindow::slotCraniumExternalUrl(const QUrl& url) {
++    if(QThread::currentThread()!=thread()) {
++        QMetaObject::invokeMethod(this,[this,url]{slotCraniumExternalUrl(url);},Qt::QueuedConnection);
++        return;
++    }
++    if(craniumDeveloperActive()){QDesktopServices::openUrl(url);return;}
++    qInfo()<<"Cranium kept an external link inside the application";
++    showCraniumSettings(2);m_craniumSettings->notice("Desktop links are available only in Developer Mode.");
++}
+diff --git a/src/preferences/dialog/dlgpreferences.cpp b/src/preferences/dialog/dlgpreferences.cpp
+index 18ab2be5a6dd232f1202d6978487cc0210b058df..c209f65047e3b80449767a8252d9b32c635db5f6 100644
+--- a/src/preferences/dialog/dlgpreferences.cpp
++++ b/src/preferences/dialog/dlgpreferences.cpp
+@@ -308,6 +308,16 @@ void DlgPreferences::showSoundHardwarePage() {
+     contentsTreeWidget->setCurrentItem(m_soundPage.pTreeItem);
+ }
+ 
++void DlgPreferences::showControllersPage() {
++    for (const auto& page : std::as_const(m_allPages)) {
++        if (page.pDlg != m_pControllersDlg) continue;
++        auto* target = page.pTreeItem->childCount() ? page.pTreeItem->child(0) : page.pTreeItem;
++        contentsTreeWidget->setCurrentItem(target);
++        changePage(target, nullptr);
++        break;
++    }
++}
++
+ bool DlgPreferences::eventFilter(QObject* o, QEvent* e) {
+     // Send a close signal if dialog is closing
+     if (e->type() == QEvent::Hide) {
+diff --git a/src/preferences/dialog/dlgpreferences.h b/src/preferences/dialog/dlgpreferences.h
+index 3a0d4cc22ec973d7379983f043a7c996ad2fdf79..18e4840ea95a5b2c8284f545722a44137be8a62d 100644
+--- a/src/preferences/dialog/dlgpreferences.h
++++ b/src/preferences/dialog/dlgpreferences.h
+@@ -65,6 +65,7 @@ class DlgPreferences : public QDialog, public Ui::DlgPreferencesDlg {
+   public slots:
+     void changePage(QTreeWidgetItem* pCurrent, QTreeWidgetItem* pPrevious);
+     void showSoundHardwarePage();
++    void showControllersPage();
+     void slotButtonPressed(QAbstractButton* pButton);
+   signals:
+     void closeDlg();
+diff --git a/src/skin/legacy/launchimage.cpp b/src/skin/legacy/launchimage.cpp
+index 38f89ccfc2876235fb2be9d8f0eb07c53388c26b..94c9ec121915d509c77ae8233c3dfd0d80b474a1 100644
+--- a/src/skin/legacy/launchimage.cpp
++++ b/src/skin/legacy/launchimage.cpp
+@@ -20,7 +20,7 @@ bool isIn2024ChristmasHolidays() {
+ 
+ LaunchImage::LaunchImage(QWidget* pParent, const QString& styleSheet)
+         : QWidget(pParent) {
+-    if (isIn2024ChristmasHolidays()) {
++    if (styleSheet.isEmpty() && isIn2024ChristmasHolidays()) {
+         setStyleSheet(
+                 "LaunchImage { background-color: #202020; }"
+                 "QLabel { "
+diff --git a/src/skin/legacy/legacyskinparser.cpp b/src/skin/legacy/legacyskinparser.cpp
+index 0830460956916a194962c0f4de36b3aa5b93755c..12f9585a58c885e81c2fe32d0dfc34651dd98a04 100644
+--- a/src/skin/legacy/legacyskinparser.cpp
++++ b/src/skin/legacy/legacyskinparser.cpp
+@@ -453,6 +453,11 @@ QWidget* LegacySkinParser::parseSkin(const QString& skinPath, QWidget* pParent)
+                 *m_pContext,
+                 QStringLiteral("Skin produced more than 1 widget!"));
+     }
++    if (auto* navigation = widgets[0]->findChild<QWidget*>("CraniumTouchNavigation")) {
++        if (auto* browser = widgets[0]->findChild<QWidget*>("RX3NativeBrowser")) {
++            static_cast<WRx3Browser*>(browser)->attachExternalNavigation(navigation);
++        }
++    }
+     if (rx3State) {
+         if (auto* strip = widgets[0]->findChild<QWidget*>("RX3BeatStrip")) {
+             if (strip->layout()) strip->layout()->addWidget(new WRx3BeatFx(m_pConfig, m_pEffectsManager, strip));
+diff --git a/src/soundio/craniumaudio.h b/src/soundio/craniumaudio.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..e77f04c865e9c2871d820eb4e2e712560ec5f96b
+--- /dev/null
++++ b/src/soundio/craniumaudio.h
+@@ -0,0 +1,39 @@
++#pragma once
++#include <optional>
++#include "soundio/soundmanagerconfig.h"
++
++struct CraniumAudioEndpoint {
++    SoundDeviceId id;
++    QString api;
++    int channels;
++};
++
++// Build a proposed route without touching devices or saved settings. Applying
++// and rollback remain SoundManager's responsibility on the GUI thread.
++inline QString craniumAudioRouting(const SoundManagerConfig& previous,
++        const CraniumAudioEndpoint& master, int masterBase,
++        const std::optional<CraniumAudioEndpoint>& headphones, int headphoneBase,
++        SoundManagerConfig* candidate) {
++    if(masterBase<0 || masterBase+1>=master.channels)return "Choose a valid stereo pair for master output.";
++    if(headphones&&(headphoneBase<0||headphoneBase+1>=headphones->channels))return "Choose a valid headphone stereo pair.";
++    if(headphones&&headphones->api!=master.api)return "Master and headphones must use the same audio system.";
++    if(headphones&&headphones->id==master.id&&std::abs(headphoneBase-masterBase)<2)return "Choose separate stereo pairs for master and headphones.";
++    if(!previous.getInputs().isEmpty()&&previous.getAPI()!=master.api)return "Existing audio inputs use another audio system. Use Developer Tools to change them.";
++    auto proposed=previous;proposed.clearOutputs();
++    const auto original=previous.getOutputs();
++    for(auto i=original.constBegin();i!=original.constEnd();++i) {
++        if(i.value().getType()==AudioPath::AudioPathType::Main||i.value().getType()==AudioPath::AudioPathType::Headphones)continue;
++        if(previous.getAPI()!=master.api)return "Existing advanced audio routes use another audio system. Use Developer Tools to change them.";
++        const AudioOutput main(AudioPath::AudioPathType::Main,static_cast<unsigned char>(masterBase),mixxx::audio::ChannelCount::stereo());
++        if(i.key()==master.id&&main.channelsClash(i.value()))return "Master output overlaps an existing advanced audio route.";
++        if(headphones&&i.key()==headphones->id){
++            const AudioOutput head(AudioPath::AudioPathType::Headphones,static_cast<unsigned char>(headphoneBase),mixxx::audio::ChannelCount::stereo());
++            if(head.channelsClash(i.value()))return "Headphone output overlaps an existing advanced audio route.";
++        }
++        proposed.addOutput(i.key(),i.value());
++    }
++    proposed.setAPI(master.api);
++    proposed.addOutput(master.id,AudioOutput(AudioPath::AudioPathType::Main,static_cast<unsigned char>(masterBase),mixxx::audio::ChannelCount::stereo()));
++    if(headphones)proposed.addOutput(headphones->id,AudioOutput(AudioPath::AudioPathType::Headphones,static_cast<unsigned char>(headphoneBase),mixxx::audio::ChannelCount::stereo()));
++    *candidate=proposed;return {};
++}
+diff --git a/src/test/portmidicontroller_test.cpp b/src/test/portmidicontroller_test.cpp
+index e2b2287daf879c2700199fad06390284b887b06c..f4d6830679ad45b34297e59dc2ab66b0bc9fc85d 100644
+--- a/src/test/portmidicontroller_test.cpp
++++ b/src/test/portmidicontroller_test.cpp
+@@ -443,3 +443,42 @@ TEST_F(PortMidiControllerTest, Poll_Read_SysEx_BufferOverflow) {
+     pollDevice();
+     pollDevice();
+ };
++
++
++TEST_F(PortMidiControllerTest, DetachClosesStreamsAndKeepsObjectSafeForQueuedUiCalls) {
++    EXPECT_CALL(*m_mockInput, openInput(_)).WillOnce(Return(pmNoError));
++    EXPECT_CALL(*m_mockOutput, openOutput()).WillOnce(Return(pmNoError));
++    EXPECT_CALL(*m_pController, startEngine()).Times(1);
++    EXPECT_CALL(*m_pController, stopEngine()).Times(1);
++    EXPECT_CALL(*m_mockInput, isOpen()).WillRepeatedly(Return(true));
++    EXPECT_CALL(*m_mockOutput, isOpen()).WillRepeatedly(Return(true));
++    EXPECT_CALL(*m_mockInput, close()).WillOnce(Return(pmNoError));
++    EXPECT_CALL(*m_mockOutput, close()).WillOnce(Return(pmNoError));
++    openDevice();
++    ASSERT_TRUE(m_pController->isOpen());
++    const auto name = m_pController->getName();
++    m_pController->detachDevices();
++    EXPECT_FALSE(m_pController->isOpen());
++    EXPECT_FALSE(m_pController->isInputDevice());
++    EXPECT_FALSE(m_pController->isOutputDevice());
++    EXPECT_EQ(name, m_pController->getName());
++    // A queued Apply on this retained QObject cannot reopen missing hardware.
++    openDevice();
++    EXPECT_FALSE(m_pController->isOpen());
++    pollDevice();
++    m_pController->attachDevices(&m_inputDeviceInfo, &m_outputDeviceInfo, 3, 4);
++    EXPECT_TRUE(m_pController->isInputDevice());
++    EXPECT_TRUE(m_pController->isOutputDevice());
++    EXPECT_EQ(name, m_pController->getName());
++}
++
++TEST_F(PortMidiControllerTest, OutputOpenFailureClosesInputBeforeRetryOrRefresh) {
++    EXPECT_CALL(*m_mockInput, openInput(_)).WillOnce(Return(pmNoError));
++    EXPECT_CALL(*m_mockOutput, openOutput()).WillOnce(Return(pmHostError));
++    EXPECT_CALL(*m_mockInput, isOpen()).WillOnce(Return(true));
++    EXPECT_CALL(*m_mockInput, close()).WillOnce(Return(pmNoError));
++    EXPECT_CALL(*m_pController, startEngine()).Times(0);
++    EXPECT_CALL(*m_pController, stopEngine()).Times(0);
++    openDevice();
++    EXPECT_FALSE(m_pController->isOpen());
++}
+diff --git a/src/test/rekordboxusbsession_test.cpp b/src/test/rekordboxusbsession_test.cpp
+index d77e94770c13f4d8afdc26726ada9edea7088d77..a44c81a92bc2b9a584ca5148facc76b176b7f829 100644
+--- a/src/test/rekordboxusbsession_test.cpp
++++ b/src/test/rekordboxusbsession_test.cpp
+@@ -33,6 +33,7 @@
+ #include "test/mixxxtest.h"
+ #include "test/soundsourceproviderregistration.h"
+ #include "track/track.h"
++#include "track/keyutils.h"
+ #include "util/samplebuffer.h"
+ 
+ namespace {
+@@ -1795,3 +1796,42 @@ TEST(RekordboxUsbSessionTest, DifferentMountedDeviceIdentityRefusesUsbWrites) {
+     quint32 id=0;EXPECT_FALSE(writeUsbList(&wrong,"Must not be written",{1},false,&id).isEmpty());
+     EXPECT_EQ(original,readDatabaseFile(pdb(volume),DatabaseKind::Main).bytes);
+ }
++
++TEST_F(RekordboxUsbSessionAudioTest, OptionalRealExportPerformanceMetadataSurvivesLoad) {
++    const auto root=qEnvironmentVariable("MIXXX_REKORDBOX_REAL_FIXTURE");
++    if(root.isEmpty()) GTEST_SKIP()<<"Set a read-only copied Rekordbox export";
++    RekordboxUsbSession session(root);
++    ASSERT_TRUE(session.load())<<session.error().toStdString();
++    int loaded=0,grids=0,keys=0,hotCues=0;
++    QJsonArray report;
++    for(const auto& runtime:session.catalog()->tracks()) {
++        if(!QFileInfo::exists(runtime.resolvedAudioPath)) continue;
++        SCOPED_TRACE(runtime.title.toStdString());
++        auto projected=session.createTemporaryTrack(runtime.rekordboxId);
++        ASSERT_TRUE(projected);
++        SoundSourceProxy proxy(projected);
++        auto audio=proxy.openAudioSource();ASSERT_TRUE(audio);
++        ++loaded;
++        if(runtime.beats.size()>=2) {++grids;EXPECT_TRUE(projected->getBeats());}
++        if(KeyUtils::guessKeyFromText(runtime.key)!=mixxx::track::io::key::INVALID) {
++            ++keys;EXPECT_EQ(projected->getKey(),KeyUtils::guessKeyFromText(runtime.key));
++        }
++        const auto cues=projected->getCuePoints();
++        int trackHotCues=0;
++        for(const auto& cue:runtime.cues) {
++            if(cue.kind!=RuntimeCue::Kind::HotCue && cue.kind!=RuntimeCue::Kind::HotLoop) continue;
++            ++hotCues;++trackHotCues;
++            EXPECT_TRUE(std::any_of(cues.cbegin(),cues.cend(),[&](const auto& value){
++                return value->getHotCue()==cue.hotcueIndex-1 && value->getPosition().isValid();
++            }));
++        }
++        report.append(QJsonObject{{"title",runtime.title},{"export_key",runtime.key},
++                {"loaded_key",projected->getKeyText()},{"grid_beats",runtime.beats.size()},
++                {"hot_cues",trackHotCues}});
++        audio->close();
++    }
++    EXPECT_GT(loaded,0);RecordProperty("loaded_tracks",loaded);
++    RecordProperty("grids",grids);RecordProperty("keys",keys);RecordProperty("hot_cues",hotCues);
++    const auto output=qEnvironmentVariable("CRANIUM_EXPORT_PROJECTION_REPORT");
++    if(!output.isEmpty()) {QFile file(output);ASSERT_TRUE(file.open(QIODevice::WriteOnly));file.write(QJsonDocument(report).toJson());}
++}
+diff --git a/src/test/rx3beatfx_test.cpp b/src/test/rx3beatfx_test.cpp
+index 57ca70bf6578200cc4d454e8e5453d830c2f4a6f..4e5a544567e18489e09be985bde916354fe419cc 100644
+--- a/src/test/rx3beatfx_test.cpp
++++ b/src/test/rx3beatfx_test.cpp
+@@ -59,6 +59,8 @@ class Rx3BeatFxTest : public MixxxTest {
+         effects = std::make_unique<EffectsManager>(config(), factory);
+         effects->registerInputChannel(ChannelHandleAndGroup(
+                 factory->getOrCreateHandle("[MasterOutput]"), "[MasterOutput]"));
++        for (const auto& group : {QString("[Master]"), QString("[Channel1]"), QString("[Channel2]")})
++            effects->registerInputChannel(ChannelHandleAndGroup(factory->getOrCreateHandle(group), group));
+         effects->registerOutputChannel(ChannelHandleAndGroup(
+                 factory->getOrCreateHandle("[MasterOutput]"), "[MasterOutput]"));
+         effects->setup();
+@@ -99,6 +101,48 @@ class Rx3BeatFxTest : public MixxxTest {
+     EffectSlotPointer slot;
+ };
+ 
++TEST_F(Rx3BeatFxTest, ControllerCyclesVisibleBeatFxAndWrapsEveryPress) {
++    QWidget parent;
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    WEffectSelector selector(&parent, effects.get()); selector.setObjectName("RX3BeatFxSelector");
++    SkinContext context(config(), QString()); QDomDocument node;
++    ASSERT_TRUE(node.setContent(QString("<EffectSelector><EffectRack>1</EffectRack><EffectUnit>1</EffectUnit><Effect>1</Effect></EffectSelector>")));
++    selector.setup(node.documentElement(), context);
++    const auto list=rx3BeatFxManifests(effects->getBackendManager()); ASSERT_EQ(8,list.size());
++    auto pulse=[](const QString& key) {ControlObject::set(ConfigKey("[RX3BeatFx]",key),1);ControlObject::set(ConfigKey("[RX3BeatFx]",key),0);};
++    for(int i=0;i<list.size()*2;++i) {
++        pulse("select_next"); ASSERT_TRUE(slot->isLoaded());
++        EXPECT_EQ(list[i%list.size()]->uniqueId(),slot->getManifest()->uniqueId());
++        EXPECT_EQ(slot->getManifest()->uniqueId(),selector.currentData().toString());
++        EXPECT_EQ(0,enabled());
++    }
++    // Use a real GUI selection, then ensure hardware follows that selection.
++    ASSERT_TRUE(QMetaObject::invokeMethod(&selector,"slotEffectSelected",Q_ARG(int,3)));
++    pulse("select_previous"); EXPECT_EQ(list[1]->uniqueId(),slot->getManifest()->uniqueId());
++}
++
++TEST_F(Rx3BeatFxTest, ControllerSelectionPreservesRoutingAmountAndActiveState) {
++    QWidget parent; WRx3BeatFx panel(config(), effects.get(), &parent);
++    auto pulse=[](const QString& key) {ControlObject::set(ConfigKey("[RX3BeatFx]",key),1);ControlObject::set(ConfigKey("[RX3BeatFx]",key),0);};
++    pulse("toggle"); EXPECT_EQ(0,enabled()); // No phantom enable on an empty slot.
++    ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(),"mix"),.73);
++    ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(),"group_[Master]_enable"),0);
++    ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(),"group_[Channel1]_enable"),1);
++    ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(),"group_[Channel2]_enable"),0);
++    pulse("select_next");
++    EXPECT_DOUBLE_EQ(.73,ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"mix")));
++    EXPECT_EQ(1,ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"group_[Channel1]_enable")));
++    EXPECT_EQ(0,ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"group_[Master]_enable")));
++    pulse("toggle"); EXPECT_EQ(1,enabled());
++    EXPECT_EQ(1,ControlObject::get(ConfigKey(slot->getGroup(),"enabled")));
++    ControlObject::set(ConfigKey("[EffectRack1_EffectUnit2]","enabled"),1);
++    pulse("select_next"); EXPECT_EQ(1,enabled());
++    EXPECT_EQ(1,ControlObject::get(ConfigKey(slot->getGroup(),"enabled")));
++    pulse("toggle"); EXPECT_EQ(0,enabled());
++    EXPECT_EQ(0,ControlObject::get(ConfigKey(slot->getGroup(),"enabled")));
++    EXPECT_EQ(1,ControlObject::get(ConfigKey("[EffectRack1_EffectUnit2]","enabled")));
++}
++
+ TEST_F(Rx3BeatFxTest, FourRegistrationsPersistWithoutReplacingOccupiedSlots) {
+     QWidget parent;
+     WRx3BeatFx panel(config(), effects.get(), &parent);
+diff --git a/src/test/rx3display_test.cpp b/src/test/rx3display_test.cpp
+index de8fd32df80226b214bd86f2d12392ac09515104..1430c164d9979d82666998ccd986b22c21e0abcb 100644
+--- a/src/test/rx3display_test.cpp
++++ b/src/test/rx3display_test.cpp
+@@ -172,7 +172,7 @@ TEST_F(Rx3ReferenceScaleTest, FillWindowUsesEveryPixelAcrossAspectRatios) {
+     for (int repeat = 0; repeat < 3; ++repeat) {
+         // The first two sizes deliberately have the same scale factor.
+         for (QSize size : {QSize(1280, 800), QSize(1440, 800),
+-                     QSize(1920, 1080), QSize(1024, 640), QSize(1280, 800)}) {
++                     QSize(1920, 1080), QSize(1024, 640), QSize(800, 480), QSize(1280, 800)}) {
+             viewport.resize(size);
+             QCoreApplication::processEvents();
+             EXPECT_EQ(size, canvas->size());
+@@ -967,6 +967,8 @@ struct Rx3BrowserTestAccess {
+         browser.m_focus=WRx3Browser::NavigationTarget::Facets;browser.updateNavigationHighlight();
+     }
+     static void fit(WRx3Browser& browser) {browser.fitBrowseRows();}
++    static void showTrackResults(WRx3Browser& browser) {browser.showTrackList(WRx3Browser::BrowserLevel::Categories);}
++    static int browserPage(WRx3Browser& browser) {return browser.m_pages->currentIndex();}
+     static void sources(WRx3Browser& browser) {browser.showSources();}
+     static void audioTools(WRx3Browser& browser) {browser.showAudioTools();browser.m_pages->setCurrentWidget(browser.m_tools);}
+     static void moveTools(WRx3Browser& browser,int ticks) {browser.move(ticks);}
+@@ -2518,7 +2520,21 @@ TEST_F(Rx3ReferenceScaleTest, MenuHoldOpensUtilityWithoutReleaseOpeningToolsAndR
+         QTest::mouseRelease(button,Qt::LeftButton);EXPECT_TRUE(utility->isVisible());EXPECT_EQ("UTILITY",breadcrumb->text());
+         auto* table=utility->findChild<QTableWidget*>("RX3UtilitySettings");ASSERT_TRUE(table);
+         QStringList categories;for(int i=0;i<table->rowCount();++i) if(table->columnSpan(i,0)==2) categories.push_back(table->item(i,0)->text());
+-        EXPECT_EQ((QStringList{"DECK","MIXER","EFFECTS","BROWSER","RECORDING","DISPLAY","GENERAL"}),categories);
++        EXPECT_EQ((QStringList{"SYSTEM","DECK","MIXER","EFFECTS","BROWSER","RECORDING","DISPLAY","GENERAL"}),categories);
++        // MENU exposes setup directly, without the desktop menubar or a keyboard.
++        int setupRow = 1;
++        for (const auto* command : {"open_controllers", "open_audio", "open_preferences"}) {
++            ControlObject setup(ConfigKey("[Cranium]", command));
++            int opened = 0;
++            QObject::connect(&setup, &ControlObject::valueChanged, &browser,
++                    [&opened](double value) { if (value > 0) ++opened; });
++            QTest::mouseClick(table->viewport(), Qt::LeftButton, Qt::NoModifier,
++                    table->visualItemRect(table->item(setupRow++, 0)).center());
++            EXPECT_EQ(1, opened);
++            EXPECT_EQ(0, setup.get());
++            EXPECT_TRUE(utility->isVisible());
++        }
++        utility->move(-3);
+         const QMap<QString,QString> actionsByCategory{
+                 {"PLAYBACK OPTIONS","DECK"},{"DECK 1 MEMORY CUES / LOOPS","DECK"},
+                 {"DECK 2 MEMORY CUES / LOOPS","DECK"},{"SHORTCUT / MY SETTINGS","DECK"},
+@@ -2615,3 +2631,329 @@ TEST_F(Rx3ReferenceScaleTest, UtilityWaveformControlsReadFactoryAndPersistRealCh
+     EXPECT_EQ(1,config()->getValue<int>(ConfigKey("[Waveform]","OverviewDivisions")));
+     EXPECT_FALSE(shortcut.setUtilityValue("waveform_divisions",2));EXPECT_EQ(1,waveform->getOverviewDivisions());
+ }
++
++TEST(Rx3Display, BrowseHotCueSummaryUsesExportedSlotsAndDoesNotInventMissingCues) {
++    using mixxx::rekordbox::RuntimeCue;
++    RuntimeCue cue;cue.kind=RuntimeCue::Kind::HotCue;cue.hotcueIndex=2;cue.startMs=61000;
++    RuntimeCue first=cue;first.hotcueIndex=1;first.startMs=0;
++    RuntimeCue loop=cue;loop.kind=RuntimeCue::Kind::HotLoop;loop.hotcueIndex=8;loop.startMs=120000;loop.endMs=124000;
++    RuntimeCue memory=cue;memory.kind=RuntimeCue::Kind::MemoryCue;memory.hotcueIndex=-1;
++    EXPECT_EQ(QString("HOT CUES   A 0:00    B 1:01    H 2:00 ↻"),rx3::exportedHotCueSummary({cue,loop,memory,first}));
++    EXPECT_EQ(QString("HOT CUES   None in export"),rx3::exportedHotCueSummary({memory}));
++    cue.hotcueIndex=9;EXPECT_EQ(QString("HOT CUES   None in export"),rx3::exportedHotCueSummary({cue}));
++}
++
++#include <QTouchEvent>
++#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
++#include <QPointingDevice>
++#endif
++#include "waveform/widgets/waveformwidgetabstract.h"
++struct CraniumWaveformTouchTestAccess {
++    static void attach(WWaveformViewer& viewer, WaveformWidgetAbstract* waveform) {
++        viewer.setWaveformWidget(waveform);
++    }
++};
++namespace {
++class CraniumTouchTestWaveform : public QWidget, public WaveformWidgetAbstract {
++  public:
++    explicit CraniumTouchTestWaveform(const QString& group, QWidget* parent)
++            : QWidget(parent), WaveformWidgetAbstract(group) {m_widget=this;}
++    WaveformWidgetType::Type getType() const override {return WaveformWidgetType::QtWaveform;}
++    void castToQWidget() override {m_widget=this;}
++};
++class CraniumTouchControls {
++  public:
++    CraniumTouchControls() {
++        WaveformWidgetFactory::createInstance();
++        for(int deck=1;deck<=2;++deck) for(const auto* item:{"waveform_zoom","scratch_position_enable",
++                "scratch_position","wheel","play","passthrough","rate","playposition","beats_translate_curpos"})
++            values.push_back(std::make_unique<ControlObject>(ConfigKey(QString("[Channel%1]").arg(deck),item)));
++        for(int deck=1;deck<=2;++deck) ControlObject::set(ConfigKey(QString("[Channel%1]").arg(deck),"waveform_zoom"),5);
++    }
++    ~CraniumTouchControls() {WaveformWidgetFactory::destroy();}
++    std::vector<std::unique_ptr<ControlObject>> values;
++};
++void setupCraniumTouch(WWaveformViewer& viewer, UserSettingsPointer config) {
++    QDomDocument node;
++    ASSERT_TRUE(node.setContent(QString("<Visual><Rx3SharedWheelZoom>true</Rx3SharedWheelZoom><CraniumPinchZoom>true</CraniumPinchZoom></Visual>")));
++    SkinContext context(config,QString());viewer.setup(node.documentElement(),context);
++}
++#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
++const QPointingDevice* craniumTouchDevice() {
++    static QPointingDevice device("Cranium test touchscreen",99,QInputDevice::DeviceType::TouchScreen,
++            QPointingDevice::PointerType::Finger,QInputDevice::Capability::Position,10,0);
++    return &device;
++}
++QEventPoint touchPoint(int id, QEventPoint::State state, QPointF position) {
++    return QEventPoint(id,state,position,position);
++}
++void sendCraniumTouch(QObject* target,QEvent::Type type,const QList<QEventPoint>& points) {
++    QTouchEvent event(type,craniumTouchDevice(),Qt::NoModifier,points);
++    QCoreApplication::sendEvent(target,&event);EXPECT_TRUE(event.isAccepted());
++}
++#endif
++}
++#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
++TEST_F(Rx3ReferenceScaleTest, CraniumPinchIsContinuousAndOrientationIndependent) {
++    CraniumTouchControls controls;QWidget root;
++    WWaveformViewer first("[Channel1]",config(),&root),second("[Channel2]",config(),&root);
++    setupCraniumTouch(first,config());setupCraniumTouch(second,config());
++    const auto press=QEventPoint::State::Pressed,move=QEventPoint::State::Updated,release=QEventPoint::State::Released;
++    for(int deck=1;deck<=2;++deck) {
++        const auto group=QString("[Channel%1]").arg(deck);
++        ControlObject::set(ConfigKey(group,"play"),1);
++        ControlObject::set(ConfigKey(group,"playposition"),0.4);
++        ControlObject::set(ConfigKey(group,"rate"),0.02);
++    }
++    for(int angle=0;angle<360;angle+=45) {
++        SCOPED_TRACE(angle);
++        const auto direction=QPointF(std::cos(angle*3.141592653589793/180),std::sin(angle*3.141592653589793/180));
++        const QPointF center(300,300);
++        ControlObject::set(ConfigKey("[Channel1]","waveform_zoom"),5);
++        ControlObject::set(ConfigKey("[Channel2]","waveform_zoom"),5);
++        const auto frame=[&](QEvent::Type type,QEventPoint::State state,double span) {
++            sendCraniumTouch(&first,type,{touchPoint(1,state,center-direction*span/2),touchPoint(2,state,center+direction*span/2)});
++        };
++        frame(QEvent::TouchBegin,press,100);
++        frame(QEvent::TouchUpdate,move,135);QTest::qWait(40);QCoreApplication::processEvents();
++        EXPECT_EQ(4,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++        frame(QEvent::TouchUpdate,move,190);QTest::qWait(40);QCoreApplication::processEvents();
++        EXPECT_EQ(3,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++        // Reverse the same gesture without lifting: closer fingers zoom out.
++        frame(QEvent::TouchUpdate,move,100);QTest::qWait(40);QCoreApplication::processEvents();
++        EXPECT_EQ(5,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++        frame(QEvent::TouchUpdate,move,102);QTest::qWait(40);QCoreApplication::processEvents();
++        EXPECT_EQ(5,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++        frame(QEvent::TouchEnd,release,102);QTest::qWait(40);QCoreApplication::processEvents();
++    }
++    for(int deck=1;deck<=2;++deck) {
++        const auto group=QString("[Channel%1]").arg(deck);
++        EXPECT_EQ(5,ControlObject::get(ConfigKey(group,"waveform_zoom")));
++        EXPECT_EQ(1,ControlObject::get(ConfigKey(group,"play")));
++        EXPECT_EQ(0.4,ControlObject::get(ConfigKey(group,"playposition")));
++        EXPECT_EQ(0.02,ControlObject::get(ConfigKey(group,"rate")));
++        for(const auto* item:{"scratch_position_enable","scratch_position","wheel","beats_translate_curpos"})
++            EXPECT_EQ(0,ControlObject::get(ConfigKey(group,item)));
++    }
++}
++
++TEST_F(Rx3ReferenceScaleTest, CraniumPinchUsesCoarseFarZoomAndHandlesQuickReleases) {
++    CraniumTouchControls controls;WWaveformViewer viewer("[Channel1]",config());setupCraniumTouch(viewer,config());
++    const auto press=QEventPoint::State::Pressed,move=QEventPoint::State::Updated,release=QEventPoint::State::Released;
++    const auto frame=[&](QEvent::Type type,QEventPoint::State state,double span) {
++        sendCraniumTouch(&viewer,type,{touchPoint(1,state,{100,100}),touchPoint(2,state,{100+span,100})});
++    };
++    ControlObject::set(ConfigKey("[Channel1]","waveform_zoom"),10);
++    frame(QEvent::TouchBegin,press,100);
++    frame(QEvent::TouchUpdate,move,120);QTest::qWait(40);QCoreApplication::processEvents();
++    EXPECT_EQ(8,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++    frame(QEvent::TouchUpdate,move,160);QTest::qWait(40);QCoreApplication::processEvents();
++    EXPECT_EQ(6,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++    frame(QEvent::TouchUpdate,move,250);QTest::qWait(40);QCoreApplication::processEvents();
++    EXPECT_EQ(4,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++    frame(QEvent::TouchEnd,release,250);QTest::qWait(40);QCoreApplication::processEvents();
++    ControlObject::set(ConfigKey("[Channel1]","waveform_zoom"),5);
++    // Motion delivered only with release must not disappear.
++    frame(QEvent::TouchBegin,press,100);frame(QEvent::TouchEnd,release,150);QTest::qWait(40);QCoreApplication::processEvents();
++    EXPECT_EQ(3,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++    frame(QEvent::TouchBegin,press,100);frame(QEvent::TouchUpdate,move,5000);QTest::qWait(40);QCoreApplication::processEvents();
++    EXPECT_EQ(1,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++    frame(QEvent::TouchEnd,release,5000);QTest::qWait(40);QCoreApplication::processEvents();
++    frame(QEvent::TouchBegin,press,100);frame(QEvent::TouchUpdate,move,5);QTest::qWait(40);QCoreApplication::processEvents();
++    EXPECT_EQ(10,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++    sendCraniumTouch(&viewer,QEvent::TouchCancel,{});
++    frame(QEvent::TouchUpdate,move,400);QTest::qWait(40);QCoreApplication::processEvents();
++    EXPECT_EQ(10,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++}
++
++TEST_F(Rx3ReferenceScaleTest, CraniumCrossWindowPinchCoalescesFramesAndIgnoresStaleStationaryPoints) {
++    CraniumTouchControls controls;QWidget root;
++    WWaveformViewer first("[Channel1]",config(),&root),second("[Channel2]",config(),&root);
++    setupCraniumTouch(first,config());setupCraniumTouch(second,config());
++    const auto press=QEventPoint::State::Pressed,move=QEventPoint::State::Updated,still=QEventPoint::State::Stationary,release=QEventPoint::State::Released;
++    sendCraniumTouch(&first,QEvent::TouchBegin,{touchPoint(1,press,{200,100})});
++    sendCraniumTouch(&second,QEvent::TouchBegin,{touchPoint(2,press,{200,300})});
++    // A split native-window frame represents rotation, not a pinch.
++    sendCraniumTouch(&second,QEvent::TouchUpdate,{touchPoint(2,move,{300,200})});
++    sendCraniumTouch(&first,QEvent::TouchUpdate,{touchPoint(1,move,{100,200})});QTest::qWait(40);QCoreApplication::processEvents();
++    EXPECT_EQ(5,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++    // Translation and stale Stationary snapshots must not invent scale changes.
++    sendCraniumTouch(&first,QEvent::TouchUpdate,{touchPoint(1,move,{150,250}),touchPoint(2,still,{900,900})});
++    sendCraniumTouch(&second,QEvent::TouchUpdate,{touchPoint(2,move,{350,250}),touchPoint(1,still,{-900,-900})});QTest::qWait(40);QCoreApplication::processEvents();
++    EXPECT_EQ(5,ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")));
++    sendCraniumTouch(&second,QEvent::TouchUpdate,{touchPoint(2,move,{320,250}),touchPoint(1,still,{-900,-900})});
++    sendCraniumTouch(&first,QEvent::TouchUpdate,{touchPoint(1,move,{180,250}),touchPoint(2,still,{900,900})});QTest::qWait(40);QCoreApplication::processEvents();
++    EXPECT_GT(ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")),5);
++    sendCraniumTouch(&first,QEvent::TouchUpdate,{touchPoint(1,move,{100,250})});
++    sendCraniumTouch(&second,QEvent::TouchUpdate,{touchPoint(2,move,{400,250})});QTest::qWait(40);QCoreApplication::processEvents();
++    EXPECT_LT(ControlObject::get(ConfigKey("[Channel1]","waveform_zoom")),5);
++    sendCraniumTouch(&first,QEvent::TouchEnd,{touchPoint(1,release,{100,250})});
++    sendCraniumTouch(&second,QEvent::TouchEnd,{touchPoint(2,release,{400,250})});QTest::qWait(40);QCoreApplication::processEvents();
++}
++
++TEST_F(Rx3ReferenceScaleTest, CraniumWaveformScrubsOnlyWhilePausedAndCannotResumeAfterPinch) {
++    CraniumTouchControls controls;
++    WWaveformViewer viewer("[Channel1]",config());setupCraniumTouch(viewer,config());
++    CraniumTouchTestWaveform waveform("[Channel1]",&viewer);
++    CraniumWaveformTouchTestAccess::attach(viewer,&waveform);
++    const auto press=QEventPoint::State::Pressed,move=QEventPoint::State::Updated,release=QEventPoint::State::Released;
++    sendCraniumTouch(&viewer,QEvent::TouchBegin,{touchPoint(1,press,{50,50})});
++    EXPECT_EQ(0,ControlObject::get(ConfigKey("[Channel1]","scratch_position_enable")));
++    sendCraniumTouch(&viewer,QEvent::TouchUpdate,{touchPoint(1,move,{75,50})});
++    EXPECT_EQ(1,ControlObject::get(ConfigKey("[Channel1]","scratch_position_enable")));
++    // Starting playback in the middle of a paused drag immediately releases it.
++    ControlObject::set(ConfigKey("[Channel1]","play"),1);
++    EXPECT_EQ(0,ControlObject::get(ConfigKey("[Channel1]","scratch_position_enable")));
++    const auto position=ControlObject::get(ConfigKey("[Channel1]","scratch_position"));
++    sendCraniumTouch(&viewer,QEvent::TouchUpdate,{touchPoint(1,move,{150,50})});
++    EXPECT_EQ(position,ControlObject::get(ConfigKey("[Channel1]","scratch_position")));
++    sendCraniumTouch(&viewer,QEvent::TouchEnd,{touchPoint(1,release,{150,50})});
++    // Even genuine/synthesized mouse drags cannot seek the central view while playing.
++    QTest::mousePress(&viewer,Qt::LeftButton,Qt::NoModifier,{30,30});
++    QTest::mouseMove(&viewer,{130,30});QTest::mouseRelease(&viewer,Qt::LeftButton);
++    EXPECT_EQ(0,ControlObject::get(ConfigKey("[Channel1]","scratch_position_enable")));
++    EXPECT_EQ(position,ControlObject::get(ConfigKey("[Channel1]","scratch_position")));
++    ControlObject::set(ConfigKey("[Channel1]","play"),0);
++    sendCraniumTouch(&viewer,QEvent::TouchBegin,{touchPoint(2,press,{50,50}),touchPoint(3,press,{150,50})});
++    sendCraniumTouch(&viewer,QEvent::TouchUpdate,{touchPoint(2,move,{50,50}),touchPoint(3,move,{190,50})});
++    sendCraniumTouch(&viewer,QEvent::TouchUpdate,{touchPoint(2,move,{50,50}),touchPoint(3,release,{190,50})});
++    sendCraniumTouch(&viewer,QEvent::TouchUpdate,{touchPoint(2,move,{250,50})});
++    EXPECT_EQ(0,ControlObject::get(ConfigKey("[Channel1]","scratch_position_enable")));
++    sendCraniumTouch(&viewer,QEvent::TouchCancel,{});
++}
++#endif
++
++TEST_F(Rx3ReferenceScaleTest, CraniumSmallOverviewRemainsClickableWhilePlaying) {
++    CraniumTouchControls controls;
++    ControlObject samples(ConfigKey("[Channel1]","track_samples"),false,false,false,48000*2*120);
++    ControlObject sampleRate(ConfigKey("[Channel1]","track_samplerate"),false,false,false,48000);
++    ControlObject ratio(ConfigKey("[Channel1]","rate_ratio"),false,false,false,1);
++    ControlObject remaining(ConfigKey("[Channel1]","time_remaining"),false,false,false,100);
++    ControlObject lock(ConfigKey("[RX3Settings]","needle_lock"),false,false,false,0);
++    QWidget root;
++    WWaveformViewer central("[Channel1]",config(),&root);setupCraniumTouch(central,config());
++    WOverview small("[Channel1]",nullptr,config(),&root);
++    SkinContext context(config(),QString());QDomDocument node;
++    ASSERT_TRUE(node.setContent(QString("<Overview><Rx3Overview>true</Rx3Overview></Overview>")));
++    small.setup(node.documentElement(),context);small.resize(300,80);
++    small.initWithTrack(Track::newTemporary(mixxx::FileAccess(mixxx::FileInfo("/tmp/cranium-overview-test.wav"))));
++    auto* connection=new ControlParameterWidgetConnection(&small,ConfigKey("[Channel1]","playposition"),nullptr,
++            ControlParameterWidgetConnection::DIR_FROM_AND_TO_WIDGET,
++            ControlParameterWidgetConnection::EMIT_ON_PRESS_AND_RELEASE);
++    small.addConnection(connection);small.setDisplayConnection(connection);
++    ControlObject::set(ConfigKey("[Channel1]","play"),1);
++    ControlObject::set(ConfigKey("[Channel1]","playposition"),0.2);
++    QTest::mouseClick(&small,Qt::LeftButton,Qt::NoModifier,{225,40});
++    EXPECT_GT(ControlObject::get(ConfigKey("[Channel1]","playposition")),0.7);
++    EXPECT_EQ(1,ControlObject::get(ConfigKey("[Channel1]","play")));
++}
++
++
++#include "widget/wcraniumsettings.h"
++#include "soundio/craniumaudio.h"
++
++TEST_F(Rx3ReferenceScaleTest, CraniumEmbeddedSetupPreservesWindowAndBlocksLiveAudioChanges) {
++    QWidget host;host.resize(800,480);host.show();
++    bool busy=false,developer=false;int applied=0,closed=0,modeChanges=0;QString masterId,headId;int masterBase=-1,headBase=-1;
++    QVariantList devices{QVariantMap{{"id","flx4"},{"name","DDJ-FLX4"},{"channels",4}}};
++    QVariantList controllers;
++    CraniumSettings::Services services;
++    services.controllers=[&]{return controllers;};services.usbStatus=[]{return QString("USB: no FLX4 visible");};
++    services.audioDevices=[&](bool){return devices;};
++    services.audioRouting=[]{return QVariantMap{{"main","flx4"},{"mainBase",0},{"headphones","flx4"},{"headphonesBase",2}};};
++    services.playing=[&]{return busy;};services.developer=[&]{return developer;};
++    services.setDeveloper=[&](bool value){developer=value;++modeChanges;return QString();};
++    services.applyAudio=[&](QString main,int mainPair,QString head,int headPair){++applied;masterId=main;headId=head;masterBase=mainPair;headBase=headPair;return QString();};
++    services.close=[&]{++closed;};
++    CraniumSettings settings(std::move(services),&host);settings.resize(host.size());settings.show();settings.openPage(0);
++    auto* select=settings.findChild<QComboBox*>("CraniumControllerSelect");ASSERT_TRUE(select);EXPECT_TRUE(select->currentText().contains("No MIDI"));
++    controllers<<QVariantMap{{"name","DDJ-FLX4"},{"enabled",true},{"output",true},{"mapping","Cranium FLX4 mapping"}};
++    settings.openPage(0);EXPECT_EQ("DDJ-FLX4",select->currentText());EXPECT_TRUE(settings.findChild<QPushButton*>("CraniumControllerEnable")->isEnabled());
++    settings.openPage(1);auto* apply=settings.findChild<QPushButton*>("CraniumAudioApply");ASSERT_TRUE(apply);
++    QTest::mouseClick(apply,Qt::LeftButton);QTest::qWait(90);QCoreApplication::processEvents();EXPECT_EQ(1,applied);EXPECT_EQ("flx4",masterId);EXPECT_EQ("flx4",headId);EXPECT_EQ(0,masterBase);EXPECT_EQ(2,headBase);
++    busy=true;settings.openPage(1);EXPECT_FALSE(apply->isEnabled());QTest::mouseClick(apply,Qt::LeftButton);EXPECT_EQ(1,applied);
++    settings.openPage(2);auto* tools=settings.findChild<QPushButton*>("CraniumDeveloperTools");tools->click();
++    auto* hold=settings.findChild<QPushButton*>("CraniumDeveloperHold");ASSERT_TRUE(hold);
++    QTest::mouseClick(hold,Qt::LeftButton);EXPECT_FALSE(developer);EXPECT_EQ(0,modeChanges);
++    for(auto* timer:settings.findChildren<QTimer*>())if(timer->isSingleShot()&&timer->interval()==2000)timer->setInterval(20);
++    QTest::mousePress(hold,Qt::LeftButton);QTest::qWait(50);QTest::mouseRelease(hold,Qt::LeftButton);EXPECT_TRUE(developer);EXPECT_EQ(1,modeChanges);
++    settings.findChild<QPushButton*>("CraniumReturnToKiosk")->click();EXPECT_FALSE(developer);EXPECT_EQ(2,modeChanges);
++    settings.findChild<QPushButton*>("CraniumSettingsBack")->click();EXPECT_EQ(1,closed);
++    EXPECT_EQ(&host,settings.window());EXPECT_EQ(QSize(800,480),host.size());
++    const auto renders=qEnvironmentVariable("CRANIUM_SETTINGS_RENDERS");
++    if(!renders.isEmpty())for(const auto size:{QSize(800,480),QSize(1280,800)}){
++        host.resize(size);settings.resize(size);settings.openPage(0);QCoreApplication::processEvents();
++        ASSERT_TRUE(settings.grab().save(QDir(renders).filePath(QString("cranium-controller-%1x%2.png").arg(size.width()).arg(size.height()))));
++        settings.openPage(1);QCoreApplication::processEvents();ASSERT_TRUE(settings.grab().save(QDir(renders).filePath(QString("cranium-audio-%1x%2.png").arg(size.width()).arg(size.height()))));
++    }
++}
++
++TEST_F(Rx3ReferenceScaleTest, CraniumAudioRoutesRejectClashesAndRetainAdvancedInputsAndOutputs) {
++    SoundDeviceId flx;flx.name="DDJ-FLX4";flx.portAudioIndex=3;
++    SoundDeviceId otherInterface;otherInterface.name="Other interface";otherInterface.portAudioIndex=4;
++    SoundManagerConfig previous(nullptr);previous.setAPI("ALSA");previous.clearOutputs();previous.clearInputs();
++    previous.addInput(otherInterface,AudioInput(AudioPath::AudioPathType::Microphone,0,mixxx::audio::ChannelCount::mono()));
++    previous.addOutput(otherInterface,AudioOutput(AudioPath::AudioPathType::Booth,0,mixxx::audio::ChannelCount::stereo()));
++    const CraniumAudioEndpoint device{flx,"ALSA",4};auto next=previous;
++    EXPECT_TRUE(craniumAudioRouting(previous,device,0,device,2,&next).isEmpty());
++    EXPECT_EQ(previous.getInputs(),next.getInputs());EXPECT_EQ(3,next.getOutputs().size());
++    EXPECT_FALSE(craniumAudioRouting(previous,device,0,device,0,&next).isEmpty());
++    EXPECT_FALSE(craniumAudioRouting(previous,device,0,device,4,&next).isEmpty());
++    EXPECT_FALSE(craniumAudioRouting(previous,device,-1,std::nullopt,0,&next).isEmpty());
++    auto other=device;other.api="OTHER API";
++    EXPECT_FALSE(craniumAudioRouting(previous,device,0,other,2,&next).isEmpty());
++    EXPECT_FALSE(craniumAudioRouting(previous,other,0,std::nullopt,0,&next).isEmpty());
++    previous.addOutput(flx,AudioOutput(AudioPath::AudioPathType::Booth,2,mixxx::audio::ChannelCount::stereo()));
++    EXPECT_FALSE(craniumAudioRouting(previous,device,0,device,2,&next).isEmpty());
++}
++
++
++TEST_F(Rx3ReferenceScaleTest, TrackResultsReplaceMenuInsteadOfLeavingAKeyboardOverUtility) {
++    PlayerInfo::create();
++    {
++        SidebarModel model;auto* sidebar=new WLibrarySidebar;sidebar->setModel(&model);
++        WRx3Browser browser(new WLibrary(nullptr),sidebar,nullptr,nullptr,config());browser.resize(800,480);browser.show();
++        auto* menu=browser.findChild<QPushButton*>("RX3BrowserToolsButton");ASSERT_TRUE(menu);menu->click();
++        auto* utility=browser.findChild<WRx3Utility*>("RX3Utility");ASSERT_TRUE(utility);ASSERT_TRUE(utility->isVisible());
++        Rx3BrowserTestAccess::showTrackResults(browser);
++        EXPECT_EQ(0,Rx3BrowserTestAccess::browserPage(browser));EXPECT_FALSE(utility->isVisible());
++    }
++    PlayerInfo::destroy();
++}
++
++TEST_F(Rx3ReferenceScaleTest, ConnectionCheckFinishesAndAudioRefreshStaysResponsive) {
++    QWidget host;host.resize(800,480);host.show();QVariantList controllers;bool playing=false;int toggles=0;
++    CraniumSettings::Services services;
++    services.controllers=[&]{return controllers;};services.usbStatus=[]{return QString("No USB controller detected.");};
++    services.playing=[&]{return playing;};services.audioDevices=[](bool){return QVariantList();};
++    services.refreshAudio=[&host](auto complete){QTimer::singleShot(160,&host,[complete]{complete({QVariantMap{{"id","output"},{"name","USB audio"},{"channels",4}}},{});});};
++    services.deckState=[&](int){return QVariantMap{{"loaded",true},{"playing",playing}};};
++    services.toggleDeck=[&](int){playing=!playing;++toggles;return QString();};
++    CraniumSettings settings(std::move(services),&host);settings.resize(host.size());settings.show();settings.openPage(0);
++    auto* notice=settings.findChild<QLabel*>("CraniumSettingsNotice");ASSERT_TRUE(notice);
++    for(auto* timer:settings.findChildren<QTimer*>())if(timer->isSingleShot()&&timer->interval()==3000)timer->setInterval(30);
++    settings.findChild<QPushButton*>("CraniumControllerRefresh")->click();EXPECT_TRUE(notice->text().contains("Checking"));
++    QTest::qWait(70);QCoreApplication::processEvents();EXPECT_TRUE(notice->text().contains("No controller detected"));
++    for(auto* label:settings.findChildren<QLabel*>())EXPECT_FALSE(label->text().contains("the Pi"));
++    settings.openPage(1);int ticks=0;QTimer heartbeat;QObject::connect(&heartbeat,&QTimer::timeout,&host,[&]{++ticks;});heartbeat.start(10);
++    auto* refresh=settings.findChild<QPushButton*>("CraniumAudioRefresh");refresh->click();
++    EXPECT_TRUE(notice->text().contains("Refreshing"));EXPECT_FALSE(refresh->isEnabled());
++    EXPECT_TRUE(settings.findChild<QProgressBar*>("CraniumSettingsProgress")->isVisible());
++    settings.findChild<QPushButton*>("CraniumSettingsTab2")->click();EXPECT_TRUE(settings.findChild<QPushButton*>("CraniumDeveloperTools")->isVisible());
++    QTest::qWait(220);QCoreApplication::processEvents();EXPECT_GT(ticks,5);EXPECT_FALSE(notice->text().contains("Refreshing"));
++    EXPECT_FALSE(settings.findChild<QProgressBar*>("CraniumSettingsProgress")->isVisible());
++    settings.openPage(1);auto* play=settings.findChild<QPushButton*>("CraniumDeck1Play");ASSERT_TRUE(play);ASSERT_TRUE(play->isEnabled());
++    play->click();EXPECT_TRUE(playing);EXPECT_EQ(1,toggles);EXPECT_TRUE(play->text().contains("PAUSE"));EXPECT_FALSE(refresh->isEnabled());
++    play->click();EXPECT_FALSE(playing);EXPECT_EQ(2,toggles);EXPECT_TRUE(refresh->isEnabled());
++}
++
++
++#include <QScopeGuard>
++TEST_F(Rx3ReferenceScaleTest, CentralWaveformBackingIsBlackBeforeAnyNativeRendererFrame) {
++    const auto previous=qgetenv("CRANIUM_APPLIANCE");qputenv("CRANIUM_APPLIANCE","1");
++    const auto restore=qScopeGuard([previous]{if(previous.isNull())qunsetenv("CRANIUM_APPLIANCE");else qputenv("CRANIUM_APPLIANCE",previous);});
++    CraniumTouchControls controls;WWaveformViewer viewer("[Channel1]",config());setupCraniumTouch(viewer,config());
++    viewer.resize(180,80);viewer.show();QCoreApplication::processEvents();
++    const auto image=viewer.grab().toImage();
++    for(const auto point:{QPoint(0,0),QPoint(90,40),QPoint(179,79)})EXPECT_EQ(QColor(Qt::black),image.pixelColor(point));
++}
+diff --git a/src/util/desktophelper.cpp b/src/util/desktophelper.cpp
+index 8cf849ba68ac3a66f35c7cc48c7304a069aec6c3..b2002c340ef8cd078f337856913cecd34fac2594 100644
+--- a/src/util/desktophelper.cpp
++++ b/src/util/desktophelper.cpp
+@@ -109,6 +109,11 @@ void selectViaCommand(const QString& path) {
+ namespace mixxx {
+ 
+ void DesktopHelper::openInFileBrowser(const QStringList& paths) {
++    if (qEnvironmentVariableIsSet("CRANIUM_APPLIANCE") &&
++            !QFileInfo::exists(qEnvironmentVariable("XDG_RUNTIME_DIR") + "/cranium-developer")) {
++        qInfo() << "Cranium file browsing requires Developer Mode";
++        return;
++    }
+     if (sSelectInFileBrowserCommand.isNull()) {
+         sSelectInFileBrowserCommand = getSelectInFileBrowserCommand();
+     }
+diff --git a/src/util/versionstore.cpp b/src/util/versionstore.cpp
+index 7f16cad5c52b44c601f3b9a92b6aee8af239e93b..fb3f5f8aa1c3d6f0207688b7444c48c1896e3baf 100644
+--- a/src/util/versionstore.cpp
++++ b/src/util/versionstore.cpp
+@@ -61,7 +61,7 @@ QDateTime VersionStore::date() {
+ 
+ // static
+ QString VersionStore::applicationName() {
+-    return QStringLiteral("NauticMixxx");
++    return qEnvironmentVariableIsSet("CRANIUM_APPLIANCE") ? QStringLiteral("CRANIUM") : QStringLiteral("NauticMixxx");
+ }
+ 
+ // static
+diff --git a/src/widget/rx3browsercuestatus.h b/src/widget/rx3browsercuestatus.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..c41129e93aeaf20453ab957f6e39094926cef565
+--- /dev/null
++++ b/src/widget/rx3browsercuestatus.h
+@@ -0,0 +1,28 @@
++#pragma once
++
++#include <QMap>
++#include <QStringList>
++#include <cmath>
++
++#include "library/rekordbox/rekordboxruntimecatalog.h"
++
++namespace rx3 {
++// Browse the exported positions directly; inspecting a row must not decode,
++// analyze or load the track into a player just to discover its saved cues.
++inline QString exportedHotCueSummary(const QList<mixxx::rekordbox::RuntimeCue>& cues) {
++    QMap<int, QString> cueSlots;
++    for (const auto& cue : cues) {
++        using Kind = mixxx::rekordbox::RuntimeCue::Kind;
++        if ((cue.kind != Kind::HotCue && cue.kind != Kind::HotLoop) ||
++                cue.hotcueIndex < 1 || cue.hotcueIndex > 8 || !cue.startMs ||
++                !std::isfinite(*cue.startMs) || *cue.startMs < 0) continue;
++        const auto seconds = qint64(*cue.startMs / 1000.0);
++        cueSlots.insert(cue.hotcueIndex, QString("%1 %2:%3%4")
++                .arg(QChar('A' + cue.hotcueIndex - 1)).arg(seconds / 60)
++                .arg(seconds % 60, 2, 10, QChar('0'))
++                .arg(cue.kind == Kind::HotLoop ? QStringLiteral(" ↻") : QString()));
++    }
++    return cueSlots.isEmpty() ? QStringLiteral("HOT CUES   None in export")
++                          : QStringLiteral("HOT CUES   ") + cueSlots.values().join(QStringLiteral("    "));
++}
++} // namespace rx3
+diff --git a/src/widget/wcraniumsettings.h b/src/widget/wcraniumsettings.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..7602e712957ea48eb687ffade1bb0e1266e83e33
+--- /dev/null
++++ b/src/widget/wcraniumsettings.h
+@@ -0,0 +1,187 @@
++#pragma once
++
++#include <QComboBox>
++#include <QFileInfo>
++#include <QHBoxLayout>
++#include <QLabel>
++#include <QPushButton>
++#include <QPointer>
++#include <QProgressBar>
++#include <QScrollArea>
++#include <QSignalBlocker>
++#include <QStackedWidget>
++#include <QTimer>
++#include <QVariant>
++#include <QVBoxLayout>
++#include <functional>
++
++// An embedded page, never a second desktop window. The service callbacks keep
++// hardware changes in their owning backend and allow realistic UI regressions.
++class CraniumSettings final : public QWidget {
++  public:
++    struct Services {
++        std::function<QVariantList()> controllers;
++        std::function<QString()> usbStatus;
++        std::function<void(QString, bool)> enableController;
++        std::function<void()> refreshControllers;
++        std::function<QVariantList(bool)> audioDevices;
++        std::function<void(std::function<void(QVariantList,QString)>)> refreshAudio;
++        std::function<QVariantMap(int)> deckState;
++        std::function<QString(int)> toggleDeck;
++        std::function<QVariantMap()> audioRouting;
++        std::function<QString(QString, int, QString, int)> applyAudio;
++        std::function<bool()> playing;
++        std::function<bool()> developer;
++        std::function<QString(bool)> setDeveloper;
++        std::function<void()> advanced;
++        std::function<void()> close;
++    };
++    explicit CraniumSettings(Services services, QWidget* parent = nullptr)
++            : QWidget(parent), m_services(std::move(services)) {
++        setObjectName("CraniumSettings");
++        setAttribute(Qt::WA_StyledBackground);
++        setStyleSheet(
++            "#CraniumSettings{background:#080808;color:#fff;}"
++            "#CraniumSettings QLabel{color:#eee;font:14px 'DejaVu Sans';}"
++            "#CraniumSettings QLabel[muted=true]{color:#aaa;font-size:13px;}"
++            "#CraniumSettings QPushButton{background:#161616;color:#eee;border:1px solid #454545;border-radius:5px;min-height:40px;padding:0 14px;font:bold 13px 'DejaVu Sans';}"
++            "#CraniumSettings QPushButton:checked,#CraniumSettings QPushButton[primary=true]{background:#eee;color:#080808;border-color:#eee;}"
++            "#CraniumSettings QPushButton:disabled{color:#666;border-color:#272727;}"
++            "#CraniumSettings QComboBox{background:#181818;color:#fff;border:1px solid #454545;border-radius:5px;min-height:38px;padding:0 10px;font:14px 'DejaVu Sans';}"
++            "#CraniumSettings QComboBox QAbstractItemView{background:#181818;color:white;selection-background-color:#ddd;selection-color:#080808;min-height:36px;}"
++            "#CraniumSettings QScrollArea,#CraniumSettings QScrollArea>QWidget>QWidget{background:#080808;border:0;}"
++            "#CraniumSettings QProgressBar{background:#222;border:0;}"
++            "#CraniumSettings QProgressBar::chunk{background:#eee;}"
++            "#CraniumSettings QScrollBar:vertical{background:#111;width:12px;}"
++            "#CraniumSettings QScrollBar::handle:vertical{background:#555;min-height:32px;}");
++        auto* root = new QVBoxLayout(this); root->setContentsMargins(20,12,20,12); root->setSpacing(10);
++        auto* header = new QHBoxLayout;
++        auto* brand = new QLabel("C R A N I U M", this); brand->setObjectName("CraniumSettingsBrand");
++        brand->setStyleSheet("font:bold 22px 'DejaVu Sans';color:#fff;"); header->addWidget(brand);
++        header->addStretch(); auto* back = button("‹  BACK", "CraniumSettingsBack", this);
++        header->addWidget(back); root->addLayout(header);
++        connect(back,&QPushButton::clicked,this,[this]{if(m_services.close)m_services.close();});
++        auto* tabs = new QHBoxLayout; tabs->setSpacing(8);
++        for (const auto& name : {"CONTROLLER", "AUDIO", "SYSTEM"}) {
++            const int page = m_tabs.size(); auto* tab = button(name,QString("CraniumSettingsTab%1").arg(page),this);
++            tab->setCheckable(true);m_tabs.append(tab);tabs->addWidget(tab);
++            connect(tab,&QPushButton::clicked,this,[this,page]{openPage(page);});
++        }
++        root->addLayout(tabs);m_pages = new QStackedWidget(this);root->addWidget(m_pages,1);
++        auto* controller = page();
++        label(controller,"CONTROLLER CONNECTION",false,true);
++        m_usb = label(controller,{},true);
++        m_controller = new QComboBox(this);m_controller->setObjectName("CraniumControllerSelect");controller->addWidget(m_controller);
++        m_controllerDetail = label(controller,{});
++        auto* row = new QHBoxLayout;
++        m_enable = button("ENABLE CONTROLLER","CraniumControllerEnable",this);m_enable->setProperty("primary",true);row->addWidget(m_enable);
++        auto* refresh = button("CHECK CONNECTION","CraniumControllerRefresh",this);row->addWidget(refresh);controller->addLayout(row);
++        label(controller,"Use the computer / phone USB-C port and a USB data cable. Power alone does not confirm a data connection.",true);
++        controller->addStretch();
++        connect(m_controller,qOverload<int>(&QComboBox::currentIndexChanged),this,[this]{updateControllerDetail();});
++        connect(m_enable,&QPushButton::clicked,this,[this]{
++            const auto entry=m_controller->currentData().toMap();if(entry.isEmpty())return;
++            if(m_services.enableController)m_services.enableController(entry["name"].toString(),!entry["enabled"].toBool());
++            notice("Applying controller setting…");m_connectionTimer->start();});
++        m_connectionTimer=new QTimer(this);m_connectionTimer->setSingleShot(true);m_connectionTimer->setInterval(3000);
++        connect(m_connectionTimer,&QTimer::timeout,this,[this]{refreshController();const auto entry=m_controller->currentData().toMap();
++            notice(entry.isEmpty()?"No controller detected. Check the USB data cable.":entry["enabled"].toBool()?"Controller connected.":"Controller detected. Tap ENABLE CONTROLLER to connect.");});
++        connect(refresh,&QPushButton::clicked,this,[this]{if(m_services.refreshControllers)m_services.refreshControllers();notice("Checking USB and MIDI connection…");refreshController();m_connectionTimer->start();});
++        auto* audio = page();
++        label(audio,"AUDIO OUTPUTS",false,true);
++        label(audio,"Choose where the master mix and headphone cue are sent.",true);
++        m_mainDevice=routeRow(audio,"MASTER", "CraniumMainDevice", &m_mainPair);
++        m_headDevice=routeRow(audio,"HEADPHONES", "CraniumHeadphonesDevice", &m_headPair);
++        auto* audioRow=new QHBoxLayout;
++        m_apply=button("SAVE AUDIO SETUP","CraniumAudioApply",this);m_apply->setProperty("primary",true);audioRow->addWidget(m_apply);
++        m_audioRefresh=button("REFRESH DEVICES","CraniumAudioRefresh",this);audioRow->addWidget(m_audioRefresh);audio->addLayout(audioRow);
++        label(audio,"FLX4: master channels 1–2 · headphones channels 3–4. Stop playback before changing audio devices.",true);
++        audio->addStretch();
++        auto* transport=new QHBoxLayout;
++        for(int deck=1;deck<=2;++deck){auto* play=button(QString("DECK %1 · PLAY").arg(deck),QString("CraniumDeck%1Play").arg(deck),this);m_deckPlay.append(play);transport->addWidget(play);
++            connect(play,&QPushButton::clicked,this,[this,deck]{if(m_services.toggleDeck){const auto error=m_services.toggleDeck(deck);if(!error.isEmpty())notice(error);updateTransport();updateAudioActions();}});}
++        audio->insertLayout(audio->count()-1,transport);
++        connect(m_apply,&QPushButton::clicked,this,[this]{
++            if(isPlaying()){notice("Stop playback before changing audio setup.");return;}
++            if(!m_services.applyAudio||m_audioBusy)return;
++            setAudioBusy(true,"Saving audio setup…");
++            // Let the progress state paint before the driver applies routing.
++            QTimer::singleShot(50,this,[this]{
++                const auto error=m_services.applyAudio(m_mainDevice->currentData().toString(),m_mainPair->currentData().toInt(),
++                        m_headDevice->currentData().toString(),m_headPair->currentData().toInt());
++                setAudioBusy(false,error.isEmpty()?"Audio setup saved.":error);
++            });
++        });
++        connect(m_audioRefresh,&QPushButton::clicked,this,[this]{
++            if(isPlaying()){notice("Stop playback before refreshing audio devices.");return;}
++            if(m_audioBusy)return;
++            setAudioBusy(true,"Refreshing audio devices…");
++            if(!m_services.refreshAudio){setAudioBusy(false,"Audio refresh is unavailable. Your current setup is unchanged.");return;}
++            QPointer<CraniumSettings> guard(this);
++            m_services.refreshAudio([guard](QVariantList devices,QString error){
++                if(!guard)return;
++                if(error.isEmpty()){guard->m_audio=std::move(devices);guard->populateAudio();}
++                guard->setAudioBusy(false,error.isEmpty()?(guard->m_audio.isEmpty()?"No audio output devices found.":"Audio devices refreshed."):error);
++            });
++        });
++        auto* system=page();
++        label(system,"CRANIUM",false,true);
++        label(system,"A focused DJ interface. Desktop tools stay hidden during normal use.",true);
++        auto* developer=button("DEVELOPER TOOLS  ›","CraniumDeveloperTools",this);system->addWidget(developer);
++        m_developerText=label(system,"Desktop mode is temporary and resets on the next boot.",true);
++        m_hold=button("HOLD 2 SECONDS TO ENTER DESKTOP","CraniumDeveloperHold",this);m_hold->hide();system->addWidget(m_hold);
++        m_return=button("RETURN TO CRANIUM MODE","CraniumReturnToKiosk",this);m_return->hide();system->addWidget(m_return);
++        m_advanced=button("ADVANCED PREFERENCES","CraniumAdvancedPreferences",this);m_advanced->hide();system->addWidget(m_advanced);system->addStretch();
++        m_holdTimer=new QTimer(this);m_holdTimer->setSingleShot(true);m_holdTimer->setInterval(2000);
++        connect(developer,&QPushButton::clicked,this,[this]{m_developerExpanded=true;updateDeveloper();});
++        connect(m_hold,&QPushButton::pressed,this,[this]{m_holdTimer->start();m_hold->setText("KEEP HOLDING…");});
++        connect(m_hold,&QPushButton::released,this,[this]{m_holdTimer->stop();m_hold->setText("HOLD 2 SECONDS TO ENTER DESKTOP");});
++        connect(m_holdTimer,&QTimer::timeout,this,[this]{if(m_services.setDeveloper){notice(m_services.setDeveloper(true));updateDeveloper();}});
++        connect(m_return,&QPushButton::clicked,this,[this]{if(m_services.setDeveloper){notice(m_services.setDeveloper(false));updateDeveloper();}});
++        connect(m_advanced,&QPushButton::clicked,this,[this]{if(m_services.developer&&m_services.developer()&&m_services.advanced)m_services.advanced();});
++        m_progress=new QProgressBar(this);m_progress->setObjectName("CraniumSettingsProgress");m_progress->setRange(0,0);m_progress->setTextVisible(false);m_progress->setFixedHeight(5);m_progress->hide();root->addWidget(m_progress);
++        m_notice=new QLabel(this);m_notice->setObjectName("CraniumSettingsNotice");m_notice->setWordWrap(true);m_notice->setMinimumHeight(20);root->addWidget(m_notice);
++        auto* timer=new QTimer(this);timer->setInterval(700);
++        connect(timer,&QTimer::timeout,this,[this]{if(!isVisible())return;refreshController();updateDeveloper();updateAudioActions();updateTransport();});timer->start();
++    }
++    void openPage(int index){m_holdTimer->stop();m_connectionTimer->stop();m_pages->setCurrentIndex(qBound(0,index,2));for(int i=0;i<m_tabs.size();++i)m_tabs[i]->setChecked(i==index);if(!m_audioBusy)notice({});refreshController();if(index==1&&!m_audioBusy)refreshAudio(false);updateDeveloper();updateTransport();}
++    void notice(QString text){m_notice->setText(std::move(text));}
++  private:
++    QPushButton* button(QString text,QString name,QWidget* parent){auto* value=new QPushButton(text,parent);value->setObjectName(name);return value;}
++    QVBoxLayout* page(){auto* scroll=new QScrollArea(this);scroll->setWidgetResizable(true);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);auto* content=new QWidget;auto* layout=new QVBoxLayout(content);layout->setContentsMargins(0,8,8,0);layout->setSpacing(12);scroll->setWidget(content);m_pages->addWidget(scroll);return layout;}
++    QLabel* label(QVBoxLayout* layout,QString text,bool muted=false,bool heading=false){auto* value=new QLabel(text,this);value->setWordWrap(true);value->setProperty("muted",muted);if(heading)value->setStyleSheet("font:bold 15px 'DejaVu Sans';color:white;");layout->addWidget(value);return value;}
++    bool isPlaying()const{return m_services.playing&&m_services.playing();}
++    QComboBox* routeRow(QVBoxLayout* layout,QString title,QString name,QComboBox** pair){
++        auto* row=new QHBoxLayout;auto* caption=new QLabel(title,this);caption->setFixedWidth(110);row->addWidget(caption);
++        auto* device=new QComboBox(this);device->setObjectName(name);device->setMinimumWidth(160);row->addWidget(device,1);
++        *pair=new QComboBox(this);(*pair)->setObjectName(name+"Channels");(*pair)->setFixedWidth(110);row->addWidget(*pair);layout->addLayout(row);
++        connect(device,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,device,pairWidget=*pair]{updatePairs(device,pairWidget);});return device;
++    }
++    void updatePairs(QComboBox* device,QComboBox* pairs){const int old=pairs->currentData().toInt();QSignalBlocker block(pairs);pairs->clear();int count=0;for(const auto& value:m_audio){const auto entry=value.toMap();if(entry["id"].toString()==device->currentData().toString())count=entry["channels"].toInt();}for(int base=0;base+1<count;base+=2)pairs->addItem(QString("%1–%2").arg(base+1).arg(base+2),base);const auto index=pairs->findData(old);if(index>=0)pairs->setCurrentIndex(index);}
++    void refreshAudio(bool rescan){
++        if(!m_services.audioDevices)return;m_audio=m_services.audioDevices(rescan);populateAudio();
++    }
++    void populateAudio(){const auto current=m_services.audioRouting?m_services.audioRouting():QVariantMap();
++        for(auto* box:{m_mainDevice,m_headDevice}){QSignalBlocker block(box);box->clear();box->addItem("Not assigned",QString());for(const auto& value:m_audio){const auto entry=value.toMap();box->addItem(entry["name"].toString(),entry["id"]);}const auto key=box==m_mainDevice?"main":"headphones";const int index=box->findData(current[key]);if(index>=0)box->setCurrentIndex(index);}
++        updatePairs(m_mainDevice,m_mainPair);updatePairs(m_headDevice,m_headPair);
++        for(auto pair:{qMakePair(m_mainPair,"mainBase"),qMakePair(m_headPair,"headphonesBase")}){const int i=pair.first->findData(current[pair.second]);if(i>=0)pair.first->setCurrentIndex(i);}
++        updateAudioActions();updateTransport();
++    }
++    void refreshController(){
++        if(m_services.usbStatus)m_usb->setText(m_services.usbStatus());const auto entries=m_services.controllers?m_services.controllers():QVariantList();
++        if(entries==m_controllerEntries && m_controller->count()>0){updateControllerDetail();return;}
++        m_controllerEntries=entries;
++        const QString selected=m_controller->currentData().toMap()["name"].toString();QSignalBlocker block(m_controller);m_controller->clear();int selectedIndex=0;
++        for(const auto& value:entries){const auto entry=value.toMap();if(entry["name"].toString()==selected)selectedIndex=m_controller->count();m_controller->addItem(entry["name"].toString(),entry);}
++        if(entries.isEmpty())m_controller->addItem("No MIDI controller detected");else m_controller->setCurrentIndex(selectedIndex);updateControllerDetail();
++    }
++    void updateControllerDetail(){const auto entry=m_controller->currentData().toMap();m_enable->setEnabled(!entry.isEmpty());
++        if(entry.isEmpty()){m_controllerDetail->setText("Waiting for a USB MIDI connection. No mapping can be enabled until a controller is detected.");m_enable->setText("ENABLE CONTROLLER");return;}
++        const bool enabled=entry["enabled"].toBool();m_enable->setText(enabled?"DISABLE CONTROLLER":"ENABLE CONTROLLER");
++        m_controllerDetail->setText(QString("%1  ·  %2\n%3").arg(enabled?"MIDI connected":"MIDI detected, disabled",entry["output"].toBool()?"LED output available":"No MIDI output port",entry["mapping"].toString()));}
++    void updateAudioActions(){const bool blocked=isPlaying()||m_audioBusy;m_apply->setEnabled(!blocked);m_audioRefresh->setEnabled(!blocked);for(auto* box:{m_mainDevice,m_headDevice,m_mainPair,m_headPair})box->setEnabled(!m_audioBusy);}
++    void setAudioBusy(bool busy,QString message){m_audioBusy=busy;m_progress->setVisible(busy);m_audioRefresh->setText(busy?"PLEASE WAIT…":"REFRESH DEVICES");notice(std::move(message));updateAudioActions();}
++    void updateTransport(){for(int index=0;index<m_deckPlay.size();++index){const auto state=m_services.deckState?m_services.deckState(index+1):QVariantMap();auto* button=m_deckPlay[index];button->setEnabled(state["loaded"].toBool()&&!m_audioBusy);button->setText(QString("DECK %1 · %2").arg(index+1).arg(state["playing"].toBool()?"PAUSE":"PLAY"));button->setToolTip(state["loaded"].toBool()?"Play or pause the loaded track":"Load a track first");}}
++    void updateDeveloper(){const bool active=m_services.developer&&m_services.developer();m_hold->setVisible(m_developerExpanded&&!active);m_return->setVisible(active);m_advanced->setVisible(active);m_developerText->setText(active?"DEVELOPER MODE ACTIVE · desktop tools are available.":"Desktop mode is temporary and resets on the next boot.");}
++    Services m_services;QList<QPushButton*>m_tabs;QStackedWidget*m_pages;QLabel*m_usb,*m_controllerDetail,*m_notice,*m_developerText;QComboBox*m_controller,*m_mainDevice,*m_headDevice,*m_mainPair,*m_headPair;QPushButton*m_enable,*m_apply,*m_audioRefresh,*m_hold,*m_return,*m_advanced;QTimer*m_holdTimer,*m_connectionTimer;QProgressBar*m_progress;QVariantList m_audio,m_controllerEntries;QList<QPushButton*>m_deckPlay;bool m_developerExpanded=false,m_audioBusy=false;
++};
+diff --git a/src/widget/wglwidgetqopengl.cpp b/src/widget/wglwidgetqopengl.cpp
+index 6e19a5c20c6b67e76920f399b6a6d060ffdf9a2a..0c173554f0e801eedebeb43e7cd0a77318d73e85 100644
+--- a/src/widget/wglwidgetqopengl.cpp
++++ b/src/widget/wglwidgetqopengl.cpp
+@@ -9,6 +9,10 @@ WGLWidget::WGLWidget(QWidget* pParent)
+           m_pOpenGLWindow(nullptr),
+           m_pContainerWidget(nullptr),
+           m_pTrackDropTarget(nullptr) {
++    if(qEnvironmentVariableIsSet("CRANIUM_APPLIANCE")) {
++        auto colors=palette();colors.setColor(QPalette::Window,Qt::black);
++        setPalette(colors);setAutoFillBackground(true);
++    }
+     // When the widget is resized or moved, the QOpenGLWindow visibly resizes
+     // or moves before the widgets do. This can be solved by calling
+     //   setAttribute(Qt::WA_PaintOnScreen);
+@@ -41,8 +45,15 @@ void WGLWidget::showEvent(QShowEvent* event) {
+         m_pOpenGLWindow = new OpenGLWindow(this);
+         m_pContainerWidget = createWindowContainer(m_pOpenGLWindow, this);
+         m_pContainerWidget->resize(size());
+-        m_pContainerWidget->show();
++        // Set the backing color before mapping the native GL surface. The
++        // default light Qt palette otherwise flashes while the first GL frame
++        // is pending after switching from performance to a browser page.
++        if(qEnvironmentVariableIsSet("CRANIUM_APPLIANCE")) {
++            auto colors=m_pContainerWidget->palette();colors.setColor(QPalette::Window,Qt::black);
++            m_pContainerWidget->setPalette(colors);
++        }
+         m_pContainerWidget->setAutoFillBackground(true);
++        m_pContainerWidget->show();
+     }
+     QWidget::showEvent(event);
+ }
+diff --git a/src/widget/wrx3beatfx.h b/src/widget/wrx3beatfx.h
+index 65775435125628ae57039724d549b6585d4ce2ef..522e62a1e07320696c52469d59906297fe7b7334 100644
+--- a/src/widget/wrx3beatfx.h
++++ b/src/widget/wrx3beatfx.h
+@@ -315,6 +315,14 @@ class WRx3BeatFx : public QWidget {
+             const int index = qRound(value) - 1;
+             if (index >= 0 && index < list.size()) selectEffect(list[index], false);
+         });
++        ensureControl("select_next", 0, [this](double value) {if (value > 0) cycleEffect(1);});
++        ensureControl("select_previous", 0, [this](double value) {if (value > 0) cycleEffect(-1);});
++        ensureControl("toggle", 0, [this](double value) {
++            if (value > 0 && m_slot)
++                setActive(!(ControlObject::get(ConfigKey(unitGroup(), "enabled")) > 0 &&
++                        ControlObject::get(ConfigKey(m_slot->getGroup(), "enabled")) > 0));
++        });
++        ensureControl("step", 0, [this](double value) {if (value != 0) stepPad(value > 0 ? 1 : -1);});
+         ensureControl("bank_recall", 0, [this](double value) {if (value >= 1 && value <= 4) useBank(qRound(value) - 1);});
+         ensureControl("bank_store", 0, [this](double value) {if (value >= 1 && value <= 4 && m_slot && m_slot->isLoaded()) registerBank(qRound(value) - 1, m_slot->getManifest());});
+         ensureControl("bank_clear", 0, [this](double value) {if (value >= 1 && value <= 4) clearBank(qRound(value) - 1);});
+@@ -354,6 +362,31 @@ class WRx3BeatFx : public QWidget {
+         if (activate) {rx3SetBeatFxEnabled(m_slot, true); ControlObject::set(ConfigKey(unitGroup(), "enabled"), 1);}
+         refresh();
+     }
++    void cycleEffect(int direction) {
++        if (!m_effects || !m_slot || direction == 0) return;
++        const auto manifests = rx3BeatFxManifests(m_effects->getBackendManager());
++        if (manifests.isEmpty()) return;
++        int current = -1;
++        for (int index = 0; index < manifests.size(); ++index)
++            if (m_slot->getManifest() && manifests[index]->uniqueId() == m_slot->getManifest()->uniqueId()) {
++                current = index; break;
++            }
++        const int count = manifests.size();
++        const int next = current < 0 ? (direction > 0 ? 0 : count - 1) :
++                (current + (direction > 0 ? 1 : -1) + count) % count;
++        const bool active = !m_touching && ControlObject::get(ConfigKey(unitGroup(), "enabled")) > 0 &&
++                ControlObject::get(ConfigKey(m_slot->getGroup(), "enabled")) > 0;
++        QList<QPair<ConfigKey, double>> routes;
++        for (const auto& group : {QString("[Master]"), QString("[Channel1]"), QString("[Channel2]")}) {
++            const ConfigKey key(unitGroup(), "group_" + group + "_enable");
++            if (ControlObject::exists(key)) routes.append({key, ControlObject::get(key)});
++        }
++        selectEffect(manifests[next], false);
++        // Loading the empty placeholder can reset chain defaults. Preserve the
++        // physical channel selector even on that first effect selection.
++        for (const auto& route : routes) ControlObject::set(route.first, route.second);
++        setActive(active);
++    }
+     void registerBank(int index, const EffectManifestPointer& manifest) {
+         if (index < 0 || index >= 4 || !isRx3BeatFx(manifest)) return;
+         m_ids[index] = manifest->uniqueId();
+diff --git a/src/widget/wrx3browser.h b/src/widget/wrx3browser.h
+index fe5a9da2d5efd4b6d53fb42b1958fe00dcc7bba4..6530dde67bbd5ef27ff1249bbf52eb4926f4bb49 100644
+--- a/src/widget/wrx3browser.h
++++ b/src/widget/wrx3browser.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include <QLabel>
++#include "widget/rx3browsercuestatus.h"
+ #include <QDir>
+ #include <QFileInfo>
+ #include <QDateTime>
+@@ -127,6 +128,9 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+     WRx3Browser(WLibrary* library, WLibrarySidebar* sidebar, Library* backend, QWidget* parent, UserSettingsPointer config = {})
+             : QWidget(parent), WBaseWidget(this), m_config(std::move(config)), m_library(library), m_backend(backend), m_sidebar(sidebar) {
+         setObjectName("RX3NativeBrowser");
++        if(qEnvironmentVariableIsSet("CRANIUM_APPLIANCE")) {
++            auto colors=palette();colors.setColor(QPalette::Window,Qt::black);setPalette(colors);setAutoFillBackground(true);
++        }
+         auto* layout = new QVBoxLayout(this);
+         layout->setContentsMargins(0,0,0,0); layout->setSpacing(0);
+         auto* header = new QWidget(this); header->setObjectName("RX3BrowserHeader");
+@@ -138,19 +142,24 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         m_headerButtons.push_back(m_source);
+         const auto addHeader=[this,header,h](const QString& text,const QString& name,std::function<void()> action) {
+             auto* button=new QPushButton(text,header);button->setObjectName(name);h->addWidget(button);
+-            m_headerButtons.push_back(button);connect(button,&QPushButton::clicked,this,std::move(action));return button;
++            m_headerButtons.push_back(button);
++            connect(button,&QPushButton::clicked,this,[this,button,action=std::move(action)]{
++                if(m_externalNavigation && !(button->objectName()=="RX3BrowserToolsButton" && m_menuHeld) &&
++                        toggleExternalNavigation(m_headerButtons.indexOf(button))) return;
++                action();
++            });return button;
+         };
+         addHeader("BROWSE","RX3BrowseButton",[this]{browseSelectedSource();});
+         addHeader("TAG LIST","RX3TagListButton",[this]{openSourceSection("TAG LIST");});
+         addHeader("PLAYLIST","RX3PlaylistButton",[this]{openSourceSection("PLAYLIST");});
+         addHeader("SEARCH","RX3SearchButton",[this]{
+-            if(m_selectedCategory=="SEARCH" && m_pages->currentIndex()==0) {m_keyboard->show();m_search->setFocus();}
+-            else if(prepareSourceNavigation()) openSearch();
++            if(m_selectedCategory=="SEARCH" && m_pages->currentIndex()==0 && deviceReady(m_selectedDevice)) {m_keyboard->show();m_search->setFocus();}
++            else openSearchFromAnywhere();
+         });
+         auto* menu=addHeader("MENU","RX3BrowserToolsButton",[this]{
+             if(m_menuHeld) {m_menuHeld=false;return;}
+             if(m_menuHoldTimer) m_menuHoldTimer->stop();
+-            if(m_pages->currentWidget()==m_utility) closeUtility();
++            if(m_pages->currentWidget()==m_utility && !property("craniumFromPerformance").toBool()) closeUtility();
+             else showUtility();
+         });
+         menu->setToolTip("MENU / UTILITY");
+@@ -169,6 +178,12 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         m_searchCount=new QLabel("0",header);m_searchCount->setObjectName("RX3SearchCount");m_searchCount->hide();detailRow->addWidget(m_searchCount);
+         m_infoButton = new QPushButton("◀  INFO", header);h->addWidget(m_infoButton);m_headerButtons.push_back(m_infoButton);
+         layout->addWidget(header);
++        m_cueSummary=new QLabel(this);m_cueSummary->setObjectName("CraniumBrowserHotCues");
++        m_cueSummary->setTextFormat(Qt::PlainText);
++        m_cueSummary->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
++        m_cueSummary->setFixedHeight(36);
++        m_cueSummary->setStyleSheet("background:#15191d;color:#f4f6f8;font:20px Arial;padding:0 8px;");
++        layout->addWidget(m_cueSummary);m_cueSummary->hide();
+         m_pages = new QStackedWidget(this); layout->addWidget(m_pages, 1);
+         auto* browse = new QWidget(m_pages); auto* b = new QHBoxLayout(browse);
+         b->setContentsMargins(0,0,0,0); b->setSpacing(0);
+@@ -280,7 +295,10 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         m_utility=new WRx3Utility(m_pages);m_pages->addWidget(m_utility);
+         connect(m_pages,&QStackedWidget::currentChanged,this,[this]{updateHeaderHighlight();});
+         for(auto* button:m_headerButtons) connect(button,&QPushButton::clicked,this,[this]{updateHeaderHighlight();});
+-        connect(m_source, &QPushButton::clicked, this, [this]{ showSources(); });
++        connect(m_source, &QPushButton::clicked, this, [this]{
++            if(m_externalNavigation && toggleExternalNavigation(0)) return;
++            showSources();
++        });
+         connect(m_search, &QLineEdit::textChanged, m_library, [this](const QString& query){
+             if(m_selectedCategory=="SEARCH" && deviceReady(m_selectedDevice)) {
+                 if(query.trimmed().isEmpty()) {
+@@ -299,12 +317,12 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         connect(m_categories, &QListWidget::itemClicked, this, [this](QListWidgetItem*){ selectCategory(m_categories->currentRow());updateNavigationHighlight(); });
+         connect(m_sources,&QTreeWidget::currentItemChanged,this,[this](QTreeWidgetItem* item,QTreeWidgetItem*){updateSourceInfo(m_sources->indexOfTopLevelItem(item));});
+         connect(m_sources, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem*, int){ chooseSource(); });
+-        connect(m_sidebar, &QTreeView::clicked, this, [this](const QModelIndex&){
++        connect(m_sidebar, &QTreeView::clicked, this, [this](const QModelIndex& index){
+             m_focus=NavigationTarget::Tree;
+-            QTimer::singleShot(0,this,[this]{updatePlaylistPreview();updateNavigationHighlight();});
+-        });
+-        connect(m_sidebar, &QTreeView::doubleClicked, this, [this](const QModelIndex& index){
++            // A touchscreen tap enters a playlist/folder. Encoder movement
++            // still previews it until the performer presses ENTER.
+             enterTree(index);
++            updateNavigationHighlight();
+         });
+         connect(m_library, &QStackedWidget::currentChanged, this, [this](int){ refreshTable(); });
+         for (QWidget* w : {static_cast<QWidget*>(m_categories), static_cast<QWidget*>(m_sidebar), static_cast<QWidget*>(m_sources)}) w->installEventFilter(this);
+@@ -325,7 +343,7 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         makeControl("browse",[this](double value){if(value>0) browseSelectedSource();});
+         makeControl("tag_list",[this](double value){if(value>0) openSourceSection("TAG LIST");});
+         makeControl("playlist",[this](double value){if(value>0) openSourceSection("PLAYLIST");});
+-        makeControl("search",[this](double value){if(value>0 && prepareSourceNavigation()) openSearch();});
++        makeControl("search",[this](double value){if(value>0) openSearchFromAnywhere();});
+         makeControl("my_settings",[this](double value){if(value>0) {showBrowser();showSources();openSourceSettings();}});
+         for(const auto& name:{"play_mode","eject_lock"}) {
+             const auto key=ConfigKey("[RX3Settings]",name);
+@@ -365,6 +383,26 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         });
+     }
+     ~WRx3Browser() override = default;
++    // Move the real native controls into the skin's always-visible toolbar.
++    // Reusing them preserves controller focus, enabled states and MENU hold.
++    void attachExternalNavigation(QWidget* host) {
++        if(!host || !host->layout() || m_externalNavigation) return;
++        m_externalNavigation=true;
++        for(auto* button:m_headerButtons) {
++            host->layout()->addWidget(button);
++            button->setMinimumWidth(0);button->setMaximumWidth(QWIDGETSIZE_MAX);
++            button->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
++            button->setFixedHeight(60);button->show();
++        }
++        auto* page=new ControlProxy("[Tab]","current",host,ControlFlag::NoAssertIfMissing);
++        page->connectValueChanged(this,[this](double value){
++            if(value!=1) {m_externalAction=-1;m_keyboard->hide();}
++            updateHeaderHighlight();
++        });
++        m_infoButton->setText("INFO");
++        m_headerWidget->setFixedHeight(48);
++        updateHeaderHighlight();
++    }
+     QString infoUsbName(const QString& root) const {return QString("USB%1").arg(m_usbSlots.value(root));}
+     Rx3TrackInfoPanel* detailedInfo() const {return m_detailedInfo;}
+     bool canShowInfo() const {return m_pages->currentIndex()==0 && m_level==BrowserLevel::Tracks;}
+@@ -416,10 +454,12 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         const double scale = qMax(0.6, height()/690.0);
+         m_categories->setFixedWidth(qRound(96*scale));
+         m_searchRail->setFixedWidth(qRound(96*scale));m_searchRail->item(0)->setSizeHint(QSize(qRound(96*scale),qRound(65*scale)));
+-        m_headerWidget->setFixedHeight(qRound(78*scale));
+-        for(auto* button:m_headerButtons) button->setFixedHeight(qRound(46*scale));
+-        m_source->setFixedWidth(qRound(100*scale));
+-        m_breadcrumb->setFixedHeight(qRound(32*scale));m_sourceLabel->setFixedHeight(qRound(32*scale));
++        m_headerWidget->setFixedHeight(qRound((m_externalNavigation?48:78)*scale));
++        for(auto* button:m_headerButtons) button->setFixedHeight(qRound((m_externalNavigation?60:46)*scale));
++        if(!m_externalNavigation) m_source->setFixedWidth(qRound(100*scale));
++        const int detailHeight=qRound((m_externalNavigation?48:32)*scale);
++        m_breadcrumb->setFixedHeight(detailHeight);m_sourceLabel->setFixedHeight(detailHeight);
++        m_cueSummary->setFixedHeight(qRound(36*scale));
+         m_search->setMaximumWidth(m_selectedCategory=="SEARCH" ? QWIDGETSIZE_MAX : qRound(400*scale));
+         m_trackInfo->setFixedWidth(qRound(280*scale));
+         m_detailedInfo->setFixedWidth(qRound(560*scale));
+@@ -465,15 +505,33 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+     };
+     enum class BrowserLevel { Categories, Hierarchy, FacetValues, Tracks, Notice };
+ 
+-    void updateHeaderHighlight() {
++    int selectedHeaderAction() const {
+         int selected=1;
+         if(m_pages->currentWidget()==m_tools || m_pages->currentWidget()==m_utility) selected=5;
+         else if(m_pages->currentIndex()==1) selected=0;
+         else if(m_selectedCategory=="TAG LIST") selected=2;
+         else if(m_selectedCategory=="PLAYLIST") selected=3;
+         else if(m_selectedCategory=="SEARCH") selected=4;
++        return selected;
++    }
++    bool toggleExternalNavigation(int action) {
++        const bool fromPerformance=ControlObject::get(ConfigKey("[Tab]","current"))!=1;
++        setProperty("craniumFromPerformance",fromPerformance);
++        const int active=m_externalAction>=0?m_externalAction:selectedHeaderAction();
++        if(!fromPerformance && active==action) {
++            ControlObject::set(ConfigKey("[Tab]","current"),0);
++            return true;
++        }
++        showBrowser();
++        m_externalAction=action;
++        updateHeaderHighlight();
++        return false;
++    }
++    void updateHeaderHighlight() {
++        const int selected=m_externalNavigation && m_externalAction>=0?m_externalAction:selectedHeaderAction();
++        const bool showActive=!m_externalNavigation || ControlObject::get(ConfigKey("[Tab]","current"))==1;
+         for(int i=0;i<m_headerButtons.size();++i) {
+-            auto* button=m_headerButtons[i];button->setProperty("active",i==selected);
++            auto* button=m_headerButtons[i];button->setProperty("active",showActive && i==selected);
+             button->style()->unpolish(button);button->style()->polish(button);button->update();
+         }
+     }
+@@ -548,8 +606,22 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         m_keyboardToggle=add("123",2,0,2);
+         layout->addWidget(m_keyboard);m_keyboard->hide();
+     }
++    void openSearchFromAnywhere() {
++        showBrowser();
++        if(!deviceReady(sourceDeviceForNavigation())) {
++            // Search may be the first action after boot or after visiting MENU.
++            // Keep the selected source when valid, otherwise use the first ready USB.
++            for(const auto& device:m_devices) if(deviceReady(device)) {
++                selectInfoRoot(deviceRoot(device));
++                break;
++            }
++        }
++        if(prepareSourceNavigation()) openSearch();
++    }
+     void openSearch() {
+         if(!deviceReady(m_selectedDevice)) {showSources();return;}
++        m_pages->setCurrentIndex(0);
++        m_utilitySessionActive=false;
+         m_selectedCategory="SEARCH";m_search->clear();
+         m_searchHasAllTracks=false;
+         m_backend->rekordboxFeature()->showTrackIds(m_currentRoot,{},"search");showTrackList(BrowserLevel::Categories);
+@@ -568,7 +640,9 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+     ControlObject* makeControl(const QString& name, std::function<void(double)> handler, bool ignoreNops=false) {
+         auto control = std::make_unique<ControlObject>(ConfigKey("[RX3Browser]", name), ignoreNops);
+         auto* ptr = control.get();
+-        connect(ptr, &ControlObject::valueChanged, this, [handler](double value){handler(value);});
++        connect(ptr, &ControlObject::valueChanged, this, [this,handler](double value){
++            m_externalAction=-1;handler(value);
++        });
+         m_controls.push_back(std::move(control)); return ptr;
+     }
+     static void showBrowser() {
+@@ -748,6 +822,16 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         if(ids.contains(location)) m_origins.insert(location,origin);
+     }
+     void updateTrackInfo() {
++        m_cueSummary->hide();
++        if(m_level==BrowserLevel::Tracks && m_pages->currentIndex()==0 && m_backend) {
++            if(auto* table=m_library->getCurrentTrackTableView();table && table->model()) {
++                if(auto* tracks=dynamic_cast<TrackModel*>(table->model())) {
++                    const auto record=m_backend->rekordboxFeature()->infoForLocation(
++                            tracks->getTrackLocation(table->currentIndex()),nullptr);
++                    if(record) {m_cueSummary->setText(rx3::exportedHotCueSummary(record->cues));m_cueSummary->show();}
++                }
++            }
++        }
+         if(m_selectedCategory=="SEARCH") {
+             const auto* table=m_library->getCurrentTrackTableView();
+             m_searchCount->setText(QString::number(table && table->model() ? table->model()->rowCount() : 0));
+@@ -790,6 +874,7 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         QTimer::singleShot(0,this,[this]{refreshTable();});
+     }
+     void showNotice(const QString& message) {
++        m_cueSummary->hide();
+         m_leftColumn->hide();
+         m_level=BrowserLevel::Notice;m_sidebar->hide();m_facets->hide();m_library->hide();
+         m_trackInfo->hide();
+@@ -800,20 +885,23 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         showNotice(QString());
+         m_loading->setText(QStringLiteral(
+                 "<div style='text-align:center'>"
+-                "<p style='color:#00b8d4;font-size:13px;font-weight:600'>NAUTICMIXXX</p>"
++                "<p style='color:#00b8d4;font-size:13px;font-weight:600'>CRANIUM</p>"
+                 "<p style='color:#ffffff;font-size:27px;font-weight:700'>%1</p>"
+                 "<p style='color:#b8c1c7;font-size:16px'>COMING SOON</p>"
+                 "<p style='color:#849199;font-size:12px'>Available in a future release</p>"
+                 "</div>").arg(category.toHtmlEscaped()));
+     }
+     void showTrackList(BrowserLevel returnLevel) {
++        m_pages->setCurrentIndex(0);
+         m_leftColumn->hide();
+         m_returnLevel=returnLevel;m_level=BrowserLevel::Tracks;
+         m_sidebar->hide();m_facets->hide();m_preview->hide();m_loading->hide();m_library->show();
+         m_emptySpace->hide();
+         refreshTable();focusTracks();
++        updateTrackInfo();
+     }
+     void selectCategory(int row) {
++        m_cueSummary->hide();
+         if(m_detailedInfo->isVisible()) ControlObject::set(ConfigKey("[RX3Info]","visible"),0);
+         if(row<0 || row>=m_categoryIds.size() || !m_selectedDevice.isValid()) return;
+         if(deviceStatus(m_selectedDevice)!="ready" || !catalog()) {
+@@ -1018,10 +1106,11 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         refreshTable(); m_focus=NavigationTarget::TrackList;
+         if(auto* table=m_library->getCurrentTrackTableView()) {
+             table->setFocus();
+-            if(!table->currentIndex().isValid() && table->model()->rowCount()>0) table->setCurrentIndex(table->model()->index(0,0));
++            if(auto* rows=table->model();rows && !table->currentIndex().isValid() && rows->rowCount()>0) table->setCurrentIndex(rows->index(0,0));
+         }
+     }
+     void showSources() {
++        m_cueSummary->hide();
+         if(m_detailedInfo->isVisible()) ControlObject::set(ConfigKey("[RX3Info]","visible"),0);
+         m_keyboard->hide();m_search->hide();m_categories->show();m_searchRail->hide();m_breadcrumb->show();m_searchCount->hide();
+         m_source->setText("SOURCE");
+@@ -1429,6 +1518,7 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+     QString m_folderPath;
+     QString m_pendingFolderTrack;
+     QLabel* m_trackInfo;
++    QLabel* m_cueSummary;
+     QPushButton* m_infoButton;
+     Rx3TrackInfoPanel* m_detailedInfo;
+     struct InfoOrigin {
+@@ -1458,6 +1548,8 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+     WRx3ToolMenu* m_sourceMenu;
+     QString m_settingsRoot;
+     QList<QPushButton*> m_headerButtons;
++    bool m_externalNavigation=false;
++    int m_externalAction=-1;
+     int m_sourceActionIndex=-1;
+     QPushButton* m_breadcrumb;
+     QLabel* m_info;
+diff --git a/src/widget/wrx3browserutility.h b/src/widget/wrx3browserutility.h
+index 6db9ed042e544de4045353266df40e4a7784b11b..3e4f8e7c5a818a81527f7339b2344e03ace0d573 100644
+--- a/src/widget/wrx3browserutility.h
++++ b/src/widget/wrx3browserutility.h
+@@ -52,6 +52,17 @@ inline void WRx3Browser::showUtility() {
+         else setting.explanation="This setting's software control is unavailable in the current skin.";
+         settings.push_back(std::move(setting));
+     };
++    const auto setupAction = [&settings](QString name, QString command) {
++        Setting setting{"SYSTEM", name, {}, [] { return QString("OPEN ›"); }, {}, {}, {}};
++        setting.execute = [command] {
++            ControlObject::set(ConfigKey("[Cranium]", command), 1);
++            ControlObject::set(ConfigKey("[Cranium]", command), 0);
++        };
++        settings.push_back(std::move(setting));
++    };
++    setupAction("CONTROLLER SETUP", "open_controllers");
++    setupAction("AUDIO OUTPUT SETUP", "open_audio");
++    setupAction("SYSTEM / DEVELOPER", "open_preferences");
+     shared("DECK","LOAD LOCK","load_lock",{"UNLOCK","LOCK"},{0,1});
+     shared("DECK","NEEDLE LOCK","needle_lock",{"UNLOCK","LOCK"},{0,1});
+     shared("DECK","QUANTIZE BEAT VALUE (DECK)","quantize_beat",{"1/8","1/4","1/2","1 Beat"},{0.125,0.25,0.5,1});
+@@ -96,8 +107,8 @@ inline void WRx3Browser::showUtility() {
+                 language,current,
+                 [this,locales](int index){if(index<0 || index>=locales.size()) return false;
+                     m_config->setValue(ConfigKey("[Config]","Locale"),locales[index]);m_config->save();return true;},
+-                "Restart NauticMixxx to apply the language. New profiles default to English."});
++                "Restart Cranium to apply the language. New profiles default to English."});
+     }
+-    settings.push_back({"GENERAL","VERSION No.",{},[]{return QStringLiteral(NAUTICMIX_VERSION);},{},{},"NauticMixxx application version."});
++    settings.push_back({"GENERAL","VERSION No.",{},[]{return QStringLiteral(NAUTICMIX_VERSION);},{},{},"Cranium application version."});
+     m_utility->present(std::move(settings),[this]{closeUtility();});
+ }
+diff --git a/src/widget/wwaveformviewer.cpp b/src/widget/wwaveformviewer.cpp
+index e5e4cdfed1743778f1ce2487c38b0b76cd9e34a3..250a2ed26b16b0be2af0699868db733bcb9c09c8 100644
+--- a/src/widget/wwaveformviewer.cpp
++++ b/src/widget/wwaveformviewer.cpp
+@@ -2,6 +2,18 @@
+ 
+ #include <QDragEnterEvent>
+ #include <QEvent>
++#include <QApplication>
++#include <QLineF>
++#include <QMap>
++#include <QPointer>
++#include <QTouchEvent>
++#include <QTimer>
++#include <QSet>
++#include <QPainter>
++#include <QPaintEvent>
++#include <array>
++#include <QWheelEvent>
++#include <cmath>
+ 
+ #include "control/controlproxy.h"
+ #include "moc_wwaveformviewer.cpp"
+@@ -11,6 +23,217 @@
+ #include "waveform/widgets/waveformwidgetabstract.h"
+ #include "widget/wcuemenupopup.h"
+ #include "widget/wglwidget.h"
++#ifdef MIXXX_USE_QOPENGL
++#include <QOpenGLWindow>
++#endif
++
++// Native GL waveforms each have their own QWindow. Intercept touch before
++// those windows synthesize/forward mouse drags, and combine contacts across
++// both deck surfaces so a pinch can straddle the two waveforms.
++class CraniumWaveformTouchRouter final : public QObject {
++  public:
++    static CraniumWaveformTouchRouter* instance() {
++        static QPointer<CraniumWaveformTouchRouter> router;
++        if (!router) router = new CraniumWaveformTouchRouter(qApp);
++        return router;
++    }
++    void addViewer(WWaveformViewer* viewer) {
++        for (const auto& existing : m_viewers) if (existing == viewer) return;
++        m_viewers.append(viewer);
++    }
++    void forgetViewer(WWaveformViewer* viewer) {
++        if (m_owner == viewer) reset();
++    }
++
++  protected:
++    bool eventFilter(QObject* watched, QEvent* event) override {
++        const auto type = event->type();
++        const bool touch = type == QEvent::TouchBegin || type == QEvent::TouchUpdate ||
++                type == QEvent::TouchEnd || type == QEvent::TouchCancel;
++        const bool mouse = type == QEvent::MouseButtonPress || type == QEvent::MouseMove ||
++                type == QEvent::MouseButtonRelease || type == QEvent::MouseButtonDblClick;
++        if (!touch && !mouse) return false;
++        auto* viewer = viewerFor(watched);
++        if (!viewer) return false;
++        if (mouse) {
++            // Touch is handled below, never a second time as an emulated mouse.
++            if (static_cast<QMouseEvent*>(event)->source() != Qt::MouseEventNotSynthesized) {
++                event->accept(); return true;
++            }
++            return false;
++        }
++        auto* input = static_cast<QTouchEvent*>(event);
++        event->accept();
++        if (type == QEvent::TouchCancel) { reset(); return true; }
++        // A fresh gesture can arrive before the final coalesced frame fires.
++        if (type == QEvent::TouchBegin && m_finishingPinch && m_down.isEmpty()) {
++            evaluatePinch(); reset();
++        }
++        if (m_owner && (m_device != input->device() || m_owner->window() != viewer->window()))
++            reset();
++        if (!m_owner && type != QEvent::TouchBegin) return true;
++        if (!m_owner) { m_owner = viewer; m_device = input->device(); }
++        const auto updatePoint = [this](int id, QPointF position, bool released, bool stationary) {
++            if (released && !m_points.contains(id)) return;
++            // Stationary contacts can be snapshots from another native
++            // waveform window. Never overwrite their latest moving position.
++            if (!stationary || !m_points.contains(id)) m_points.insert(id, position);
++            if (released) m_down.remove(id);
++            else if (!m_finishingPinch) m_down.insert(id);
++        };
++#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
++        for (const auto& point : input->points()) {
++            updatePoint(point.id(), point.globalPosition(),
++                    point.state() == QEventPoint::State::Released,
++                    point.state() == QEventPoint::State::Stationary);
++        }
++#else
++        for (const auto& point : input->touchPoints()) {
++            updatePoint(point.id(), point.screenPos(), point.state() == Qt::TouchPointReleased,
++                    point.state() == Qt::TouchPointStationary);
++        }
++#endif
++        if (!m_multiTouch) {
++            for (auto point = m_points.begin(); point != m_points.end();) {
++                if (!m_down.contains(point.key())) point = m_points.erase(point);
++                else ++point;
++            }
++        }
++        if (m_down.isEmpty()) {
++            if (m_multiTouch && !m_pinchFinished) { m_finishingPinch = true; queuePinch(); }
++            else reset();
++            return true;
++        }
++        if (m_multiTouch && m_down.size() < 2) {
++            releaseScrub(); m_finishingPinch = true;
++            if (!m_pinchFinished) queuePinch();
++            return true;
++        }
++        if (m_down.size() >= 2) {
++            releaseScrub();
++            m_multiTouch = true;
++            if (m_down.size() != 2) { m_pinchFinished = true; m_frame.stop(); return true; }
++            if (m_pinchFinished || m_finishingPinch) return true;
++            if (m_initialSpan <= 0) {
++                m_initialSpan = QLineF(m_points.first(), m_points.last()).length();
++                m_initialZoom = m_lastZoom = ControlObject::get(ConfigKey("[Channel1]", "waveform_zoom"));
++            }
++            queuePinch();
++            return true;
++        }
++        // After a pinch, the remaining finger must never become a scrub.
++        if (m_multiTouch || !m_owner) return true;
++        const auto position = m_points.first();
++        if (!m_hasOrigin) { m_origin = position; m_hasOrigin = true; return true; }
++        if (m_owner->isPlaying()) { releaseScrub(); return true; }
++        if (!m_scrubbing && QLineF(m_origin, position).length() >= 10) {
++            sendMouse(QEvent::MouseButtonPress, m_origin);
++            m_scrubbing = true;
++        }
++        if (m_scrubbing) sendMouse(QEvent::MouseMove, position);
++        return true;
++    }
++
++  private:
++    explicit CraniumWaveformTouchRouter(QObject* parent) : QObject(parent) {
++        m_frame.setSingleShot(true);m_frame.setInterval(12);
++        connect(&m_frame, &QTimer::timeout, this, [this] { evaluatePinch(); });
++        qApp->installEventFilter(this);
++    }
++    WWaveformViewer* viewerFor(QObject* target) const {
++        for (const auto& viewer : m_viewers) {
++            if (!viewer || !viewer->m_craniumTouchZoom) continue;
++            if (target == viewer) return viewer;
++            auto* waveform = viewer->m_waveformWidget;
++            if (!waveform) continue;
++            if (auto* widget = qobject_cast<QWidget*>(target)) {
++                if (widget == waveform->getWidget() || waveform->getWidget()->isAncestorOf(widget))
++                    return viewer;
++            }
++#ifdef MIXXX_USE_QOPENGL
++            if (auto* gl = waveform->getGLWidget(); gl && gl->getOpenGLWindow() == target)
++                return viewer;
++#endif
++        }
++        return nullptr;
++    }
++    void queuePinch() {
++        if (!m_frame.isActive()) m_frame.start();
++    }
++    static double zoomLevel(double current, double desired) {
++        // Coarse far-out levels provide useful magnification changes. Keep
++        // the original single levels close up, with hysteresis at boundaries.
++        constexpr std::array<double, 8> levels{1, 2, 3, 4, 5, 6, 8, 10};
++        desired = qBound(1.0, desired, 10.0);
++        for (int pass = 0; pass < 10; ++pass) {
++            double lower = current, upper = current;
++            for (const auto level : levels) {
++                if (level < current) lower = level;
++                else if (level > current) { upper = level; break; }
++            }
++            if (lower < current && desired < (lower + current) / 2 - (current - lower) * 0.08) {
++                current = lower;
++            } else if (upper > current && desired > (upper + current) / 2 + (upper - current) * 0.08) {
++                current = upper;
++            } else break;
++        }
++        return current;
++    }
++    void evaluatePinch() {
++        if (!m_owner || !m_multiTouch || m_pinchFinished || m_points.size() != 2 || m_initialSpan <= 0)
++            return;
++        const double span = QLineF(m_points.first(), m_points.last()).length();
++        if (span > 1 && std::isfinite(span)) {
++            const auto current = ControlObject::get(ConfigKey("[Channel1]", "waveform_zoom"));
++            if (current != m_lastZoom) {
++                // Respect a wheel/controller zoom change during a gesture.
++                m_initialZoom = m_lastZoom = current; m_initialSpan = span;
++            } else if (m_anyZoom || std::abs(span - m_initialSpan) >= 4) {
++                const auto target = zoomLevel(current, m_initialZoom * m_initialSpan / span);
++                if (target != current) {
++                    m_owner->setSharedWaveformZoom(target);
++                    m_lastZoom = target; m_anyZoom = true;
++                }
++            }
++        }
++        if (m_finishingPinch) {
++            m_pinchFinished = true;
++            if (m_down.isEmpty()) reset();
++        }
++    }
++    void sendMouse(QEvent::Type type, QPointF global) {
++        if (!m_owner) return;
++        const QPointF local = m_owner->mapFromGlobal(global.toPoint());
++        QMouseEvent mouse(type, local, global,
++                type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton,
++                type == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton,
++                Qt::NoModifier);
++        // Call the handlers directly so these deliberate paused scrubs do not
++        // pass through the filter that rejects synthetic touch/mouse duplicates.
++        if (type == QEvent::MouseButtonPress) m_owner->mousePressEvent(&mouse);
++        else if (type == QEvent::MouseMove) m_owner->mouseMoveEvent(&mouse);
++        else m_owner->mouseReleaseEvent(&mouse);
++    }
++    void releaseScrub() {
++        if (m_scrubbing && m_owner) sendMouse(QEvent::MouseButtonRelease, m_points.isEmpty() ? m_origin : m_points.first());
++        m_scrubbing = false;
++    }
++    void reset() {
++        releaseScrub(); m_frame.stop(); m_owner.clear(); m_points.clear(); m_down.clear(); m_device = nullptr;
++        m_initialSpan = 0; m_initialZoom = m_lastZoom = 0; m_hasOrigin = false; m_multiTouch = false;
++        m_anyZoom = false; m_finishingPinch = false; m_pinchFinished = false;
++    }
++    QList<QPointer<WWaveformViewer>> m_viewers;
++    QPointer<WWaveformViewer> m_owner;
++    const void* m_device = nullptr;
++    QMap<int, QPointF> m_points;
++    QSet<int> m_down;
++    QTimer m_frame;
++    QPointF m_origin;
++    double m_initialSpan = 0, m_initialZoom = 0, m_lastZoom = 0;
++    bool m_hasOrigin = false, m_multiTouch = false, m_scrubbing = false;
++    bool m_anyZoom = false, m_finishingPinch = false, m_pinchFinished = false;
++};
+ 
+ WWaveformViewer::WWaveformViewer(
+         const QString& group,
+@@ -27,6 +250,7 @@ WWaveformViewer::WWaveformViewer(
+     setMouseTracking(true);
+     setAcceptDrops(true);
+     m_pZoom = new ControlProxy(group, "waveform_zoom", this, ControlFlag::NoAssertIfMissing);
++    m_pZoom->setObjectName("WaveformZoomControl");
+     m_pZoom->connectValueChanged(this, &WWaveformViewer::onZoomChange);
+ 
+     m_pScratchPositionEnable = new ControlProxy(
+@@ -36,6 +260,11 @@ WWaveformViewer::WWaveformViewer(
+     m_pWheel = new ControlProxy(
+             group, "wheel", this, ControlFlag::NoAssertIfMissing);
+     m_pPlayEnabled = new ControlProxy(group, "play", this, ControlFlag::NoAssertIfMissing);
++    m_pPlayEnabled->setObjectName("WaveformPlayControl");
++    m_pPlayEnabled->connectValueChanged(this, [this](double value) {
++        if (m_craniumTouchZoom && value > 0 && (m_bScratching || m_bBending))
++            mouseReleaseEvent(nullptr);
++    });
+     m_pPassthroughEnabled = make_parented<ControlProxy>(group, "passthrough", this);
+     m_pPassthroughEnabled->connectValueChanged(this, &WWaveformViewer::passthroughChanged);
+ 
+@@ -43,12 +272,24 @@ WWaveformViewer::WWaveformViewer(
+     setFocusPolicy(Qt::NoFocus);
+ }
+ 
++void WWaveformViewer::paintEvent(QPaintEvent* event) {
++    if(m_craniumTouchZoom && qEnvironmentVariableIsSet("CRANIUM_APPLIANCE")) {
++        QPainter painter(this);painter.fillRect(event->rect(),Qt::black);
++    } else WWidget::paintEvent(event);
++}
++
+ WWaveformViewer::~WWaveformViewer() {
++    if (m_craniumTouchZoom) CraniumWaveformTouchRouter::instance()->forgetViewer(this);
+     //qDebug() << "~WWaveformViewer";
+ }
+ 
+ void WWaveformViewer::setup(const QDomNode& node, const SkinContext& context) {
+     m_rx3SharedWheelZoom = context.selectBool(node, "Rx3SharedWheelZoom", false);
++    m_craniumTouchZoom = m_rx3SharedWheelZoom && context.selectBool(node, "CraniumPinchZoom", false);
++    if (m_craniumTouchZoom) {
++        setAttribute(Qt::WA_AcceptTouchEvents);
++        CraniumWaveformTouchRouter::instance()->addViewer(this);
++    }
+     if (m_waveformWidget) {
+         m_waveformWidget->setup(node, context);
+         if (m_referenceScale > 0) m_waveformWidget->setReferenceScale(m_referenceScale);
+@@ -78,7 +319,16 @@ void WWaveformViewer::showEvent(QShowEvent* event) {
+     }
+ }
+ 
++void WWaveformViewer::hideEvent(QHideEvent* event) {
++    if (m_craniumTouchZoom) {
++        CraniumWaveformTouchRouter::instance()->forgetViewer(this);
++        mouseReleaseEvent(nullptr);
++    }
++    WWidget::hideEvent(event);
++}
++
+ void WWaveformViewer::mousePressEvent(QMouseEvent* event) {
++    if (m_craniumTouchZoom && isPlaying()) { event->accept(); return; }
+     if (!m_waveformWidget || m_waveformWidget->getType() == WaveformWidgetType::EmptyWaveform) {
+         return;
+     }
+@@ -130,6 +380,10 @@ void WWaveformViewer::mousePressEvent(QMouseEvent* event) {
+ }
+ 
+ void WWaveformViewer::mouseMoveEvent(QMouseEvent* event) {
++    if (m_craniumTouchZoom && isPlaying()) {
++        mouseReleaseEvent(nullptr);
++        event->accept(); return;
++    }
+     if (!m_waveformWidget || m_waveformWidget->getType() == WaveformWidgetType::EmptyWaveform) {
+         return;
+     }
+@@ -194,6 +448,13 @@ void WWaveformViewer::mouseReleaseEvent(QMouseEvent* /*event*/) {
+     setCursor(Qt::ArrowCursor);
+ }
+ 
++void WWaveformViewer::setSharedWaveformZoom(double zoom) {
++    zoom = qBound(WaveformWidgetRenderer::s_waveformMinZoom, zoom,
++            WaveformWidgetRenderer::s_waveformMaxZoom);
++    ControlObject::set(ConfigKey("[Channel1]", "waveform_zoom"), zoom);
++    ControlObject::set(ConfigKey("[Channel2]", "waveform_zoom"), zoom);
++}
++
+ void WWaveformViewer::wheelEvent(QWheelEvent* event) {
+     if (m_rx3SharedWheelZoom) {
+         // Wheel gestures have one function on the RX3: shared waveform zoom.
+@@ -203,11 +464,7 @@ void WWaveformViewer::wheelEvent(QWheelEvent* event) {
+                                                      : event->pixelDelta().y();
+         if (delta != 0) {
+             const auto reference = ControlObject::get(ConfigKey("[Channel1]", "waveform_zoom"));
+-            const double zoom = qBound(WaveformWidgetRenderer::s_waveformMinZoom,
+-                    reference + (delta > 0 ? -1.0 : 1.0),
+-                    WaveformWidgetRenderer::s_waveformMaxZoom);
+-            ControlObject::set(ConfigKey("[Channel1]", "waveform_zoom"), zoom);
+-            ControlObject::set(ConfigKey("[Channel2]", "waveform_zoom"), zoom);
++            setSharedWaveformZoom(reference + (delta > 0 ? -1.0 : 1.0));
+         }
+         event->accept();
+         return;
+@@ -292,6 +549,7 @@ void WWaveformViewer::setPlayMarkerPosition(double position) {
+ }
+ 
+ void WWaveformViewer::setWaveformWidget(WaveformWidgetAbstract* waveformWidget) {
++    if (m_craniumTouchZoom) CraniumWaveformTouchRouter::instance()->forgetViewer(this);
+     if (m_waveformWidget) {
+         QWidget* pWidget = m_waveformWidget->getWidget();
+         disconnect(pWidget);
+diff --git a/src/widget/wwaveformviewer.h b/src/widget/wwaveformviewer.h
+index 8c55ede48c4d8e1e686c32482683c74b66bbf47a..49b2e5ad3b0fca1152d594a2f3169f61312f46c1 100644
+--- a/src/widget/wwaveformviewer.h
++++ b/src/widget/wwaveformviewer.h
+@@ -11,6 +11,7 @@ class WaveformWidgetAbstract;
+ class WCueMenuPopup;
+ class QDomNode;
+ class SkinContext;
++class CraniumWaveformTouchRouter;
+ 
+ class WWaveformViewer : public WWidget, public TrackDropTarget {
+     Q_OBJECT
+@@ -48,7 +49,9 @@ class WWaveformViewer : public WWidget, public TrackDropTarget {
+     void slotLoadingTrack(TrackPointer pNewTrack, TrackPointer pOldTrack);
+ 
+   protected:
++    void paintEvent(QPaintEvent* event) override;
+     void showEvent(QShowEvent* event) override;
++    void hideEvent(QHideEvent* event) override;
+     void resizeEvent(QResizeEvent *event) override;
+     void wheelEvent(QWheelEvent *event) override;
+ 
+@@ -84,13 +87,17 @@ class WWaveformViewer : public WWidget, public TrackDropTarget {
+     WaveformWidgetAbstract* m_waveformWidget;
+     double m_referenceScale = 0;
+     bool m_rx3SharedWheelZoom = false;
++    bool m_craniumTouchZoom = false;
+ 
+     int m_dimBrightThreshold;
+ 
+     friend class WaveformWidgetFactory;
++    friend class CraniumWaveformTouchRouter;
++    friend struct CraniumWaveformTouchTestAccess;
+ 
+     CuePointer getCuePointerFromCueMark(WaveformMarkPointer pMark) const;
+     void highlightMark(WaveformMarkPointer pMark);
+     void unhighlightMark(WaveformMarkPointer pMark);
+     bool isPlaying() const;
++    void setSharedWaveformZoom(double zoom);
+ };
+diff --git a/src/widget/wwidgetstack.cpp b/src/widget/wwidgetstack.cpp
+index 631478ca1593ecbe6121b98bdd66ef5287331934..7369a05a5feba481875b3cfab77421a23e2b5826 100644
+--- a/src/widget/wwidgetstack.cpp
++++ b/src/widget/wwidgetstack.cpp
+@@ -41,6 +41,10 @@ WWidgetStack::WWidgetStack(QWidget* pParent,
+           m_prevControl(prevConfigKey, this, ControlFlag::AllowInvalidKey),
+           m_currentPageControl(
+                   currentPageConfigKey, this, ControlFlag::AllowInvalidKey) {
++    if(qEnvironmentVariableIsSet("CRANIUM_APPLIANCE")) {
++        auto colors=palette();colors.setColor(QPalette::Window,Qt::black);setPalette(colors);setAutoFillBackground(true);
++    }
++
+     m_nextControl.connectValueChanged(this, &WWidgetStack::onNextControlChanged);
+     m_prevControl.connectValueChanged(this, &WWidgetStack::onPrevControlChanged);
+     m_currentPageControl.connectValueChanged(this, &WWidgetStack::onCurrentPageControlChanged);

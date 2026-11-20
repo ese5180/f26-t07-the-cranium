@@ -1,0 +1,31 @@
+{
+  "project": "CRANIUM Mix",
+  "handoff_date": "2026-11-20",
+  "source_feature_date": "2026-11-16",
+  "source_format": "Full engine and overlay, ordinary folders in one Git repository; no submodules",
+  "sources": {
+    "cranium-nauticmixxx": {
+      "commit": "e3a124f61d9d43d09565b3b2a89bc5994cd585ce",
+      "tracked_files": 312,
+      "handoff_changes": [
+        "README.md",
+        "cranium/FLX4-CONNECTION-VALIDATION.md",
+        "cranium/README.md",
+        "cranium/REFINEMENTS-VALIDATION.md",
+        "cranium/build-editable.sh",
+        "cranium/export-engine-patch.py",
+        "cranium/prepare-engine.py",
+        "cranium/stage-sd.py"
+      ]
+    },
+    "cranium-nauticmixxx-engine": {
+      "commit": "0351701e897af7e9eca882bfa9a7dca7a99f00e0",
+      "tracked_files": 5531,
+      "handoff_changes": [
+        "AGENTS.md"
+      ]
+    }
+  },
+  "handoff_changes_note": "Monorepo build/layout support, public handoff documentation, explicit SD target arguments and removal of original operator/device identifiers; native application source is otherwise unchanged.",
+  "native_application_source_matches_original": true
+}

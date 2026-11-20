@@ -1,5 +1,13 @@
 # Cranium on the Pi: step 1, Mixxx metrics to JSON
 
+For the full **CRANIUM Mix touchscreen DJ application** (the Bookworm,
+800 x 480 NauticMixxx/Mixxx 2.5.6 variant), see
+[`cranium-mix/README.md`](cranium-mix/README.md). Its full native source,
+controller mappings and build instructions are included there. It is kept
+separate from the existing 2.7.0-alpha telemetry workflow below; this import
+does not change that workflow or establish cross-version integration.
+
+
 A Raspberry Pi 4 or 5 (arm64, Raspberry Pi OS trixie) runs the team's Mixxx fork
 ([dbosket/mixxx](https://github.com/dbosket/mixxx), branch `cranium`, 2.7.0-alpha). This folder turns what
 Mixxx is doing into the JSON messages that the later steps send to the nRF5340.
