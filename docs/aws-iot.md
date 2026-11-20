@@ -430,7 +430,7 @@ it.
 
 ### API tokens
 
-A personal API token lets a script, such as `scripts/firmware/ota.sh` or an assistant that runs it for you,
+A personal API token lets a script, such as `scripts/firmware/ota.sh`,
 use the console's API as you without signing in. Every member, viewer or release manager, makes and
 revokes their own on the console, under **Developer > API tokens**, and sees only their own.
 
