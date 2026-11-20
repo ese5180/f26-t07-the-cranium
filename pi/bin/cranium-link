@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Sends the collector's messages to the nRF7002 DK over SPI (pi/cranium_link.py), with the settings of
+# cranium.conf. Any arguments are passed on to it, after those, so they win: e.g. cranium-link --status
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/cranium-env"
+exec python3 "$CRANIUM_PI/cranium_link.py" --messages "$CRANIUM_OUT_DIR/messages.jsonl" \
+    --spi "$CRANIUM_SPI" --hz "$CRANIUM_SPI_HZ" --ready-gpio "$CRANIUM_READY_GPIO" "$@"
