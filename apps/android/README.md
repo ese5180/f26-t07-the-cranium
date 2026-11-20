@@ -12,6 +12,10 @@ below, for the team.
 
 ## The new app (0.8.0)
 
+The app is at 0.9.1. From 0.9.0 it answers the console's Offline page (a board's status and a waiting update over Bluetooth, with
+the board's own passkey, no cloud: [`docs/mobile-apps.md`](../../docs/mobile-apps.md#offline-mode)), one GATT operation at a
+time. From 0.9.1 the serial console puts `BT_PASSKEY` and `BT_OFFLINE|NEW` on the activity log, never the passkey.
+
 From 0.8.0 the app is a thin native shell around the website's own pages: the customer site at `/` and
 the console at `/admin`, as the customer site's address serves them (docs/mobile-apps.md, "The app
 shell"). What it shows comes from the console, so **a change to the website reaches the app with no new

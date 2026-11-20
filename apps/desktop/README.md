@@ -3,7 +3,7 @@
 The console and the customer site in a window of their own, on a Windows PC or a Linux computer: the console's own
 pages, kept on the computer and brought up to date from the console by themselves, as the phone apps keep them
 ([docs/desktop-app.md](../../docs/desktop-app.md)). From the app, a release manager can also use the board's USB console
-(Web Serial) and update a board over Bluetooth, with no browser. The Mac has a native app of its own, not this one.
+(Web Serial) and update a board over Bluetooth, with no browser. The Mac has a native app of its own, not this one. The app's version is 0.1.15 (see the changelogs); it does not offer the console's Offline page, whose pairing needs a passkey box the desktop's Web Bluetooth does not have.
 
 This folder is the part that is the same on both systems, written with [Electron](https://www.electronjs.org/) 44.9.3.
 Each system's installer is its own part: `electron-builder.windows.yml` and `electron-builder.linux.yml`, with their

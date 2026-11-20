@@ -42,7 +42,7 @@ A silent install, for a lab's computers: `Cranium-Setup-<version>.exe /S`. It ma
   the app asks which one.
 - **Bluetooth.** It needs Windows 10 version 1709 or later and a Bluetooth 4.0 (LE) adapter; most laptops have one.
   When the app pairs with a board, Windows asks the app, and the app shows a box for the passkey. Type the six digits
-  the console shows at the top of its Bluetooth page. Windows keeps the pairing, under Settings > Bluetooth & devices.
+  the console shows at the top of its Bluetooth page, or, for a board that has its own passkey (made with `BT_OFFLINE|NEW`), that one; the page says when to type it. Windows keeps the pairing, under Settings > Bluetooth & devices.
 - **Signing in.** The refresh token is sealed with Windows' DPAPI, for this Windows user only, and kept an hour, as
   [docs/desktop-app.md](desktop-app.md#signing-in) says. Windows Hello is not used: Electron cannot reach it.
 
