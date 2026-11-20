@@ -367,6 +367,7 @@ USB", "… signed in on the phone app".
 | `account.sign_in` | A sign-in with password and code | `client`: `web` or `phone` |
 | `serial.command` | A command that changed a board at its serial console, sent over USB from the console | `command`, the board's device ID as the target, the firmware `version` it gave, `from: phone` |
 | `firmware.notes` | A release's note changed after its upload ("changed the note of 1.11.3+0") | the new note, cut to 200 characters; the old note's length |
+| `firmware.golden_record`, `golden.promote` | From the website only (console 2.27.7, firmware 1.19.3): a release's signed golden promotion record kept, and a promotion job made for boards that run that release | the release, the counter, the boards |
 | `group.create`, `group.update`, `group.delete` | A group of boards made, renamed or changed, deleted | its name, `renamedFrom`, boards added and removed, their thing names |
 | `rollout.create` | A staged rollout started | version, `kind` of target, `group`, boards, `canary` |
 | `rollout.cancel` | A staged rollout cancelled | force, jobs cancelled |
@@ -730,6 +731,14 @@ looking at: offline for more than an hour, restarted for being stuck, a last upd
 memory down below 15% free, a Wi-Fi signal below −75 dBm, and a board without Wi-Fi no phone has seen. From console
 2.15.0 it also has the fleet health score, its daily snapshots and its change since last week, and takes `?days=`
 (1 to 31): [fleet-health.md](fleet-health.md).
+
+**Make golden** (console 2.27.7; needs firmware 1.19.3 and its bootloader, which takes one flash through the debug port;
+not yet tried on a board). `POST /api/firmware/{version}/golden` keeps a release's golden promotion record only if its
+signature is good with the stack's golden public key and it names this release's image hash, size and version. `POST
+/api/golden/promotions` makes one AWS IoT job for the boards that are registered, of the release's type, free and running
+that release, and refuses by name any that are not (`golden_not_running`, `golden_unsupported`). `GET /api/golden/promotions`
+lists the latest, and `GET /api/firmware` says whether the stack has the key. Each board's report carries its golden image
+(`golden: {version, counter, state}`). How the board does it: [`firmware/README.md`](../firmware/README.md#golden-image).
 
 **A release's note** (`PUT /api/firmware/{version}/notes`, body `{ "notes": "..." }`): the whole note, one line of
 at most 500 characters, `""` for none, for active and revoked releases alike, by release managers with a session

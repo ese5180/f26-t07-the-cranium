@@ -9,6 +9,12 @@ The first release with [what restarts a stuck board](../firmware/README.md#when-
 1.7.0. From 1.7.2 an update starts with no button. The latest is 1.14.0, on the board since 2026-11-05, sent over
 Bluetooth from the iPhone app. Test images for the bench are numbered around them.
 
+**Since then, as of 2026-11-20.** The results below are from 1.14.0 and earlier. Firmware 1.19.0 (offline Bluetooth mode) runs
+on an nRF7002 DK, according to its changelog. 1.19.1, 1.19.2 and 1.19.3 have not been tried on a board, and nor has the golden
+image promotion over the air that 1.19.3 adds; the golden image in external flash is still 1.5.0. The offline page has not been
+used from a phone or a Mac against a board. The closed-loop bench has 29 host tests, which run in CI; it has not been run on
+hardware ([`closed-loop/VALIDATION.md`](../closed-loop/VALIDATION.md)).
+
 Every run below was on one nRF7002 DK. The benches write one line per run to a local
 `results.jsonl`, which is not in git. A result is about the firmware and the bootloader it ran on:
 

@@ -2,8 +2,8 @@
 
 Two apps, one for iPhone (`ios/`, Swift) and one for Android (`android/`, Kotlin), with the same screens: sign in, the
 boards, firmware, deployments, the activity log, and updating a board over Bluetooth, for the team in admin mode; and a
-customer side, as on the customer website. The newest published build of each (0.8.0 now) is in [`dist/`](dist/), with
-its SHA-256 in `dist/SHA256SUMS`. More detail: [`docs/mobile-apps.md`](../docs/mobile-apps.md),
+customer side, as on the customer website. The newest version of each is 0.9.1; the builds kept in git are in [`dist/`](dist/) (the phone apps' 0.8.16 so far), with
+their SHA-256 in `dist/SHA256SUMS`, and the console's Apps page serves the newest published one. More detail: [`docs/mobile-apps.md`](../docs/mobile-apps.md),
 [`ios/README.md`](ios/README.md), [`android/README.md`](android/README.md).
 
 For a Windows PC or a Linux computer there is the desktop app, the same pages in a window of their own, with the USB
@@ -20,7 +20,7 @@ brings up to date from the console by itself, on any network ([The app shell](..
 | The native shell: what the bridge can do (Bluetooth, Face ID and the fingerprint, the clipboard, sharing), the web view | Only with a new app | Android: the app updates itself, as below. iPhone: SideStore, or `renew.sh` from the Mac |
 
 When the console's pages need more than an app's bridge offers, that app keeps the pages it has and its settings say it
-needs an update. The 0.7 screens are still there for 0.8.0, as **Classic app** (in the app's settings, or by holding
+needs an update. The 0.7 screens are still there as **Classic app** (in the app's settings, or by holding
 its icon).
 
 ## Get the app on your phone

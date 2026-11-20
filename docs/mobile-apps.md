@@ -236,7 +236,7 @@ when:
   to the system.
 
 So when the console gets a new page, CI fails until pages.json lists it and every app passes these checks. The
-Memfault page (`#/memfault`, an issue at `#/memfault/<id>`) and the In Memfault card came with console 2.6.0. They are
+Memfault page (`#/memfault`, named Crashes in the navigation from console 2.28.0, an issue at `#/memfault/<id>`) and the In Memfault card came with console 2.6.0. They are
 listed from apps 0.8.6 and desktop 0.1.3; the Memfault metrics card (console 2.11.0) from apps 0.8.9 and desktop
 0.1.5. On a phone they are under the console's sections, as on a narrow browser. The serial pages are the one exclusion: [below](#the-serial-pages).
 
@@ -870,7 +870,9 @@ already arrived, been checked for board, layout and version, and is signed by th
 the signature at the restart). The image still runs on trial and reverts unless it is proved. Only an update waiting in
 the window can be accepted; a cloud update that waits for a button is shown but not accepted from the phone.
 
-**Not covered.** Firmware 1.19.0 runs on an nRF7002 DK. The Offline page has run in the iPhone Simulator and in a
+Apps 0.9.1 (console 2.27.5) put the serial console's `BT_PASSKEY` and `BT_OFFLINE|NEW` on the activity log, never the passkey.
+
+**Not covered.** Firmware 1.19.0 runs on an nRF7002 DK; 1.19.1 and later (the first with sessions too) have not been used from a phone against a board. The Offline page has run in the iPhone Simulator and in a
 browser with a stand-in for the app's bridge, not yet against a board from a phone or a Mac. See the pull request for
 what was and was not tested.
 

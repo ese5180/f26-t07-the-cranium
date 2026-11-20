@@ -59,7 +59,7 @@ by hand, then go on with `--from` the next one.
 ## From the console: Board setup
 
 A board that has this project's bootloader can be set up from the console instead, with no tools installed: open
-**Developer → Board setup** in Chrome or Edge on a computer, the Windows or Linux desktop app or the Android app, and plug the board
+**Developer → Board setup** (from console 2.28.0 also **Set up a board** on the Devices page) in Chrome or Edge on a computer, the Windows or Linux desktop app, the Mac app (from 0.3.0) or the Android app, and plug the board
 in by USB. It is for release managers; a viewer sees why not. It is the quick way's `golden`, `release`, `provision`
 and `verify`, as one stepper:
 
@@ -85,7 +85,7 @@ What it can't do:
   probe once: `scripts/board/new-board.sh` (or `west flash --recover`, step 3), and then the page can do the rest. The
   desktop app doesn't do this either: the console holds signed application images, not the bootloader, TF-M and
   network core image a blank chip needs, which come from a build.
-- **Phones and Safari.** Web Serial exists only in Chrome and Edge on a computer and in the desktop app. The Android
+- **Phones and Safari.** Web Serial exists only in Chrome and Edge on a computer and in the desktop app; the Mac app gives the page a USB serial port through its bridge, as the Android app does. The Android
   app has Board setup from 0.8.8, with the board on the phone's USB cable (USB OTG): the app gives the page its USB
   serial port ([docs/mobile-apps.md](mobile-apps.md#the-serial-pages)). The iPhone can't open a USB serial port at
   all, so the iPhone app has no Board setup and no Serial console.

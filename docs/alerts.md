@@ -29,7 +29,7 @@ heartbeat is never alerted twice.
 
 - **Offline**: the recorder's check every 5 minutes (`AlertCheckRule`), as before, with the rule's minutes.
 - **New issue, crash loop, low voltage**: the staged rollouts' schedule (`RolloutTickFn`, every minute) looks at
-  Memfault at most every 5 minutes, through the same server-side reader and cache as the console's Memfault pages
+  Memfault at most every 5 minutes, through the same server-side reader and cache as the console's Memfault pages (Crashes in the navigation since 2.28.0)
   (`cloud/api/src/aws-memfault-api.mjs`, `handlers/memfault.mjs` `watch`): one read of the issues and the processing log
   of the last two hours (or the crash loop's window, if longer), and one read of an issue's traces for each new issue, at
   most 5. Its first look only learns which issues there are. A look Memfault does not answer raises nothing and is

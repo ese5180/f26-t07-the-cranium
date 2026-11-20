@@ -16,6 +16,10 @@ board at provisioning, and no AWS address or account is in an image.
 | `golden/cranium-<version>-<build>.signed.bin` | The frozen golden image. Only `tools/golden.py freeze` puts it there, and nothing removes it: a build never touches this folder |
 | `golden/mcuboot-before-golden.hex` | The bootloader that was on the board before the golden image, kept as the way back |
 
+The images kept here stop at 1.15.0. Later releases (1.18.0 to 1.19.3) are on the console's Firmware page, which is where
+the build uploads them. The golden image is 1.5.0; 1.19.3 can replace it over the air with a signed record, which has not been
+tried on a board ([`firmware/README.md`](../firmware/README.md#golden-image)).
+
 Three ways to put an image on a board over the air:
 
 - **From the command line:** `scripts/firmware/ota.sh` installs the newest build, and

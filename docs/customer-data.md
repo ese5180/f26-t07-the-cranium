@@ -156,7 +156,9 @@ button, a restart the board was asked for) or **unexpected** (a brownout, a watc
 restart the board made itself for being stuck). The sentences are "Running normally", "Restarted unexpectedly twice
 this week", "Recovered from a problem on Tue 3 Nov", "Updated to 1.15.0 on Thu 5 Nov", "Installing an update",
 "Offline since Sat 7 Nov" and "Not heard from yet"; the pages say the dates again in the reader's own time. A fault's
-name, a reset cause, a coredump, a stack or a thing name is never in it. A restart that came from a fault but that the
+name, a reset cause, a coredump, a stack or a thing name is never in it. From console 2.27.5 the health of a board given to a
+new owner covers only the time since it became theirs, like its activity, sessions and tracks since 2.27.4: a board just
+handed over shows no restarts until it restarts for its new owner. A restart that came from a fault but that the
 board reports only as a software reset counts as expected: the events cannot tell the two apart, and Memfault, which
 can, is for the console.
 

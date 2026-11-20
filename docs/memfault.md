@@ -153,7 +153,7 @@ From console 2.6.0 the console shows what Memfault knows, read on the server fro
 (`https://api.memfault.com/api/v0/organizations/<org>/projects/<project>/...`) with GETs only. The browser never
 talks to Memfault, so the page's content security policy is as strict as before.
 
-- **The Memfault page** (`#/memfault`): the issues, crashes and other traces grouped by kind, with how many traces on
+- **The Crashes page** (`#/memfault`, called Memfault before console 2.28.0): the issues, crashes and other traces grouped by kind, with how many traces on
   how many boards and the versions. An issue's page (`#/memfault/<id>`) shows each trace: the board, the version,
   and for a coredump each thread with its backtrace (function, file and line) and registers, the crashed one first.
   A backtrace needs the build's symbols in Memfault (below).
@@ -187,7 +187,7 @@ From console 2.11.0 the console also charts the metrics and shows the fleet:
   Other metrics with its own name, as the board sent it. A board sends whole numbers: a percentage in hundredths
   (the SDK's scale value 100) and times in ms, which the page shows as % and minutes (`memfault-page.js` `METRICS`).
   Heartbeats Memfault could not name, for want of the build's symbols, are counted under the charts.
-- **The Memfault page**, under the issues, from `GET /api/memfault/fleet`: the week's reboots by reason with how
+- **The Crashes page**, under the issues, from `GET /api/memfault/fleet`: the week's reboots by reason with how
   many, on how many boards and their share, an unexpected reason marked with its icon and the word; the software
   versions the boards last ran with how many boards and whether Memfault has their symbols; and a row per board of
   its latest key metrics (USB power, supply, Wi-Fi signal and channel, CPU, free heap, work queue stack, stuck
