@@ -4,6 +4,7 @@
 
 #define ARG_UNUSED(x)         (void)(x)
 #define __printf_like(f, a)   __attribute__((format(printf, f, a)))
+#define __noinline            __attribute__((__noinline__))
 #define BUILD_ASSERT(cond, ...) _Static_assert(cond, "" __VA_ARGS__)
 
 #endif

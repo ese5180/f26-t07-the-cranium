@@ -38,6 +38,9 @@ LOG_MODULE_REGISTER(cloud, CONFIG_APP_LOG_LEVEL);
 #define LOCATION_TOPIC_LENGTH OWN_TOPIC_LENGTH("location")
 #define MEMFAULT_TOPIC_LENGTH OWN_TOPIC_LENGTH("memfault")
 #define SESSION_TOPIC_LENGTH  OWN_TOPIC_LENGTH("session")
+/* The jobs topics are "$aws/things/<thing name>/jobs/<what>", as long as the commands topic allows. */
+#define JOBS_TOPIC_LENGTH(what)                                                                    \
+	(sizeof("$aws/things//jobs/" what) - 1 + sizeof(CONFIG_APP_THING_NAME_PREFIX) - 1 + 16)
 #define PUBLISH_QOS0_HEADER 5
 BUILD_ASSERT(EVENTS_TOPIC_LENGTH < TOPIC_MAX, "the events topic must fit its buffer");
 BUILD_ASSERT(PUBLISH_QOS0_HEADER + EVENTS_TOPIC_LENGTH + CLOUD_EVENTS_JSON_MAX - 1 <=
@@ -58,13 +61,14 @@ BUILD_ASSERT(PUBLISH_QOS0_HEADER + MEMFAULT_TOPIC_LENGTH + MFLT_LINK_HEADER +
 #define CONNECT_STACK    4096
 #define CONNECT_PRIORITY K_PRIO_PREEMPT(10)
 
-static char topic_notify_next[TOPIC_MAX];
-static char topic_get_accepted[TOPIC_MAX];
-static char topic_get_rejected[TOPIC_MAX];
-static char topic_update_accepted[TOPIC_MAX];
-static char topic_update_rejected[TOPIC_MAX];
-static char topic_get_next[TOPIC_MAX];
-static char topic_events[TOPIC_MAX];
+/* Each only as long as its topic, from 1.19.3: TOPIC_MAX each took 128 bytes, about half of it unused. */
+static char topic_notify_next[JOBS_TOPIC_LENGTH("notify-next") + 1];
+static char topic_get_accepted[JOBS_TOPIC_LENGTH("$next/get/accepted") + 1];
+static char topic_get_rejected[JOBS_TOPIC_LENGTH("$next/get/rejected") + 1];
+static char topic_update_accepted[JOBS_TOPIC_LENGTH("+/update/accepted") + 1];
+static char topic_update_rejected[JOBS_TOPIC_LENGTH("+/update/rejected") + 1];
+static char topic_get_next[JOBS_TOPIC_LENGTH("$next/get") + 1];
+static char topic_events[EVENTS_TOPIC_LENGTH + 1];
 /* Only as long as they can be: RAM is short. */
 static char topic_commands[COMMANDS_TOPIC_LENGTH + 1];
 static char topic_location[LOCATION_TOPIC_LENGTH + 1];
@@ -432,13 +436,14 @@ static void connect_work_handler(struct k_work *work)
 	}
 }
 
-static int build_topic(char *buf, const char *suffix)
+static int build_topic(char *buf, size_t len, const char *suffix)
 {
-	int written = snprintk(buf, TOPIC_MAX, "$aws/things/%s/jobs/%s", identity_thing_name(),
-			       suffix);
+	int written = snprintk(buf, len, "$aws/things/%s/jobs/%s", identity_thing_name(), suffix);
 
-	return (written < 0 || written >= TOPIC_MAX) ? -ENOSPC : 0;
+	return (written < 0 || (size_t)written >= len) ? -ENOSPC : 0;
 }
+
+#define BUILD_TOPIC(buf, suffix) build_topic(buf, sizeof(buf), suffix)
 
 static void subscribe_to(size_t index, const char *topic)
 {
@@ -452,12 +457,12 @@ int cloud_init(void)
 	int written;
 	int err;
 
-	err = build_topic(topic_notify_next, "notify-next");
-	err = err ? err : build_topic(topic_get_accepted, "$next/get/accepted");
-	err = err ? err : build_topic(topic_get_rejected, "$next/get/rejected");
-	err = err ? err : build_topic(topic_update_accepted, "+/update/accepted");
-	err = err ? err : build_topic(topic_update_rejected, "+/update/rejected");
-	err = err ? err : build_topic(topic_get_next, "$next/get");
+	err = BUILD_TOPIC(topic_notify_next, "notify-next");
+	err = err ? err : BUILD_TOPIC(topic_get_accepted, "$next/get/accepted");
+	err = err ? err : BUILD_TOPIC(topic_get_rejected, "$next/get/rejected");
+	err = err ? err : BUILD_TOPIC(topic_update_accepted, "+/update/accepted");
+	err = err ? err : BUILD_TOPIC(topic_update_rejected, "+/update/rejected");
+	err = err ? err : BUILD_TOPIC(topic_get_next, "$next/get");
 	if (err) {
 		return err;
 	}
