@@ -6,7 +6,7 @@ activityCompose = "1.13.0"
 lifecycle = "2.11.0"
 coreKtx = "1.19.1"
 coroutines = "1.11.0"
-serialization = "1.12.0"
+serialization = "1.13.0"
 appauth = "0.11.1"
 securityCrypto = "1.1.0"
 # Fingerprint unlock: the newest stable androidx.biometric. It shows its own dialog through AppCompat
