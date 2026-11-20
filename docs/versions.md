@@ -4,13 +4,14 @@ These things have their own version number, changelog and git tags. The rule is 
 for almost everything (1.11.0 to 1.11.1), the middle one only for something big (1.11.x to 1.12.0), and never the
 first; see [Which number goes up](#which-number-goes-up). Each version is a git tag on the commit it was built from, so `git checkout <tag>` gives exactly that source.
 
-| What | Version lives in | Changelog | In the files (2026-11-10) | Shown |
+| What | Version lives in | Changelog | In the files (2026-11-20) | Shown |
 | --- | --- | --- | --- | --- |
-| Firmware | `firmware/app/VERSION` (`scripts/firmware/build.sh` sets the next one) | [`firmware/CHANGELOG.md`](../firmware/CHANGELOG.md) | 1.19.0 (draft, not tested on a board; the release image is 1.15.0, built); the newest tag is `firmware-v1.15.0` (1.14.1 to 1.15.0 are tagged) | On the console's Firmware page, each release with its note from the changelog |
-| Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | 2.21.0; the newest tag is `console-v2.21.0`, pushed so that GitHub Actions deploys it | At the foot of every page of the console ("Console 2.21.0"), What's new on its History page, and `GET /api/me` |
-| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.9.0; the newest tag is `ios-v0.8.16`, published | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
-| Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.9.0; the newest tag is `android-v0.8.16`, published | More, Help, About in the app; the console's Apps page, each version as it was published |
-| Desktop app, Windows and Linux (one each) | `extraMetadata.version` in `apps/desktop/electron-builder.<platform>.yml`, `windows` or `linux`; a checkout of `apps/desktop/` alone runs as 0.0.0 | `apps/desktop/CHANGELOG.<platform>.md` | 0.1.14 for each; the newest tags are `desktop-windows-v0.1.0` and `desktop-linux-v0.1.0` | The app's Settings and About; the pages' foot names the app's version ([docs/desktop-app.md](desktop-app.md)) |
+| Firmware | `firmware/app/VERSION` (`scripts/firmware/build.sh` sets the next one) | [`firmware/CHANGELOG.md`](../firmware/CHANGELOG.md) | 1.19.3 (not tried on a board; the golden promotion in it is untried too); the newest tags are `v1.19.2` and `v1.19.3` (from 1.19.2 the tag is `v<version>`; `firmware-v1.18.0` and earlier have the old name; 1.19.0 and 1.19.1 have none) | On the console's Firmware page, each release with its note from the changelog |
+| Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | 2.28.0; the newest tag is `console-v2.28.0`, pushed so that GitHub Actions deploys it | At the foot of every page of the console ("Console 2.28.0"), What's new on its History page, and `GET /api/me` |
+| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.9.1; the newest tag is `ios-v0.9.1` | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
+| Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.9.1; the newest tag is `android-v0.9.1` | More, Help, About in the app; the console's Apps page, each version as it was published |
+| Desktop app, Windows and Linux (one each) | `extraMetadata.version` in `apps/desktop/electron-builder.<platform>.yml`, `windows` or `linux`; a checkout of `apps/desktop/` alone runs as 0.0.0 | `apps/desktop/CHANGELOG.<platform>.md` | 0.1.15 for each; the newest tags are `desktop-windows-v0.1.0` and `desktop-linux-v0.1.0` (the installers kept in `apps/dist/` are 0.1.0) | The app's Settings and About; the pages' foot names the app's version ([docs/desktop-app.md](desktop-app.md)) |
+| Mac app | `MARKETING_VERSION` in `apps/macos/project.yml` | [`apps/macos/CHANGELOG.md`](../apps/macos/CHANGELOG.md) | 0.4.0; no tag yet | The app's Settings and About ([docs/mac-app.md](mac-app.md)) |
 
 ## Which number goes up
 
@@ -47,10 +48,16 @@ what the apps show without a new app version, and the app's settings say which c
 | 2026-11-10 | 2.20.1 | | | "Roll back to last good" as the one way back |
 | 2026-11-10 | 2.21.0 | | | Bulk board setup |
 | 2026-11-10 | 2.22.0 | 0.8.20 | | Your listening on the customer site |
-| (draft) | | 0.9.0 | | Offline Bluetooth mode (firmware 1.19.0 in the same pull request) |
+| 2026-11-11 | 2.27.0 | 0.9.0 | | Offline Bluetooth mode (firmware 1.19.1; Mac app 0.4.0) |
+| 2026-11-11 | 2.27.5 | 0.9.1 | | Hand-over health, Look for boards in reach, passkey commands on record (firmware 1.19.2) |
+| 2026-11-11 | 2.27.6 | | | Board log location lines, refused Bluetooth updates on record, whole local days |
+| 2026-11-15 | 2.27.7 | | | Make golden (firmware 1.19.3), readable timeline counts |
+| 2026-11-15 | 2.28.0 | | | Navigation in groups, a floating tab bar, Fleet folded into Devices and Deployments |
+| 2026-11-16 | | | 0.1.15 | The desktop app's Bluetooth reader refuses malformed answers |
 
-The console's 2.18.0 to 2.22.0 are tagged `console-v<version>`. The apps' 0.8.17 to 0.8.20 and the desktop app's 0.1.12 to
-0.1.14 have no tags yet (the newest app tags are `ios-v0.8.16` and `android-v0.8.16`).
+The console's 2.18.0 to 2.28.0 are tagged `console-v<version>` (2.27.1 to 2.27.3 have no entry). The apps' 0.8.17 to 0.8.20 and
+the desktop app's 0.1.1 to 0.1.15 have no tags (the app tags are `ios-v0.8.21`, `ios-v0.9.0`, `ios-v0.9.1` and the same for
+Android).
 
 ## Making a version
 
@@ -61,8 +68,8 @@ The console's 2.18.0 to 2.22.0 are tagged `console-v<version>`. The apps' 0.8.17
    push is also the deploy: Actions runs `cloud/deploy.sh` for it.
 4. For a GitHub Release, `scripts/release/notes.sh <from> <to> <area>` writes the notes from the commits between two tags.
 
-Every version listed in a changelog with a commit should have its tag; the apps' 0.8.9 on and the desktop app's 0.1.1 on
-have none yet. The firmware's 1.14.1 to 1.15.0 are tagged.
+Every version listed in a changelog with a commit should have its tag; most of the apps' 0.8.9 to 0.8.22 and the desktop
+app's 0.1.1 to 0.1.15 have none, and nor has the Mac app. The firmware's 1.14.1 to 1.15.0, 1.18.0, 1.19.2 and 1.19.3 are tagged.
 
 **Console tags are deploy tags.** Pushing `console-v<version>` starts the Deploy console workflow, which deploys that commit
 ([`docs/ci.md`](ci.md#deploying-the-console-from-github-actions)). The console's tags are `console-v2.4.3` and before,
@@ -85,7 +92,7 @@ never moved, so the console goes on from 2.x (2.0.1, 2.1.0, ...) under the same 
 from `cloud/VERSION`, the commit and whether the files matched it, and every entry of the four changelogs, newest
 first, each its version and first paragraph (and its commit and date where the entry names them). So:
 
-- **The console's version** is at the foot of every page, "Console 2.21.0 · <commit>", from `GET /api/me`, which says
+- **The console's version** is at the foot of every page, "Console 2.28.0 · <commit>", from `GET /api/me`, which says
   `console: { version, commit }`. The phone apps read it there too.
 - **What's new**, on the History page, lists the console's versions with their notes, the deployed one marked.
 - **Release notes** (Developer, `#/release-notes`, and `#/release-notes/<product>` for one tab: `console`, `firmware`,

@@ -94,7 +94,7 @@ image on a board checks it. The board's own check is the last word.
     a trace of a Memfault issue or an unexpected reboot (an Assert, a fault, a watchdog, a stuck restart: Memfault's
     reboot reasons from 0x8000). None: the gate passes, on record as `rollout.advance` with `gate passed`, and the
     stage starts once the soak time is over too. One: the rollout stops, code `health_failed`, naming the board, and
-    the issue's number and title with a link to it on the Memfault page, or the reboot's reason. If Memfault cannot
+    the issue's number and title with a link to it on the Crashes page (`#/memfault`), or the reboot's reason. If Memfault cannot
     be read (no token, refused, limited, unreachable), the gate waits, never passes, and after 30 minutes stops the
     rollout with `health_unknown` and says why. Both stops raise the "rollout stopped by itself" alert
     ([alerts.md](alerts.md)). The create form has **Health gate** on, 10 minutes, by default; a request that gives no
@@ -104,6 +104,9 @@ image on a board checks it. The board's own check is the last word.
     limit (default 20%, from the first finished board; AWS IoT's abort configuration stops what has not started), the
     health gate, a release revoked, or a cancellation: the rollout stops and says why. Each change of stage is a conditional write on
     the rollout, so two runs of the schedule never start a stage twice.
+  - **No time limit for a canary yet.** A canary that hangs fails only when its job times out, after 30 minutes, and a
+    plain deployment (one board) has no canary. A limit of a few minutes, after which the rest is halted, is planned
+    ([`roadmap.md`](roadmap.md)).
   - **Choices.** The create form (Roll out to a group; New deployment for boards picked by hand; Update everything)
     takes the canary size, the number of stages, the batch size of each stage but the last (a
     percent or a count of the boards after the canary; the last stage takes the rest; empty stages are left out), the

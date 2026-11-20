@@ -19,6 +19,9 @@ The newest build of each app:
   `join-build.sh` joins the parts in order, checks the joined file against its SHA-256 and keeps it only if it
   matches, made executable.
 
+The desktop installers kept here are 0.1.0, built on 2026-11-09, and are stale: the desktop app is at 0.1.15 for Windows and
+Linux (`apps/desktop/CHANGELOG.<platform>.md`). Newer ones come from the release job, which a tag starts.
+
 `SHA256SUMS` and `latest.json` list every build here; both scripts write them (`apps/write-dist-index.py`). Check the
 builds with `shasum -a 256 -c SHA256SUMS`. How to install them: [`../README.md`](../README.md). Local builds also land
 in this folder; git ignores those unless a script adds them on purpose.

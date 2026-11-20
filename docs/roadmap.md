@@ -1,13 +1,78 @@
 # Roadmap: what is expected to happen
 
-What has been done lately, what is being built now, and what is planned, in plain words. Nothing here has a date: an
-item moves up this page when work on it starts, and out of it when it is done and described in its own document. The
+What has been done lately, what is being built now, what is planned and what is on hold, in plain words. Items have no
+dates: an item moves up this page when work on it starts, and out of it when it is done and described in its own document. The
 versions in the files are in [`versions.md`](versions.md); what each change did is in the changelogs.
 
 ## Done recently
 
+Newest first. The ordered work list is the pinned issue #128.
+
+- **Golden image promotion over the air** (firmware 1.19.3, console 2.27.7): the golden image in external flash can be
+  replaced with a record signed by an offline key, from Make golden on the Firmware page. It needs 1.19.3's bootloader,
+  which takes one flash through the debug port. **Not tried on a board yet**; the golden image in external flash is still
+  1.5.0 ([`../firmware/README.md`](../firmware/README.md), "Golden image").
+- **A new console layout** (console 2.28.0): navigation in groups, a floating tab bar shaped for the iPhone 17 Pro's
+  corners, Fleet folded into Devices and Deployments, and Memfault named Crashes ([`console-design.md`](console-design.md)).
+- **Readable counts on the Events timeline** (console 2.27.7): no two numbers overlap, also on a phone.
+- **Console fixes** (console 2.27.4 to 2.27.6): a customer sees a board's activity, sessions and health only from when it
+  became theirs; Look for boards stays in reach; a Bluetooth passkey set at the serial console goes on record; Wi-Fi location
+  lines are kept; a refused update for another board is shown, warned and alerted.
+- **Firmware 1.19.1 and 1.19.2** (offline mode on top of listening sessions; the board's own passkey is read at every start,
+  a Bluetooth window closes when its time is up, Memfault's metric names match the SDK's). Not yet tried on a board.
+- **Offline Bluetooth mode** (console 2.27.0, apps 0.9.0, Mac app 0.4.0): the console's Offline page, in the iPhone, Android and
+  Mac apps, reads a board's status and accepts a waiting update over Bluetooth with the board's own passkey, no cloud
+  ([`mobile-apps.md`](mobile-apps.md#offline-mode)). Apps 0.9.1 put the serial passkey commands on record.
+- **Desktop app 0.1.15** for Windows and Linux: the Bluetooth reader refuses malformed answers. The installers kept in
+  `apps/dist/` are the 0.1.0 ones of 2026-11-09 and are stale; the newer versions are built by the release job
+  ([`desktop-app.md`](desktop-app.md#releases)).
+- **The closed-loop bench** (pull requests #261 and #263): a host-side bench with a Bluetooth telemetry app, a logic analyser
+  and a power profiler, MCP tools and 29 host tests that run in CI, and the Hapimatic demo runbook ([`../closed-loop/README.md`](../closed-loop/README.md),
+  [`hapimatic-demo.md`](hapimatic-demo.md)). Not yet run on hardware.
+- **Documentation**: the feature catalog ([`feature-catalog.md`](feature-catalog.md)), and README sections 3.7 (Closing the
+  Loop) and 3.8 (Concept Refinement).
 - **A firmware build image on GitHub Packages** (pull request #93): the NCS 3.4.0 toolchain and SDK in one image, built
   by `firmware-image.yml`; the firmware jobs move to it once it is published ([`ci.md`](ci.md)).
+
+## In progress
+
+Draft pull requests.
+
+- **Our own Issues under Crashes** (#259): stage 1 of our own Memfault, built into the console.
+- **A redesign of the customer site** (#257).
+- **Board setup and the Bluetooth update on a real board, in the Mac and desktop apps** (#220).
+- **Raspberry Pi updates through the board** (#196): the nRF7002 DK hands an update to the Pi over SPI. A teammate's Pi link
+  over SPI (#58) is open for review.
+- **Adam's CRANIUM Mix app import** (#272) is under review and not on main.
+
+## Planned next, in this order
+
+1. Console fixes from the third bug hunt (console 2.28.3).
+2. Board setup detection for both boards (console 2.28.4).
+3. The page redesigns #116 to #121 (console 2.28.5).
+4. Our own Memfault, stage 2: metrics, vitals and a device timeline (console 2.28.6).
+5. **A time limit for a canary.** If a rollout's canary has not confirmed within a few minutes, the rest is halted. Today a
+   canary that hangs fails only at the 30-minute job timeout, and a plain deployment has no canary ([`fleet.md`](fleet.md),
+   [`mass-updates.md`](mass-updates.md)).
+6. Push notifications for board events, then home-screen widgets and Live Activities (needs the Apple and Firebase keys).
+7. Sessions and tracks sent from the board, so that Now playing and the play times are real, replacing the customer site's
+   demo and its import journal ([`customer-data.md`](customer-data.md)).
+
+These console versions are plans; the numbers may change when branches merge.
+
+## On hold
+
+- **Firmware RAM and flash headroom** (#244), parked: the nRF7002 DK's RAM is nearly full (1,004 bytes free in 1.19.2).
+- **Matter over Thread** (#240), low priority: it waits for a test on hardware and for two teammates' review.
+- **Raspberry Pi over-the-air updates straight from the console** (draft pull request #42): waiting for a test on the
+  hardware ([`raspberry-pi-ota.md`](raspberry-pi-ota.md)).
+- **Customer e-mails (SES)**: the choices are kept, but nothing is sent until an SES identity exists
+  ([`customer-site.md`](customer-site.md)).
+- **Remote update approval** from the site or the apps.
+- **The Mixxx Zephyr port**, a side project, archived.
+
+## Done earlier
+
 - **Listening stats** (console 2.22.0, apps 0.8.20): a "Your listening" tab on the customer site and in the apps'
   customer mode ([`customer-site.md`](customer-site.md)).
 - **Security hardening** (console 2.21.1): the live connection rechecks the account, customers' own names are clamped,
@@ -52,30 +117,3 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 - **Every release image kept in git**, and the console deployed from GitHub Actions ([`ci.md`](ci.md)).
 - **A native Mac app** (Mac app 0.3.0): the console's own pages, with the Serial console, Board setup, Bluetooth updates
   and the Mac's menus ([`mac-app.md`](mac-app.md)).
-
-## In progress
-
-- **A redesign of the console**, readability first: the ordered list is the pinned work list issue (#128).
-- **Raspberry Pi updates through the board** (firmware 1.20.0, draft pull request #101), waiting on review fixes and a
-  test on a board.
-- **Listening sessions from the board** (firmware 1.18.0, pull request #98): tested on a board, in review.
-- **Offline Bluetooth mode** (firmware 1.19.1, console 2.27.0, apps 0.9.0, draft pull request): the console's Offline page,
-  in the iPhone, Android and Mac apps, reads a board's status and accepts a waiting update over Bluetooth with the board's
-  own passkey, no cloud ([`mobile-apps.md`](mobile-apps.md#offline-mode)). Firmware 1.19.0 (before sessions) runs on an nRF7002 DK; 1.19.1 is built.
-
-## Planned next, in this order
-
-1. Push notifications for board events, then home-screen widgets and Live Activities (needs the Apple and Firebase
-   keys).
-2. An offline Bluetooth mode, with a passkey for each board.
-3. Sessions and tracks sent from the board, so that Now playing and the play times are real. This replaces the customer
-   site's demo and its import journal ([`customer-data.md`](customer-data.md)).
-
-## On hold
-
-- **Raspberry Pi over-the-air updates** (firmware 1.16.0, draft pull request #42): waiting for a test on the
-  hardware ([`raspberry-pi-ota.md`](raspberry-pi-ota.md)).
-- **Customer e-mails (SES)**: the choices are kept, but nothing is sent until an SES identity exists
-  ([`customer-site.md`](customer-site.md)).
-- **Remote update approval** from the site or the apps.
-- **The Mixxx Zephyr port** (pull request #3), a side project.

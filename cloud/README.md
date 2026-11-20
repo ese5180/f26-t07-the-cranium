@@ -598,7 +598,7 @@ page, and some of it on the others.
   only offers a release to the boards of its type and layout, and the API refuses any other
   (`incompatible_board`, `incompatible_layout`). The Devices page marks a board without Wi-Fi as "Bluetooth only",
   with the version a phone last saw on it, and the Overview counts it apart from boards that never connected.
-- **Groups.** Release managers make, rename, change and delete them on the Fleet page or the Devices page. A board
+- **Groups.** Release managers make, rename, change and delete them on the Devices page (the Fleet page is gone since 2.28.0). A board
   can be in several. Every board is also in the group of its type.
 - **Staged rollouts.** A deployment of more than one board from the website, a rollout to a group (its "Roll out"
   button), and each type of "Update everything" start with a canary, one board unless you ask for more. Its page
@@ -607,7 +607,7 @@ page, and some of it on the others.
   deployment to one board, and every deployment from the API (`POST /api/deployments`), is one job as before.
 - **Update everything** reviews, by type, the newest release, the boards it goes to and the ones it leaves out, and
   starts one staged rollout per type.
-- **Roll back to last good** (on a group and on the Fleet page) is the one way back: each board goes to its last good
+- **Roll back to last good** (on a group on Devices, and on the Deployments page) is the one way back: each board goes to its last good
   version, as a rebuild of the old source under a newer version (a release whose note begins `Rebuild of <version>`),
   with the health gate on. The group "Roll back" of the release before the newest was removed in 2.19.1.
 - **A release's note.** "Edit note" on any release, revoked ones too. Scripts set it with an API token:
@@ -669,7 +669,7 @@ console as admin mode at `/admin`; `--scenario customers` gives it customers and
 While a scenario is built the boards that are on report every minute, and every report and
 connection goes through the recorder's own code, so the Events and Diagnostics pages have a
 history. `--scenario fleet` has two days of three boards with an event of every kind and a
-board on firmware 1.10.0 with its diagnostics, and for the Fleet page two nRF5340 DKs that a phone has seen, a
+board on firmware 1.10.0 with its diagnostics, and for Devices and Deployments two nRF5340 DKs that a phone has seen, a
 release of each type, two groups and a staged rollout whose wave waits for a board that is offline. Its images
 are built for the run and signed with a key the preview makes (`api/test/images.mjs`), so in that scenario a
 fixture image is refused as signed with another key. The preview runs the rollouts' schedule every minute.
