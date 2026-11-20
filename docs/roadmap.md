@@ -49,7 +49,7 @@ Draft pull requests.
 
 1. Console fixes from the third bug hunt (console 2.28.3).
 2. Board setup detection for both boards (console 2.28.4).
-3. The page redesigns #116 to #121 (console 2.28.5).
+3. More page redesign on top of 2.28.0's, which closed #116 to #121 (console 2.28.5).
 4. Our own Memfault, stage 2: metrics, vitals and a device timeline (console 2.28.6).
 5. **A time limit for a canary.** If a rollout's canary has not confirmed within a few minutes, the rest is halted. Today a
    canary that hangs fails only at the 30-minute job timeout, and a plain deployment has no canary ([`fleet.md`](fleet.md),
@@ -62,7 +62,7 @@ These console versions are plans; the numbers may change when branches merge.
 
 ## On hold
 
-- **Firmware RAM and flash headroom** (#244), parked: the nRF7002 DK's RAM is nearly full (1,004 bytes free in 1.19.2).
+- **Firmware RAM and flash headroom** (#244), parked: the nRF7002 DK's RAM is nearly full (932 bytes free in 1.19.3).
 - **Matter over Thread** (#240), low priority: it waits for a test on hardware and for two teammates' review.
 - **Customer e-mails (SES)**: the choices are kept, but nothing is sent until an SES identity exists
   ([`customer-site.md`](customer-site.md)).
