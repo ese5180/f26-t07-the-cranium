@@ -55,7 +55,7 @@ what the apps show without a new app version, and the app's settings say which c
 | 2026-11-15 | 2.28.0 | | | Navigation in groups, a floating tab bar, Fleet folded into Devices and Deployments |
 | 2026-11-16 | | | 0.1.15 | The desktop app's Bluetooth reader refuses malformed answers |
 
-The console's 2.18.0 to 2.28.0 are tagged `console-v<version>` (2.27.1 to 2.27.3 have no entry). The apps' 0.8.17 to 0.8.20 and
+The console's 2.18.0 to 2.28.0 are tagged `console-v<version>`, except 2.25.7 and 2.27.4, which have no tag (2.27.1 to 2.27.3 have no entry). The apps' 0.8.17 to 0.8.20 and
 the desktop app's 0.1.1 to 0.1.15 have no tags (the app tags are `ios-v0.8.21`, `ios-v0.9.0`, `ios-v0.9.1` and the same for
 Android).
 
