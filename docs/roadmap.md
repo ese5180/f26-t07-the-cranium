@@ -64,8 +64,6 @@ These console versions are plans; the numbers may change when branches merge.
 
 - **Firmware RAM and flash headroom** (#244), parked: the nRF7002 DK's RAM is nearly full (1,004 bytes free in 1.19.2).
 - **Matter over Thread** (#240), low priority: it waits for a test on hardware and for two teammates' review.
-- **Raspberry Pi over-the-air updates straight from the console** (draft pull request #42): waiting for a test on the
-  hardware ([`raspberry-pi-ota.md`](raspberry-pi-ota.md)).
 - **Customer e-mails (SES)**: the choices are kept, but nothing is sent until an SES identity exists
   ([`customer-site.md`](customer-site.md)).
 - **Remote update approval** from the site or the apps.

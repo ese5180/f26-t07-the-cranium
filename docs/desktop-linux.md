@@ -77,7 +77,7 @@ Chromium has Web Bluetooth on Linux, through BlueZ (5.41 or later), but only whe
 `--enable-experimental-web-platform-features`. Windows needs neither, and has neither.
 
 When the app pairs with a board, BlueZ asks the app, and the app shows a box for the passkey. Type the six digits the
-console shows at the top of its Bluetooth page. BlueZ keeps the pairing (`bluetoothctl devices Paired`).
+console shows at the top of its Bluetooth page, or, for a board that has its own passkey (made with `BT_OFFLINE|NEW`), that one; the page says when to type it. BlueZ keeps the pairing (`bluetoothctl devices Paired`).
 
 **Signing in.** The refresh token is sealed with the desktop's keyring through Electron's `safeStorage`: GNOME Keyring
 or KWallet, through the Secret Service. Without a keyring (a bare window manager), the app keeps it in memory only,
