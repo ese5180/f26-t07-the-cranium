@@ -81,6 +81,10 @@ jobs:
       # The Pi's sender against a fake board (standard library only; no SPI hardware in CI).
       - name: Test the Pi link's sender
         run: python3 pi/tests/test_cranium_link.py
+      # Pi OS updates: deltas, signed update files and the A/B slots with tryboot, on files that stand
+      # for the SD card's partitions (openssl, for Ed25519, is on the runner).
+      - name: Test the Pi's OS updates
+        run: python3 pi/tests/test_cranium_ota.py
       - name: Install what the tools and imgtool need
         run: python3 -m pip install --quiet --requirement firmware/tests/requirements.txt
       - name: Fetch the files of the SDK that the tests read
