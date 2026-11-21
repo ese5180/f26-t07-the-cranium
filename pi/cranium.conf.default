@@ -36,3 +36,9 @@ CRANIUM_MESSAGES_MAX_MB=10
 CRANIUM_SPI=0.0
 CRANIUM_SPI_HZ=1000000
 CRANIUM_READY_GPIO=25
+
+# OS updates with A/B slots and tryboot (bin/cranium-update, docs/pi-tryboot.md), on a card set up by
+# bin/cranium-ab-setup. A slot on trial is kept if CRANIUM_OTA_HEALTH succeeds within
+# CRANIUM_OTA_CONFIRM_SECONDS; otherwise the Pi goes back to the old slot.
+CRANIUM_OTA_HEALTH="$CRANIUM_PI/bin/cranium-link --status"
+CRANIUM_OTA_CONFIRM_SECONDS=300

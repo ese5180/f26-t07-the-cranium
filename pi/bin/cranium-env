@@ -2,6 +2,9 @@
 # ~/.config/cranium/cranium.conf (or $CRANIUM_CONF) over them. Sets CRANIUM_PI to the pi/ folder.
 
 CRANIUM_PI=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
+# A systemd service (cranium-update-confirm) starts with no HOME, and the settings use it.
+HOME=${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}
+export HOME
 # shellcheck source=../cranium.conf.default
 . "$CRANIUM_PI/cranium.conf.default"
 CRANIUM_CONF=${CRANIUM_CONF:-$HOME/.config/cranium/cranium.conf}

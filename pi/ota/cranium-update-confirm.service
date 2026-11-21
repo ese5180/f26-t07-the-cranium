@@ -1,0 +1,16 @@
+# At every boot: after a tryboot, keep the slot on trial if its health check passes, otherwise reboot
+# into the old slot (pi/cranium_ota.py confirm, docs/pi-tryboot.md). bin/cranium-ab-setup installs it,
+# with the paths of the card's cranium user.
+[Unit]
+Description=Cranium OS update: keep or roll back a slot on trial
+After=network-online.target dev-spidev0.0.device
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=CRANIUM_CONF=/home/cranium/.config/cranium/cranium.conf
+ExecStart=/home/cranium/cranium/pi/bin/cranium-update confirm
+StandardOutput=journal
+
+[Install]
+WantedBy=multi-user.target

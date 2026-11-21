@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Cranium OS updates (pi/cranium_ota.py, docs/pi-tryboot.md) with the settings of cranium.conf:
+#   sudo cranium-update apply <update file>   rebuild the spare slot, boot it once on trial
+#   sudo cranium-update confirm               at boot (cranium-update-confirm.service): keep or go back
+#   cranium-update status                     the running slot and version, as JSON
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/cranium-env"
+for name in "${!CRANIUM_OTA_@}"; do
+    export "$name"
+done
+exec python3 "$CRANIUM_PI/cranium_ota.py" "$@"
