@@ -120,7 +120,7 @@ export function buildJobDocument({ version, size, sha256, region, bucket }) {
 }
 
 /** JSON in printable ASCII only, which every AWS text field accepts. */
-function asciiJson(value) {
+export function asciiJson(value) {
   return JSON.stringify(value).replace(
     /[\u007f-\uffff]/g,
     (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`

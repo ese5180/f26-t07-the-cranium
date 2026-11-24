@@ -223,7 +223,20 @@ export function repliesFor(world, { viewer = false } = {}) {
     // What fleet.js reads (docs/fleet.md): no groups, and nothing to say of the fleet's health.
     ['/api/fleet', { boards: [], groups: [], types: [] }],
     ['/api/fleet/health?days=30', {}],
+    // Raspberry Pi images (console 2.29.0): what a world says it holds, else none.
+    [
+      '/api/pi-images',
+      {
+        images: world.piImages ?? [],
+        deployments: world.piDeployments ?? [],
+        firstFirmware: '1.20.0',
+        maxPackageSize: 5 * 1024 ** 3,
+      },
+    ],
   ]);
+  for (const [version, boards] of Object.entries(world.piEstimates ?? {})) {
+    replies.set(`/api/pi-images/${encodeURIComponent(version)}/estimate`, { version, boards });
+  }
   // The update history (GET /api/updates): what a world says it holds, else nothing.
   const updates = world.updates ?? [];
   replies.set('/api/updates?limit=25', { updates, cursor: null, generatedAt: ago(0) });

@@ -93,6 +93,12 @@ export const ACTIONS = Object.freeze([
   // Golden image promotion (handlers/golden.mjs, console 2.27.7): a release's signed record, and a promotion.
   'firmware.golden_record',
   'golden.promote',
+  // Raspberry Pi images (handlers/pi-images.mjs, console 2.29.0): a package described and its URL, what arrived
+  // checked, a deployment to boards with a Pi, and its cancellation.
+  'firmware.pi_upload',
+  'firmware.pi_verify',
+  'deployment.pi_create',
+  'deployment.pi_cancel',
   // The phone apps (handlers/apps.mjs): the URL an APK is sent to S3 with, the release published once
   // what arrived is checked, and each download link handed out, for a person or a QR code.
   'app.upload',

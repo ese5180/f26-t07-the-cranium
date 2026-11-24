@@ -95,7 +95,7 @@ const DETAIL_KEY = /^[a-zA-Z0-9:_-]{1,128}$/;
 const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'TIMED_OUT', 'REJECTED', 'REMOVED', 'CANCELED']);
 const DEVICE_STATUSES = new Set(['IN_PROGRESS', 'SUCCEEDED', 'FAILED', 'REJECTED']);
 const REPEATED_CANCEL = Object.freeze(['refused', 'accepted', 'ignored']);
-const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH', 'RPT', 'SCH', 'NAME']);
+const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH', 'RPT', 'SCH', 'NAME', 'PIIMG']);
 const FAILURE_TYPES = Object.freeze({
   FAILED: ['FAILED'],
   REJECTED: ['REJECTED'],
@@ -211,6 +211,26 @@ export function createFakeAws({
   const booted = new Map(); // name -> when the board's uptime started, in ms
   const jobs = new Map(); // jobId -> job
   const objects = new Map(); // key -> { body, contentType, sha256Base64, tags }
+  // The Raspberry Pi packages (handlers/pi-images.mjs): the URLs handed out, the ranges read, and what a
+  // browser sends to such a URL: S3 stores it only under a new key ("only if new").
+  const piUploads = {
+    issued: [],
+    ranges: [],
+    receive(key, body) {
+      if (objects.has(key)) return { stored: false, status: 412 };
+      objects.set(key, {
+        body: Buffer.from(body),
+        contentType: 'application/octet-stream',
+        sha256Base64: null,
+        tags: {},
+      });
+      return { stored: true };
+    },
+    object(key) {
+      const object = objects.get(key);
+      return object === undefined ? null : { size: object.body.length, tags: { ...object.tags } };
+    },
+  };
   const releases = new Map(); // sk -> item
   const auditItems = new Map(); // sk -> item
   // What customers did on the customer site (pk CUS of the audit table): sk -> item.
@@ -678,6 +698,39 @@ export function createFakeAws({
       // The bucket policy refuses a revoked object, as it refuses a missing one.
       if (object === undefined || object.tags.revoked === 'true') return null;
       return Buffer.from(object.body);
+    },
+
+    /**
+     * A URL to PUT a Raspberry Pi image package to (aws.mjs presignPiUpload). What a browser then sends is
+     * piUploads.receive() below: the size is held to the signed one, and an object that exists is kept.
+     */
+    async presignPiUpload({ key, size, expiresIn }) {
+      if (typeof key !== 'string' || !key.startsWith('firmware/')) throw invalid('PresignPutObject', 'key');
+      if (!Number.isSafeInteger(size) || size <= 0) throw invalid('PresignPutObject', 'size');
+      if (!Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > 604800)
+        throw invalid('PresignPutObject', 'expires');
+      piUploads.issued.push({ key, size, expiresIn });
+      return {
+        url: `https://bucket.s3.example/${key}?X-Amz-Expires=${expiresIn}&n=${piUploads.issued.length}`,
+        headers: { 'if-none-match': '*' },
+        expiresAt: new Date(clock() + expiresIn * 1000).toISOString(),
+      };
+    },
+
+    async headFirmwareObject(key) {
+      const object = objects.get(key);
+      return object === undefined || object.tags.revoked === 'true' ? null : { size: object.body.length };
+    },
+
+    async getFirmwareRange(key, first, last) {
+      if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || first < 0 || last < first) {
+        throw invalid('GetObject', 'Range');
+      }
+      const object = objects.get(key);
+      if (object === undefined || object.tags.revoked === 'true') return null;
+      piUploads.ranges.push({ key, first, last });
+      // As S3 does: a range past the end is cut at the end.
+      return Buffer.from(object.body.subarray(first, Math.min(last + 1, object.body.length)));
     },
 
     async tagFirmwareRevoked(key) {
@@ -1204,6 +1257,9 @@ export function createFakeAws({
   Object.assign(fake, {
     /** Every adapter call so far, in order: { method, args }. */
     calls,
+
+    /** The Raspberry Pi packages: URLs handed out, ranges read, and a browser's PUT (receive). */
+    piUploads,
 
     /** The names of the adapter methods called so far, in order. */
     methodsCalled() {

@@ -4,6 +4,12 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.9.2
+
+Raspberry Pi images from the console (2.29.0 and later): the Firmware page lists them, deploys one to the boards wired to a Pi with what each would download, and follows each board's progress; the Devices list marks the boards with a Pi. A package is uploaded from the console's website. The activity log names the four new actions, and the console's refusals read in the same words. (build 41)
+
+`CraniumKit/Sources/CraniumKit/Words.swift`: `firmware.pi_upload`, `firmware.pi_verify`, `deployment.pi_create`, `deployment.pi_cancel` and the refusals of `handlers/pi-images.mjs`. The pages are the console's.
+
 ## 0.9.1
 
 The activity log names the two serial console commands that set a board's Bluetooth passkey, `BT_PASSKEY` and `BT_OFFLINE|NEW`, in the same words as the console (2.27.5), and the Android app's USB serial console puts them on record once the board answers OK. Never the passkey. (build 40)

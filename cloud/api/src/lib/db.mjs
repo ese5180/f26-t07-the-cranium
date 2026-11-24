@@ -22,7 +22,8 @@ export const HIDDEN = 'hidden';
 export const TABLES = Object.freeze({
   state: Object.freeze({
     label: 'State',
-    about: 'Releases, API tokens, groups, staged rollouts, the phone apps, SideStore links and customers’ boards.',
+    about:
+      'Releases, Raspberry Pi images, API tokens, groups, staged rollouts, the phone apps, SideStore links and customers’ boards.',
     kinds: Object.freeze([
       { id: 'REL', label: 'Firmware releases', pk: 'REL' },
       { id: 'META', label: 'Pointers', pk: 'META' },
@@ -30,6 +31,7 @@ export const TABLES = Object.freeze({
       { id: 'GRP', label: 'Groups', pk: 'GRP' },
       { id: 'ROL', label: 'Staged rollouts', pk: 'ROL' },
       { id: 'SCH', label: 'Scheduled starts', pk: 'SCH' },
+      { id: 'PIIMG', label: 'Raspberry Pi images', pk: 'PIIMG' },
       { id: 'SEEN', label: 'Seen over Bluetooth', pk: 'SEEN' },
       { id: 'HEALTH', label: 'Fleet health snapshots', pk: 'HEALTH' },
       { id: 'APP', label: 'Phone app releases', pk: 'APP' },

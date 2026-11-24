@@ -761,7 +761,11 @@ test('a page whose boards are at rest is read every 30 s, and so are lists that 
   await tab.wait(29000);
   assert.deepEqual(tab.since(mark), []);
   await tab.wait(1000);
-  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet'], 'and what fleet.js shows of it');
+  assert.deepEqual(
+    tab.since(mark).sort(),
+    ['GET /api/firmware', 'GET /api/fleet', 'GET /api/pi-images'],
+    'and what fleet.js shows of it, and the Raspberry Pi images'
+  );
 
   await tab.goto('#/activity');
   mark = tab.requests.length;
@@ -779,7 +783,7 @@ test('a refresh by the clock waits while it would get in the way', async (t) => 
   await tab.press(tab.dialog(), 'button', 'Keep the release');
   mark = tab.requests.length;
   await tab.wait(30000);
-  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet']);
+  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet', 'GET /api/pi-images']);
 
   // With a file in hand.
   await chooseFile(tab);
@@ -788,7 +792,7 @@ test('a refresh by the clock waits while it would get in the way', async (t) => 
   assert.deepEqual(tab.since(mark), []);
   await tab.press(tab.main, 'button', 'Choose another file');
   await tab.wait(30000);
-  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet']);
+  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet', 'GET /api/pi-images']);
 });
 
 test('the log does not take away the pages that were loaded by hand', async (t) => {
@@ -2806,4 +2810,92 @@ test('every page opens with a lede of at most 15 words, and no product page name
   assert.match(textOf(tab.main), /invitations wait until the customer site has its address/);
   // Most pages have a lede; a page that failed to draw would have none and prove nothing.
   assert.ok(ledes >= 12, `${ledes} ledes`);
+});
+
+// Raspberry Pi images (console 2.29.0): the Firmware page's Deploy on a checked image, what each board with a Pi
+// would download, the job, and a board's Pi on the Devices page.
+
+test('a Pi image goes to the boards that can take it, each with what it downloads, from the Firmware page', async (t) => {
+  const pi = { card: 'ready', version: '2026.11.10-1', generation: 1, step: 'idle', done: 0, total: 0 };
+  const world = {
+    ...WORLD,
+    devices: [
+      device(WAITING, { fw: { version: '1.20.0+0', confirmed: true }, pi }),
+      device(INSTALLING, { fw: { version: '1.19.3+0', confirmed: true }, pi: { ...pi, card: 'empty', version: '' } }),
+      device(NEVER, { online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null }),
+    ],
+    piImages: [
+      {
+        kind: 'pi',
+        version: '2026.11.24-1',
+        status: 'active',
+        size: 48128,
+        imageSize: 44032,
+        blockSize: 4096,
+        blocks: 11,
+        sha256: 'e'.repeat(64),
+        notes: '',
+        uploadedBy: { sub: 's', email: 'manager@example.invalid' },
+        uploadedAt: ago(600),
+        verifiedAt: ago(590),
+        refusedReason: '',
+      },
+    ],
+    piEstimates: {
+      '2026.11.24-1': [
+        {
+          thing: WAITING,
+          from: '2026.11.10-1',
+          fromSource: 'card',
+          fromKnown: true,
+          blocks: 11,
+          changed: 3,
+          bytes: 12128,
+          imageBytes: 44032,
+          runs: 3,
+        },
+      ],
+    },
+  };
+  const posted = [];
+  const tab = await openTab(t, {
+    world,
+    hash: '#/firmware',
+    answer: (method, url, body) => {
+      if (method !== 'POST' || !url.startsWith('/api/pi-images/')) return null;
+      posted.push([url, body]);
+      return Response.json(
+        {
+          deployment: {
+            id: 'pi-2026-11-24-1-20261124T120000Z-beef',
+            version: '2026.11.24-1',
+            status: 'IN_PROGRESS',
+            things: body.things,
+            counts: { queued: 1 },
+            executions: [],
+          },
+        },
+        { status: 201 }
+      );
+    },
+  });
+  const row = one(tab.main, 'li.pi-image');
+  assert.match(textOf(row), /2026\.11\.24-1/);
+  await tab.press(row, 'button', 'Deploy');
+  const dialog = tab.dialog();
+  assert.ok(tab.requests.some((request) => request.url === '/api/pi-images/2026.11.24-1/estimate'));
+  assert.match(textOf(dialog), /3 of 11 blocks from 2026\.11\.10-1: 12 KiB, about 1 min at 10 KB\/s/);
+  assert.match(textOf(dialog), /Needs firmware 1\.20\.0 or later built with --pi; runs 1\.19\.3\+0/);
+  await tab.submit();
+  assert.deepEqual(posted, [['/api/pi-images/2026.11.24-1/deploy', { things: [WAITING], note: '' }]]);
+  assert.equal(tab.dialog(), null);
+  assert.deepEqual(tab.toasts(), [
+    'The Pi image 2026.11.24-1 goes to 1 board. Each one’s progress is under Pi deployments.',
+  ]);
+
+  // The board with a Pi is marked in the Devices list.
+  await tab.goto('#/devices');
+  const marks = all(tab.main, 'p.device-pi');
+  assert.equal(marks.length, 2);
+  assert.match(textOf(marks[0]), /Raspberry Pi/);
 });

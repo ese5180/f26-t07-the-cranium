@@ -92,6 +92,7 @@ import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
 import { createEventHandlers } from './handlers/events.mjs';
 import { UPLOAD_BODY_LIMIT, createFirmwareHandlers } from './handlers/firmware.mjs';
+import { createPiImageHandlers } from './handlers/pi-images.mjs';
 import { createGoldenHandlers } from './handlers/golden.mjs';
 import { createFleetHandlers } from './handlers/fleet.mjs';
 import { createGroupHandlers } from './handlers/groups.mjs';
@@ -342,6 +343,8 @@ export function createApp({
   const firmware = createFirmwareHandlers(context, { deployments, fleet });
   // Golden image promotion (console 2.27.7, firmware 1.19.3): a release's signed record, and its jobs.
   const golden = createGoldenHandlers(context, { devices, fleet });
+  // Raspberry Pi images updated by blocks through the board (console 2.29.0, firmware 1.20.0 built with --pi).
+  const piImages = createPiImageHandlers(context, { devices, deployments });
   const groups = createGroupHandlers(context, { devices, fleet });
   const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit, updates: () => updates });
   // Starts asked for later (console 2.20.0): made, edited and cancelled here, started by the schedule (tick.mjs).
@@ -470,6 +473,22 @@ export function createApp({
       { token: false, phone: false }
     ),
     route('GET', '/api/golden/promotions', golden.list),
+    // Raspberry Pi images (handlers/pi-images.mjs): the package goes from the browser straight to S3.
+    route('GET', '/api/pi-images', piImages.list),
+    route('POST', '/api/pi-images', piImages.upload, { action: 'firmware.pi_upload', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/pi-images/{version}/verify', piImages.verify, {
+      action: 'firmware.pi_verify',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
+    route('GET', '/api/pi-images/{version}/estimate', piImages.estimate),
+    route('POST', '/api/pi-images/{version}/deploy', piImages.deploy, {
+      action: 'deployment.pi_create',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
+    route('POST', '/api/pi-deployments/{id}/cancel', piImages.cancel, {
+      action: 'deployment.pi_cancel',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
     route(
       'POST',
       '/api/golden/promotions',

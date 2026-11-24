@@ -13708,3 +13708,51 @@ button.back {
   color: var(--ink);
   font-size: var(--type-body);
 }
+
+/* Raspberry Pi images (console 2.29.0): the Firmware page's part for boards wired to a Pi, and the mark of such a
+   board in the Devices list. */
+.pi-upload-form {
+  display: grid;
+  gap: 12px;
+}
+
+.pi-upload-progress {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: var(--type-small);
+}
+
+.pi-upload.is-app {
+  margin: 12px 0;
+}
+
+.pi-boards {
+  margin-top: 8px;
+}
+
+.pi-boards .pi-board {
+  display: grid;
+  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: baseline;
+}
+
+.pi-boards .pi-board .meter {
+  grid-column: 2;
+  max-width: 320px;
+  margin-top: 4px;
+}
+
+.device-pi {
+  margin: 4px 0 0;
+}
+
+.pi-option {
+  white-space: nowrap;
+}
+
+.pi-estimates li {
+  display: grid;
+  gap: 2px;
+}

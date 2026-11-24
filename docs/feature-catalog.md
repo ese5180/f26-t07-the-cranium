@@ -50,6 +50,7 @@ The cloud is one AWS SAM stack (`cloud/infra/template.yaml`): an HTTP API, AWS I
 | --- | --- | --- | --- | --- |
 | Devices and board pages | Every board as it last reported: version, Wi-Fi, cloud, update state, boot diary, diagnostics | 1.x | `devices`, `device` pages | Reads the device shadow; no polling of boards |
 | Make golden | A release manager uploads a release's signed promotion record (checked against the golden public key and the release's image hash) and makes it golden on one board, a group or every board that runs it; each board's golden version on its page; both on the activity log | 2.27.7 | `cloud/api/src/handlers/golden.mjs`, Firmware page | The console verifies and never signs: the golden private key stays offline |
+| Raspberry Pi images | Upload a Pi image package (its header checked as a board checks it, signature included, before anything is stored; then straight from the browser to S3, and what arrived checked); deploy it as a `pi_delta` job to boards that report a Pi; what each would download, each board's progress, Pi marks on images and boards | 2.29.0 | `cloud/api/src/handlers/pi-images.mjs`, `lib/pi-images.mjs`, Firmware page | Needs firmware 1.20.0 built with `--pi` (#279), which does not report its card yet; a package of up to 5 GiB (one PUT) |
 | Board names | A label first, the hardware ID second, everywhere | 2.25.14 | console 2.25.14 | People recognise names, not IDs |
 | Console navigation | Sections in groups in the sidebar; on a phone a floating pill tab bar (Overview, Devices, Deploy, Alerts, More) whose corners follow the screen's; old addresses redirect | 2.28.0 | `views.js` `navView`, `core.js` `MOVED`, `app.css` "The frame", `docs/console-design.md` | Concentric radii from one token, `--radius-screen` |
 | Firmware releases | Upload a signed image; the console checks the signature and registers the version once | 1.x | `firmware` page, `scripts/firmware/upload-to-console.sh` | A version number is burned once uploaded |
@@ -143,6 +144,7 @@ The phone sets the board up over Bluetooth, then talks Matter to it over Wi-Fi o
 | Phone as Matter controller | In progress: the board as a Matter node the phone commissions and updates | PR #198 + an app PR | Apple Matter framework on iPhone |
 | Memory | 94 KB flash and 110 KB RAM free on the nRF7002 DK | `tools/memory_budgets.json` | Wi-Fi chip firmware moved to external flash |
 | Raspberry Pi updates | The board writes a signed Pi image to the Pi's SD card over SPI; the Pi never has Wi-Fi | PR #196, `docs/raspberry-pi-ota.md` | Board test waits on the microSD breakout |
+| Raspberry Pi delta updates from the console | The Firmware page uploads a Pi image package and deploys it; each board downloads only the changed blocks to its card | console 2.29.0; board side #279 | Waits on #279 (hardware-untested) and its shadow report of the card |
 
 ## Closed-loop HIL bench
 
@@ -179,6 +181,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-24 | Raspberry Pi images on the Firmware page: upload checked as a board checks it, deploy as `pi_delta` jobs, download estimates, each board's progress, Pi marks (boards need #279) | console 2.29.0, apps 0.9.2, desktop 0.1.16 | #280 |
 | 2026-11-16 | Golden image promotion over the air: signed record, counter floor, the bootloader seals it (board runs it; the promotion itself not yet tried on hardware) | firmware 1.19.3 | v1.19.3 |
 | 2026-11-15 | Closed-loop HIL bench (Adam's): UART to Bluetooth telemetry app, Saleae and PPK2 acceptance, MCP bench tools, host tests in CI (not yet on hardware) | — | #261 |
 | 2026-11-12 | Console navigation in groups, a floating tab bar shaped for the iPhone 17 Pro's corners, Fleet folded into Devices and Deployments, Memfault named Crashes | console 2.28.0 | #258 |

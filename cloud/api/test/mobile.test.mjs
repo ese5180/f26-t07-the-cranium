@@ -281,6 +281,36 @@ const ROUTES = [
     phone: false,
     body: { version: VERSION, things: [THING], note: '' },
   },
+  // Raspberry Pi images (handlers/pi-images.mjs): none is stored, so each gets as far as saying so. The
+  // package itself goes from the website to S3; the apps list, deploy and follow.
+  { route: 'GET /api/pi-images', status: 200, phone: true },
+  { route: 'POST /api/pi-images', status: 422, phone: true, body: { header: '00'.repeat(512), notes: '' } },
+  {
+    route: 'POST /api/pi-images/{version}/verify',
+    path: '/api/pi-images/2026.11.24-1/verify',
+    status: 404,
+    phone: true,
+  },
+  {
+    route: 'GET /api/pi-images/{version}/estimate',
+    path: '/api/pi-images/2026.11.24-1/estimate',
+    status: 404,
+    phone: true,
+  },
+  {
+    route: 'POST /api/pi-images/{version}/deploy',
+    path: '/api/pi-images/2026.11.24-1/deploy',
+    status: 404,
+    phone: true,
+    body: { things: [THING], note: '' },
+  },
+  {
+    route: 'POST /api/pi-deployments/{id}/cancel',
+    path: '/api/pi-deployments/pi-2026-11-24-1-20261124T120000Z-beef/cancel',
+    status: 404,
+    phone: true,
+    body: { force: false },
+  },
   {
     route: 'POST /api/firmware/{version}/bluetooth',
     path: `/api/firmware/${V}/bluetooth`,

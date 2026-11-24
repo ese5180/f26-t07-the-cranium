@@ -740,6 +740,18 @@ that release, and refuses by name any that are not (`golden_not_running`, `golde
 lists the latest, and `GET /api/firmware` says whether the stack has the key. Each board's report carries its golden image
 (`golden: {version, counter, state}`). How the board does it: [`firmware/README.md`](../firmware/README.md#golden-image).
 
+**Raspberry Pi images** (console 2.29.0; needs firmware 1.20.0 built with `--pi`, #279; not yet tried against AWS or a
+board). `POST /api/pi-images` takes a package's 512-byte header, checks it as the board does with the firmware signing key,
+keeps the record (state table, `PIIMG`) and answers with a URL to PUT the package to under `firmware/`, presigned for its
+size and "only if new"; the bucket's CORS allows that PUT and the console's Content-Security-Policy its origin
+(`UPLOAD_ORIGIN`). `POST /api/pi-images/{version}/verify` checks what arrived (size, header, the block table's SHA-256).
+`POST /api/pi-images/{version}/deploy` makes one job, `pi-<version>-<time>-<4 hex>`, with
+`{"op":"pi_delta","v":1,"pi":{version,sha256,url}}`, an hour's URL and a time limit of 6 hours to 7 days, for boards that
+report their card (`"pi": {card, version, generation, step, done, total}` beside the heartbeat) on 1.20.0 or later.
+`GET /api/pi-images/{version}/estimate` gives each such board's download against the image it holds;
+`GET /api/pi-images` the images and each board's progress; `POST /api/pi-deployments/{id}/cancel` withdraws one. On the
+activity log as `firmware.pi_upload`, `firmware.pi_verify`, `deployment.pi_create` and `deployment.pi_cancel`.
+
 **A release's note** (`PUT /api/firmware/{version}/notes`, body `{ "notes": "..." }`): the whole note, one line of
 at most 500 characters, `""` for none, for active and revoked releases alike, by release managers with a session
 or an API token. It is the one write of the API on `PUT`, through two gateway routes of its own (`PUT /api/{proxy+}`
