@@ -29,6 +29,7 @@
  */
 
 import { readGolden } from './golden.mjs';
+import { readPi } from './pi-images.mjs';
 import { BLUETOOTH_NAME, parseJobId, strictVersion } from './validate.mjs';
 
 export const ONLINE_WINDOW_MS = 90_000;
@@ -254,6 +255,10 @@ export function readReported(reported, metadata) {
   // From firmware 1.19.3, on a board that reports it (lib/golden.mjs): only then is it there at all.
   const golden = readGolden(reported);
   if (golden !== null) result.golden = golden;
+  // A Pi build's SD card (console 2.29.0, lib/pi-images.mjs), from a board that reports it with its heartbeat:
+  // only then is it there at all, and only then may a Pi image be deployed to the board.
+  const pi = readPi(reported, metadata);
+  if (pi !== null) result.pi = pi;
   return result;
 }
 

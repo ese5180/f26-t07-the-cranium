@@ -152,6 +152,20 @@ object AuditText {
             "made golden", "tried to make golden", "tried to start a golden promotion", Glyph.SHIELD,
             doneAlone = "started a golden promotion",
         ),
+        // Raspberry Pi images (console 2.29.0): the package described, what arrived checked, a deployment and its end.
+        "firmware.pi_upload" to Action(
+            "uploaded the Pi image", "tried to upload the Pi image", "tried to upload a Pi image", Glyph.UPLOAD,
+        ),
+        "firmware.pi_verify" to Action(
+            "checked the Pi image", "tried to check the Pi image", "tried to check a Pi image", Glyph.SHIELD,
+        ),
+        "deployment.pi_create" to Action(
+            "deployed the Pi image", "tried to deploy the Pi image", "tried to start a Pi deployment", Glyph.SEND,
+            doneAlone = "started a Pi deployment",
+        ),
+        "deployment.pi_cancel" to Action(
+            "cancelled the Pi deployment", "tried to cancel the Pi deployment", "tried to cancel a Pi deployment", Glyph.STOP,
+        ),
         "firmware.notes" to Action(
             "changed the note of", "tried to change the note of", "tried to change the note of a release", Glyph.FILE,
         ),
@@ -351,6 +365,15 @@ object AuditText {
         "golden_unsupported" to "A chosen board’s firmware cannot take a golden promotion: it needs 1.19.3",
         "golden_not_running" to "A chosen board does not run that release",
         "golden_release_too_old" to "Only firmware 1.19.3 and later can become golden",
+        // Raspberry Pi images (handlers/pi-images.mjs).
+        "invalid_header" to "The package header was not 512 bytes in hex",
+        "bad_manifest" to "That is not a Pi image package a board reads",
+        "pi_too_large" to "The Pi image package is larger than one upload or a board’s card takes",
+        "unknown_pi_image" to "There is no such Raspberry Pi image",
+        "pi_not_uploaded" to "The Pi image’s package had not arrived in S3",
+        "pi_package_mismatch" to "What arrived in S3 was not the package that was checked",
+        "pi_image_refused" to "That Pi image was refused when its package was checked",
+        "pi_unsupported" to "A chosen board does not report a Pi image card: it needs firmware 1.20.0 built with --pi",
         "internal_error" to "Something went wrong on the server",
         "invalid_body" to "The request could not be read",
         "invalid_deployment" to "Not a valid deployment ID",

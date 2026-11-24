@@ -21,3 +21,8 @@ Every image was made with
 | `hash-only-unsigned.bin` | no key |
 | `padded-and-confirmed.signed.bin` | `--pad --confirm` |
 | `full-public-key.signed.bin` | `--public-key-format full` |
+
+`pi-delta.json` holds two Raspberry Pi image packages as `tools/pi_image.py package` of PR #279 wrote them
+(their headers and block tables; the images are rebuilt from the rule in its `about`) and what
+`tools/pi_image.py diff` said of the pair. The key that signed them was generated for the test and discarded;
+its public half is `pi_test_signing_pub.pem`. `../pi-images.test.mjs` reads them.

@@ -638,6 +638,10 @@ test('the adapter and the in-memory fake have the same methods', () => {
       'registerRelease',
       'searchAudit',
       'tagFirmwareRevoked',
+      // Raspberry Pi image packages (handlers/pi-images.mjs): a browser's PUT, what arrived, its header and table.
+      'presignPiUpload',
+      'headFirmwareObject',
+      'getFirmwareRange',
       // The fleet (docs/fleet.md).
       'describeThing',
       'getFleetItem',

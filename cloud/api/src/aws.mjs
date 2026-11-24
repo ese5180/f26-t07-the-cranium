@@ -69,6 +69,15 @@
  *   getFirmwareObject(key)        -> Buffer | null   null for a missing object, and for a revoked one,
  *                                    which the bucket refuses to serve
  *   tagFirmwareRevoked(key)       -> { ok: true } | { ok: false, reason: "not_found" }
+ *   presignPiUpload({ key, size, expiresIn })
+ *                                 -> { url, headers, expiresAt }  a URL a browser PUTs a Raspberry Pi image
+ *                                    package to (lib/pi-images.mjs): signed for exactly that size and
+ *                                    "only if new", which the bucket demands under firmware/; `headers`
+ *                                    are the ones the request must carry as they are
+ *   headFirmwareObject(key)       -> { size } | null   what S3 holds under that key, null for nothing
+ *   getFirmwareRange(key, first, last)
+ *                                 -> Buffer | null   bytes first to last (both kept) of an object; null
+ *                                    for a missing or revoked one, as getFirmwareObject
  *
  * Releases (state table; an item is the release plus pk and sk). Items hold plain data
  * only: text, finite numbers, booleans, null, lists and maps. Anything else is a TypeError.
@@ -180,8 +189,8 @@
  *                                   thresholdPercentage, minNumberOfExecutedThings }] }
  *   Fleet records in the state table, in these partitions only: "GRP" (groups), "ROL" (staged
  *   rollouts), "SEEN" (what a phone last saw of a board), "ALR" (the alert rules), "HEALTH" (the daily
- *   health snapshots), "RPT" (the weekly reports), "SCH" (scheduled starts) and "NAME" (board names given in the
- *   console, lib/names.mjs). Any other pk is a TypeError, so that
+ *   health snapshots), "RPT" (the weekly reports), "SCH" (scheduled starts), "NAME" (board names given in the
+ *   console, lib/names.mjs) and "PIIMG" (the Raspberry Pi images, lib/pi-images.mjs). Any other pk is a TypeError, so that
  *   these can never touch a release or a token. Items hold plain data, as releases do.
  *   getFleetItem({ pk, sk })      -> object | null   consistent read
  *   listFleetItems(pk, { limit }) -> object[]        the partition, highest sk first, at most `limit`
@@ -226,10 +235,17 @@ import {
   ListThingsInThingGroupCommand,
 } from '@aws-sdk/client-iot';
 import { GetThingShadowCommand, IoTDataPlaneClient } from '@aws-sdk/client-iot-data-plane';
-import { GetObjectCommand, PutObjectCommand, PutObjectTaggingCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  PutObjectTaggingCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 
 import { AUDIT_PK, CUSTOMER_ACTIONS_PK } from './lib/audit.mjs';
 import { SAME_LINE_MS } from './lib/lines.mjs';
+import { presignUrl } from './lib/presign.mjs';
 import { searchSpellings } from './lib/validate.mjs';
 import { FACT_PARTITION, accountName, factPartition } from './lib/updates.mjs';
 
@@ -255,7 +271,8 @@ const POINTER_KEY = Object.freeze({ pk: { S: 'META' }, sk: { S: 'HIGHEST' } });
 const AUDIT_PKS = Object.freeze([AUDIT_PK, CUSTOMER_ACTIONS_PK]);
 const TOKEN_PK = 'TOK';
 // The partitions of the fleet's records (handlers/groups.mjs, handlers/rollouts.mjs, handlers/fleet.mjs).
-const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH', 'RPT', 'SCH', 'NAME']);
+// PIIMG: the Raspberry Pi images (console 2.29.0, lib/pi-images.mjs).
+const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH', 'RPT', 'SCH', 'NAME', 'PIIMG']);
 
 const THROTTLING = new Set([
   'ThrottlingException',
@@ -859,6 +876,58 @@ export function createAws(env) {
           nameOf(cause) === 'AccessDenied' ||
           statusOf(cause) === 404 ||
           statusOf(cause) === 403
+        )
+          return null;
+        throw failure('GetObject', cause);
+      }
+    },
+
+    async presignPiUpload({ key, size, expiresIn }) {
+      const { AWS_ACCESS_KEY_ID: accessKeyId, AWS_SECRET_ACCESS_KEY: secretAccessKey } = env;
+      if (typeof accessKeyId !== 'string' || accessKeyId === '' || typeof secretAccessKey !== 'string') {
+        throw failure('PresignPutObject', new Error('the function has no credentials to sign with'));
+      }
+      // content-length is the browser's to send; if-none-match the request's to carry, as the bucket demands.
+      const signed = presignUrl({
+        method: 'PUT',
+        host: `${bucket}.s3.${region}.amazonaws.com`,
+        key,
+        region,
+        credentials: { accessKeyId, secretAccessKey, sessionToken: env.AWS_SESSION_TOKEN },
+        at: Date.now(),
+        expiresIn,
+        headers: { 'content-length': String(size), 'if-none-match': '*' },
+      });
+      return { url: signed.url, headers: { 'if-none-match': '*' }, expiresAt: signed.expiresAt };
+    },
+
+    async headFirmwareObject(key) {
+      let out;
+      try {
+        out = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+      } catch (cause) {
+        // A HEAD has no body, so a missing object is a bare 404 (NotFound); a revoked one is refused.
+        if (['NotFound', 'NoSuchKey', 'AccessDenied'].includes(nameOf(cause)) || [403, 404].includes(statusOf(cause)))
+          return null;
+        throw failure('HeadObject', cause);
+      }
+      return { size: Number.isSafeInteger(out.ContentLength) ? out.ContentLength : -1 };
+    },
+
+    async getFirmwareRange(key, first, last) {
+      try {
+        const answer = await s3.send(
+          new GetObjectCommand({ Bucket: bucket, Key: key, Range: `bytes=${first}-${last}` })
+        );
+        return Buffer.from(await answer.Body.transformToByteArray());
+      } catch (cause) {
+        if (
+          nameOf(cause) === 'NoSuchKey' ||
+          nameOf(cause) === 'AccessDenied' ||
+          nameOf(cause) === 'InvalidRange' ||
+          statusOf(cause) === 404 ||
+          statusOf(cause) === 403 ||
+          statusOf(cause) === 416
         )
           return null;
         throw failure('GetObject', cause);

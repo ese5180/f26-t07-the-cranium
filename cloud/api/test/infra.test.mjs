@@ -1239,8 +1239,23 @@ test("the phone apps' pages may call the API from any origin, with no credential
   // A token travels in a header; no cookie of this API is ever sent across origins.
   assert.ok(cors.includes('AllowCredentials: false'));
   assert.match(cors, /MaxAge: \d+/);
-  // The only CORS of the stack: the functions answer no preflight and add no such header themselves.
-  assert.equal((template.match(/CorsConfiguration:/g) ?? []).length, 1);
+  // The only CORS of the stack but the firmware bucket's PUT (below): the functions answer no preflight and add no
+  // such header themselves.
+  assert.equal((template.match(/CorsConfiguration:/g) ?? []).length, 2);
+});
+
+test('a browser may PUT a Pi image package to the firmware bucket with a presigned URL, and do nothing else there', () => {
+  const bucket = block(template, 'FirmwareBucket');
+  const cors = block(bucket, 'CorsConfiguration', 6);
+  assert.match(cors, /AllowedMethods:\n\s*- PUT\n\s*AllowedOrigins:/, 'PUT only: nothing is read this way');
+  assert.match(cors, /AllowedOrigins:\n\s*- '\*'\n\s*AllowedHeaders:/);
+  assert.match(cors, /AllowedHeaders:\n\s*- if-none-match\n\s*- content-type\n\s*MaxAge: \d+/);
+  assert.equal(cors.includes('ExposedHeaders'), false);
+  // The write-once rule stays: a PUT under firmware/ without "only if new" is refused whoever sends it.
+  assert.match(block(template, 'FirmwareBucketPolicy'), /DenyOverwritingFirmware/);
+  // The console's pages may send to the bucket's origin, and only the console's (cloud/web/src/server.mjs).
+  const web = block(template, 'WebFn');
+  assert.ok(web.includes("UPLOAD_ORIGIN: !Sub 'https://${FirmwareBucket}.s3.${AWS::Region}.amazonaws.com'"));
 });
 
 test("the phone apps' bundle has a route of its own to the web function, public and with its own limits", () => {
