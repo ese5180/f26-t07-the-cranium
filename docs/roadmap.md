@@ -41,8 +41,11 @@ Draft pull requests.
 - **Our own Issues under Crashes** (#259): stage 1 of our own Memfault, built into the console.
 - **A redesign of the customer site** (#257).
 - **Board setup and the Bluetooth update on a real board, in the Mac and desktop apps** (#220).
-- **Raspberry Pi updates through the board** (#196): the nRF7002 DK hands an update to the Pi over SPI. A teammate's Pi link
-  over SPI (#58) is open for review.
+- **Raspberry Pi updates through the board, only the changed blocks** (#275, firmware 1.20.0, draft): the nRF7002 DK
+  keeps the Pi's image on an SD card and downloads only the blocks that changed; the Pi takes them over SPI
+  ([pi-delta-update.md](pi-delta-update.md)). It replaces #196's firmware side. Waits on a board test, the Pi's side
+  (a teammate's) and the console's side. A teammate's Pi link over SPI (#58), whose pins and frames it uses, is open
+  for review.
 - **Adam's CRANIUM Mix app import** (#272) is under review and not on main.
 
 ## Planned next, in this order
