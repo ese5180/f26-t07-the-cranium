@@ -186,10 +186,9 @@ test('sessions from the board: the time the board sent for a track is its play t
   // The BPM and key the board's plays carry reach the Mixes.
   assert.equal(board.tracks[0].bpm, 128);
   assert.equal(board.tracks[0].key, '8A');
-  assert.equal(
-    boardSession({ ...raw, tracks: [{ ...raw.tracks[0], bpm: undefined, key: undefined }] }).tracks[0].bpm,
-    null
-  );
+  const bare = boardSession({ ...raw, tracks: [{ ...raw.tracks[0], bpm: undefined, key: undefined }] }).tracks[0];
+  assert.equal(bare.bpm, null);
+  assert.equal(bare.key, null);
   // The board's time, not the session start plus 60 s.
   assert.equal(playedAt(board, board.tracks[0]), Date.parse('2026-11-10T01:05:00Z'));
   assert.equal(sourceOf([board]), 'board');
