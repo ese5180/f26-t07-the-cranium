@@ -190,9 +190,9 @@ export function takesPiVersion(version) {
   return true;
 }
 
-/** Whether a board can take a Pi image now: it reports its card (a Pi build), on 1.20.0 or later. */
+/** Whether a board can take a Pi image now: it reports its card (a Pi build) and has one in it, on 1.20.0 or later. */
 export function takesPiDelta(device) {
-  return Boolean(device?.pi) && takesPiVersion(device.fw?.version ?? null);
+  return Boolean(device?.pi) && device.pi.card !== 'no_card' && takesPiVersion(device.fw?.version ?? null);
 }
 
 // --- the job ---------------------------------------------------------------------------------------
