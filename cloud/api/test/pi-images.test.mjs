@@ -256,6 +256,8 @@ test("a board's card is read from its shadow, and only while its heartbeat carri
   assert.equal(takesPiDelta({ fw: { version: '1.21.3+7' }, pi }), true);
   assert.equal(takesPiDelta({ fw: { version: '1.19.3+0' }, pi }), false);
   assert.equal(takesPiDelta({ fw: { version: '1.20.0+0' } }), false);
+  // A Pi build with no card in it has nowhere to put an image.
+  assert.equal(takesPiDelta({ fw: { version: '1.20.0+0' }, pi: { ...pi, card: 'no_card' } }), false);
   assert.equal(takesPiDelta({ fw: null, pi }), false);
 });
 
