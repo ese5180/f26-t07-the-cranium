@@ -1,0 +1,18 @@
+# The pins of Raspberry Pi delta updates (docs/pi-delta-update.md) that are not an SPI bus's own.
+
+description: Raspberry Pi delta updates, the board's pins
+
+compatible: "cranium,pi-delta"
+
+properties:
+  ready-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      READY to the Pi, an output: high while the board's SPI target is armed with the answer to
+      the Pi's last request. The pin of the Pi's message link (PR #58): D9.
+
+  cd-gpios:
+    type: phandle-array
+    description: |
+      The SD slot's card-detect switch, an input, active when a card is in.

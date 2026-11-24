@@ -42,7 +42,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
 		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests \
-		$(BUILD)/pi_delta_tests $(BUILD)/pi_delta_harness
+		$(BUILD)/pi_delta_tests $(BUILD)/pi_delta_harness $(BUILD)/ota_pi_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -83,6 +83,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/bt_only_leds_tests
 	./$(BUILD)/sessions_tests
 	./$(BUILD)/pi_delta_tests
+	./$(BUILD)/ota_pi_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -288,6 +289,11 @@ $(BUILD)/ota_bt_tests: $(OTA_DEPS)
 $(BUILD)/ota_bt_no_consent_tests: $(OTA_DEPS)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -DTEST_NO_CONSENT=1 -o $@ $(OTA_SOURCES)
+
+# From 1.20.0, a Pi build (CONFIG_APP_PI_DELTA): which jobs ota.c hands to the Pi side, against a fake of it.
+$(BUILD)/ota_pi_tests: $(OTA_DEPS)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -DTEST_NO_CONSENT=1 -DCONFIG_APP_PI_DELTA=1 -o $@ $(OTA_SOURCES)
 
 $(BUILD)/ota_bt_no_confirm_tests: $(OTA_DEPS)
 	@mkdir -p $(BUILD)

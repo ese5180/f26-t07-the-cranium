@@ -139,6 +139,73 @@ config APP_OTA_DOWNLOAD_ATTEMPTS
 	  The wait before another attempt grows with each one: 10 s, 20 s, 30 s and 40 s
 	  with the default, so that an update survives a short outage of the network.
 
+config APP_PI_DELTA
+	bool "Raspberry Pi delta updates: an SD card mirror of the Pi's image, and the Pi's SPI link"
+	depends on !APP_BT_ONLY
+	select SPI
+	select SPI_ASYNC
+	select GPIO
+	help
+	  From 1.20.0 (docs/pi-delta-update.md). A "pi_delta" job brings the mirror of the Pi's image
+	  on the SD card to a new image, downloading only the blocks that changed, each checked against
+	  a signed manifest before it is written. The Pi, as SPI controller on the Arduino SPI pins
+	  (the pins and frames of the Pi's message link, PR #58), asks the board which blocks changed
+	  and reads them. Both use SPIS3: until the two links are one, a build has one or the other.
+	  Built with scripts/firmware/build.sh --pi, which turns Bluetooth off for the RAM. The card's
+	  drivers (disk access, the SD host, the SD/MMC disk) are in pi_delta.conf: selected from here
+	  they would make a dependency loop through the flash drivers.
+
+if APP_PI_DELTA
+
+config APP_PI_DELTA_MAX_BLOCKS
+	int "Most blocks of a Pi image: the layout of a new SD card"
+	default 262144
+	range 1024 16777216
+	help
+	  The card keeps two block tables of this many hashes (32 bytes each) and a list of this many
+	  block numbers. 262144 blocks are 16 GiB of 64 KiB blocks, for about 20 MiB of the card.
+	  A card that has a layout keeps its own.
+
+config APP_PI_DELTA_RUN_BLOCKS
+	int "Most neighbouring blocks fetched with one range request"
+	default 16
+	range 1 256
+
+config APP_PI_DELTA_DOWNLOAD_ATTEMPTS
+	int "Attempts in a row that bring nothing new, before the job fails"
+	default 10
+	range 1 100
+	help
+	  An attempt that got a block onto the card starts the count again: an update of hours may
+	  lose its connection, or outlive its presigned URL, more than once and still finish.
+
+config APP_PI_DELTA_HTTP_BUF
+	int "Bytes for the head of a range's answer, and the pieces of its body"
+	default 1024
+	range 512 8192
+
+config APP_PI_DELTA_HTTP_TIMEOUT_S
+	int "Longest wait for the server, in seconds"
+	default 30
+
+config APP_PI_DELTA_STACK_SIZE
+	int "Stack of the update's thread, which runs TLS"
+	default 5120
+
+config APP_PI_DELTA_PRIORITY
+	int "Priority of the update's thread"
+	default 10
+
+config APP_PI_DELTA_LINK_STACK_SIZE
+	int "Stack of the Pi link's work queue, which reads the SD card"
+	default 1536
+
+config APP_PI_DELTA_LINK_PRIORITY
+	int "Priority of the Pi link's work queue: above the update, to answer the Pi at once"
+	default 5
+
+endif # APP_PI_DELTA
+
 config APP_CONSOLE
 	bool "Serial console for setup and debugging"
 	depends on SERIAL && LOG
