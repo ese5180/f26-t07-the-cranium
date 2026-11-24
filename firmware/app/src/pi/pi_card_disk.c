@@ -89,6 +89,11 @@ static void card_lock_give(void *ctx)
 	(void)k_mutex_unlock(&card_lock);
 }
 
+int pi_card_disk_lock_within(int32_t wait_ms)
+{
+	return k_mutex_lock(&card_lock, K_MSEC(wait_ms));
+}
+
 const struct pi_disk_ops pi_card_disk_ops = {
 	.read = card_read,
 	.write = card_write,

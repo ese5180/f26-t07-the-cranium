@@ -28,6 +28,9 @@ the console. Everything reaches it through the nRF7002 DK, which downloads onto 
   D13), READY on D9, its 512-byte frames with a CRC-32, and its rule that the board answers each frame
   in the next transfer. A build without this is #58's.
 - A build with this has no Bluetooth (the RAM), and is built with `scripts/firmware/build.sh --pi`.
+- The board reports its card to the console with every heartbeat, as `pi` in the shadow
+  ([The card in the shadow](#the-card-in-the-shadow)): the console offers Pi images only to boards
+  that do.
 - **None of this has run on hardware** ([Untested on hardware](#untested-on-hardware)).
 
 This replaces the firmware side of PR #196, where the board sent the whole image to the Pi, with
@@ -40,6 +43,7 @@ the board as SPI controller.
 - [The package](#the-package)
 - [Signing](#signing)
 - [The job](#the-job)
+- [The card in the shadow](#the-card-in-the-shadow)
 - [The SD card](#the-sd-card)
 - [The update](#the-update)
 - [Downloads](#downloads)
@@ -62,14 +66,14 @@ files (`pi_link.c`, `pi_rx.c`, `pi_frame.c`), which every build with `CONFIG_APP
 | --- | --- | --- |
 | `pi_delta_fmt.c` | The manifest header, the card's state header, the card's layout, the reasons | `test_pi_delta.c` |
 | `pi_card.c` | The card in raw sectors: the two copies of the state, the slots, the list, the mirror | `test_pi_delta.c`, a card in memory |
-| `pi_delta.c` | The update: manifest, comparison, blocks, resume | `test_pi_delta.c`, and `test_pi_delta.py` through `pi_delta_harness.c` |
+| `pi_delta.c` | The update: manifest, comparison, blocks, resume; the card's report for the heartbeat | `test_pi_delta.c`, and `test_pi_delta.py` through `pi_delta_harness.c` |
 | `pi_dlink.c` | The delta requests' answers, and STATUS for anything else | `test_pi_delta.c`, and `tools/pi_delta_sim.py` through the harness |
 | `pi_http.c` | Range requests and the head of their answers | `test_pi_delta.c` |
 | `pi_sha256.c` | SHA-256 in plain C | Every test above |
 | `pi_frame.c` | The frames of the Pi's link, #58's file unchanged | Every link test |
 | `pi_rx.c` | #58's receiver: sorts each frame by type, DATA and POLL as the message link, delta requests to `pi_dlink.c` | `test_pi_rx.c` (with and without delta updates), `test_pi_delta.c`, the harness |
 | `pi_link.c` | #58's link: SPIS3, READY, the work queue. With delta updates, a queue of its own and room for a whole frame | Built only |
-| `pi_card_disk.c` | The card through Zephyr's disk access, the card-detect pin, the lock | Built only |
+| `pi_card_disk.c` | The card through Zephyr's disk access, the card-detect pin, the lock (and the heartbeat's wait for it, at most 500 ms) | Built only |
 | `pi_delta_ota.c` | The job, the thread, the TLS connection, PSA's signature check, the reports | Built only |
 | `src/ota/ota_job.c`, `ota.c` | The `pi_delta` document, and handing such jobs over | `test_pi_delta.c` |
 | `tools/pi_image.py` | Builds, signs and checks a package; writes a card | `test_pi_delta.py` |
@@ -193,6 +197,44 @@ package downloads, and prints the commands to upload and deploy it. It runs none
 
 A job withdrawn while it runs stops at its next piece, with nothing reported. The card keeps its
 progress, and a job for the same image later goes on from there.
+
+## The card in the shadow
+
+A Pi build reports its card with every heartbeat, as `pi` after the uptime in the same report
+(`publish_report_as()` in `firmware/app/src/main.c`, the JSON from `pi_delta_report()` in
+`pi_delta.c`):
+
+```json
+{ "fw": { "version": "1.20.0", "confirmed": true }, "ota": { "...": "..." },
+  "wifi": { "rssi": -52 }, "stuck": { "count": 0, "reason": "none" }, "uptime": 1234,
+  "pi": { "card": "updating", "version": "2026.11.24-1", "generation": 3,
+          "step": "blocks", "done": 4, "total": 10 } }
+```
+
+| Key | Value |
+| --- | --- |
+| `card` | `empty` (no image yet), `ready`, `updating` (the mirror is being written, and the Pi gets nothing from it), or `no_card` (none in the slot, or not read yet) |
+| `version` | The image on the card, or, while `updating`, the one it is being brought to. `""` with none. Only the manifest's characters (1 to 31 of `A-Z a-z 0-9 . _ + -`), so it never needs escaping: anything else is reported as `""` |
+| `generation` | Goes up by one with each image the card takes. 0 with no card |
+| `step` | The job's step while it has one (`manifest`, `table`, `compare`, `blocks`, `done`), otherwise `idle` |
+| `done`, `total` | Blocks of the update: how far it is, of those it looks at (the changed ones, or all of them). Between jobs, the last update's figures. `done` is never more than `total` |
+
+- **When:** every heartbeat (30 s), every report that a change sends at once, and the last report
+  before a restart. Not the diagnostics report. A build without `--pi` reports exactly as before.
+- **Why with the heartbeat:** the console (PR #285, console 2.29.0) offers Pi images only to a board
+  whose `reported.pi` came with its uptime: AWS IoT's timestamps for the two within 90 s. A board that
+  goes back to a build without Pi updates stops sending `pi`, and so stops counting as one with a
+  card.
+- **Threads:** the card's state, version and generation change under the card's lock, on the
+  update's thread and on the link's queue. The report takes that lock, waiting 500 ms at most
+  (`pi_card_disk_lock_within()`). A card that holds it longer (one that fails, inside the SD stack's
+  timeouts) leaves `pi` out of that heartbeat rather than hold up the main loop; the console keeps
+  the last one for 90 s. The step and the counts are the update's, read a word at a time.
+- **Size:** at most 142 bytes (`PI_DELTA_REPORT_MAX` is 143, with the terminating zero). In a Pi build
+  the heartbeat's buffer grows by that and `,"pi":` (548 bytes in all, on the main loop's stack), and
+  the shadow document from 512 to 576 bytes (`CLOUD_REPORTED_MAX` in `cloud.h`; a `BUILD_ASSERT` in
+  `main.c` checks the heartbeat fits). The MQTT library sends the payload from the document and only
+  its header from its own 512-byte buffer.
 
 ## The SD card
 
@@ -526,7 +568,8 @@ and without `--pi`), read with `tools/memory_budget.py`.
 | --- | --- | --- | --- | --- |
 | Default (Bluetooth, the message link, no delta updates), this branch | 33,226 | 1,860 | 12,484 | 552 / 12,532 |
 | Default, #58 alone, for comparison | 33,226 | 1,860 | 12,484 | 552 / 12,532 |
-| `--pi` (the message link with delta updates, no Bluetooth), this branch | 98,442 | 18,944 | 12,484 | 552 / 12,532 |
+| `--pi` (the message link with delta updates, no Bluetooth), this branch | 98,370 | 18,880 | 12,484 | 552 / 12,532 |
+| `--pi` before the card went into the heartbeat, for comparison | 98,442 | 18,944 | 12,484 | 552 / 12,532 |
 | `--pi` with a link of its own (#276), for comparison | 100,210 | 19,808 | 12,484 | 552 / 12,532 |
 | No Bluetooth, 1.18.0, for comparison (`tools/memory_budgets.json`) | 128,410 | 36,104 | 15,212 | 552 / 12,532 |
 
@@ -548,8 +591,15 @@ build.
 | The message link's own: the start of the last `np` and `hb`, its counts | about 0.3 KiB |
 | The SD host, disk access and SPI peripheral drivers | the rest |
 
-That leaves 18,944 bytes free, 864 fewer than with a link of its own: the larger queue stack (512) and
-the message link's own state. `tools/memory_budgets.json` holds the `Pi delta updates` configuration's
+That leaves 18,880 bytes free, 928 fewer than with a link of its own: the larger queue stack (512), the
+message link's own state, and the shadow document's 64 more bytes for the card in the heartbeat.
+
+**The card in the heartbeat** costs 392 bytes of flash and 64 of RAM (the shadow document; the heartbeat's
+buffer is on the main loop's stack). To keep the flash floor, a Pi build trims 320 bytes elsewhere: the SD
+stack and the SD host log at warning level (`pi_delta.conf`; their notes on power, the clock and legacy
+cards go, 176 bytes; their warnings and errors stay), and two of the update's log lines go (the "too
+long" line of a job report that cannot be too long, and whether a finished image was there already,
+which the job's `fetched` says), 144 bytes. That leaves 66 bytes above the floor. `tools/memory_budgets.json` holds the `Pi delta updates` configuration's
 floors (18 KiB of RAM and 96 KiB of flash for the application), and `.github/workflows/ci.yml` builds it
 when CI runs again. None of the stacks has been measured on a board
 ([Hardware test plan](#hardware-test-plan), step 9).
@@ -558,9 +608,10 @@ when CI runs again. None of the stacks has been measured on a board
 
 | Where | What | Count |
 | --- | --- | --- |
-| `make -C firmware/tests/host`: `pi_delta_tests` | The formats and every refusal; the card's two state copies, a save cut in half, a card too small; the first image onto an empty card; deltas, larger and smaller images; a bad signature, a changed header, a job that names another image, a table that is not the signed one, too many blocks (the card untouched); a block from the server wrong once and always (never written); a card that writes wrong; **the power cut at each of 215 writes of an update in turn**, each resuming to the new image with at most one block downloaded twice; lost connections in the blocks and in the table; the card pulled out and put back; a withdrawn job; another image half way, with the power cut between its state and its slot header; every link request, the malformed ones, a READ while updating, a cached sector after an update and after the card is opened again; **the shared link, a mixed sequence as `pi_link.c` takes it** (DATA, delta requests, POLL, a repeated DATA, unknown types, a bad CRC, nothing, a refusal, no card yet), each frame answered in the next transfer with its answer or STATUS; the job document; the HTTP head | 1015 checks |
+| `make -C firmware/tests/host`: `pi_delta_tests` | The formats and every refusal; the card's two state copies, a save cut in half, a card too small; the first image onto an empty card; deltas, larger and smaller images; a bad signature, a changed header, a job that names another image, a table that is not the signed one, too many blocks (the card untouched); a block from the server wrong once and always (never written); a card that writes wrong; **the power cut at each of 215 writes of an update in turn**, each resuming to the new image with at most one block downloaded twice; lost connections in the blocks and in the table; the card pulled out and put back; a withdrawn job; another image half way, with the power cut between its state and its slot header; every link request, the malformed ones, a READ while updating, a cached sector after an update and after the card is opened again; **the shared link, a mixed sequence as `pi_link.c` takes it** (DATA, delta requests, POLL, a repeated DATA, unknown types, a bad CRC, nothing, a refusal, no card yet), each frame answered in the next transfer with its answer or STATUS; the job document; the HTTP head; **the card's report for the heartbeat**: no card, an absent one, an empty one, ready, five of twenty blocks into an update (with and without its job), `done` held to `total`, a version with a quote, a backslash and a control character or with no terminating zero (left out, the JSON intact), every field at its longest (exactly `PI_DELTA_REPORT_MAX`, a byte less refused); each report parsed back as JSON | 1041 checks |
 | `make -C firmware/tests/host`: `pi_rx_tests`, `pi_rx_delta_tests` | The message link's receiver (`pi_rx.c`) built as every other build has it, where `0x10` to `0x13` are unknown types, and as a Pi build has it, where they are delta requests; DATA, repeats, POLL, a bad CRC and nothing the same in both | 32 checks each |
 | `make -C firmware/tests/host`: `ota_pi_tests` | `ota.c` in a Pi build, against a fake of the Pi side: a Pi job goes to it, again for a fresh URL; a firmware job named while it runs, or no job at all, withdraws it; a Pi job waits while a firmware update runs; a bad Pi document is refused | 511 checks (21 of them new) |
+| `make -C firmware/tests/host`: `app_pi_tests` | `main.c` in a Pi build (`test_app.c` with `CONFIG_APP_PI_DELTA`), against a fake of the card's report: `pi` straight after the uptime, as the report's last key, in every heartbeat and in the last report before a restart, not in the diagnostics report; a card at its longest; a card that cannot be read now (busy, or too long), its buffer written over, leaving the heartbeat as it was; each heartbeat parsed back as JSON; the longest heartbeat with the longest card within `CLOUD_REPORTED_MAX`. The default `app_tests` run unchanged | 13,964 checks |
 | `firmware/tests/hil/test_pi_delta.py` | `tools/pi_image.py` (the package, its checks, the comparison, the records, the built-in key, the card's layout); the board's C code on the host with real ECDSA (tinycrypt, MCUboot's own) against packages the tool signed; `tools/pi_delta_sim.py` as the Pi taking only the changed blocks and ending with the new image's SHA-256: from the list, by comparison two versions behind, from an empty card, with power cuts, a lost connection, a wrong block, a noisy wire, 64 KiB blocks, and malformed requests; messages between the requests on the same link, each delivered once, on a clean and a noisy wire; and `pi/cranium_link.py` itself beside delta requests (a delta answer costs it a transfer; `--status` right after an untaken delta answer finds none, the next one finds STATUS) | 19 tests |
 
 **CI is off** (GitHub Actions is paused for billing). All of the above was run locally.
@@ -575,10 +626,9 @@ For a paired PR later; nothing of it is in this one.
 2. **Deploy:** a job with the document in [The job](#the-job), ID `pi-...`, a presigned URL
    (`expiresInSec` up to 3600; the board refreshes it), and an in-progress timeout of hours.
 3. **Which boards:** only boards running a Pi build. A Pi build has no Bluetooth, so the console
-   should also never send a Pi build to a board without a Pi. Neither is marked yet: a Pi build's
-   image could carry a TLV for it (as #196 proposed with `0xa3`), and the board could report its card
-   in the shadow (`pi_delta_ota_report()` already writes the JSON: card state, version, generation,
-   step, progress).
+   should also never send a Pi build to a board without a Pi. A Pi build reports its card with its
+   heartbeat ([The card in the shadow](#the-card-in-the-shadow)), which is what PR #285 reads; a Pi
+   build's image is not marked yet (it could carry a TLV, as #196 proposed with `0xa3`).
 4. **Show progress:** the job's `step`, `progress`, `done`, `total`, and the final `fetched`,
    `changed`, `bytes`, `reason` ([The job](#the-job)).
 5. **Estimate before deploying:** what `tools/pi_image.py diff` computes (changed blocks and bytes
@@ -591,10 +641,11 @@ In this order, each only after the one before passes:
 
 1. **Build and flash** `scripts/firmware/build.sh --pi` onto an nRF7002 DK (the owner flashes). Check
    the boot log: `Pi image card: ...` and no link error.
-2. **The card:** a blank SDHC card in the breakout; the log says "no image" and generation 0. Take it
-   out and put it back; check card detect's polarity.
+2. **The card:** a blank SDHC card in the breakout; the log says "no image" and generation 0, and the
+   shadow's `reported.pi` says `"card":"empty"` with the next heartbeat. Take it out and put it back
+   (`no_card`, then `empty` again); check card detect's polarity.
 3. **Seed a card:** `tools/pi_image.py card` with a small test image (a few MB), written with `dd`.
-   The log says ready, generation 1.
+   The log says ready, generation 1; `reported.pi` says `ready`, the image's version and generation 1.
 4. **The Pi's link, INFO:** wire the Pi as in [Wiring](#wiring). First `cranium-link --status` and a
    message, as in `docs/pi-link.md`: the message link must work as before. Then, with `cranium-link`
    stopped, send INFO from the Pi with a few lines of `spidev` (or the Pi's owner's first code), and
@@ -602,8 +653,9 @@ In this order, each only after the one before passes:
    to count it under `pi delta`.
 5. **READ a whole small image** from the Pi and compare its SHA-256. Then time 10 MB of READs.
 6. **A delta job:** a second image with a few blocks changed, uploaded to the bucket by hand and
-   deployed to the one board, with a long timeout. Watch `IN_PROGRESS` reports; expect `fetched`
-   equal to the changed blocks. Then the Pi takes CHANGED and READs, and checks the digest.
+   deployed to the one board, with a long timeout. Watch `IN_PROGRESS` reports, and `reported.pi`
+   going to `updating` with `done` and `total` moving each heartbeat; expect `fetched` equal to the
+   changed blocks, then `ready` with the new version and the generation one up. Then the Pi takes CHANGED and READs, and checks the digest.
 7. **Faults:** cut the board's power in the middle of the blocks, then let the job go on; switch
    Wi-Fi off for a few minutes; let the URL expire (a job with `expiresInSec` of 300 and a slow
    link). Each must end `SUCCEEDED` with the right image. Take the card out in the middle: that job
@@ -625,6 +677,9 @@ None of this has run on a board, a card or a Pi:
 - PSA's ECDSA check with the built-in key (the host tests check the same bytes with MCUboot's
   tinycrypt).
 - The job's reports, a restart in the middle of a job, and a withdrawn job, on AWS IoT.
+- The heartbeat with `pi` on AWS IoT and the console's 90 s rule against its real timestamps; the
+  heartbeat's wait for the card's lock while a block is written, and the main loop's stack with the
+  larger heartbeat buffer.
 - Every speed figure on this page.
 
 Report what cannot be run as not run, never as passed.

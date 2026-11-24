@@ -4,6 +4,8 @@
 
 #include "pi_delta.h"
 
+#include <errno.h>
+#include <stdio.h>
 #include <string.h>
 
 #define NO_LBA UINT64_MAX
@@ -730,4 +732,46 @@ enum pi_err pi_delta_run(struct pi_delta *d, const struct pi_delta_job *job, boo
 		d->step = PI_STEP_DONE;
 	}
 	return err;
+}
+
+/* ------------------------------------------------------------------------------------------- */
+/* The report                                                                                   */
+
+const char *pi_step_name(uint8_t step)
+{
+	static const char *const names[] = { "idle", "manifest", "table", "compare", "blocks", "done" };
+
+	return names[step < sizeof(names) / sizeof(names[0]) ? step : PI_STEP_IDLE];
+}
+
+int pi_delta_report(const struct pi_delta *d, bool job, char *buf, size_t len)
+{
+	/* By the state's number, then a card that is not open. */
+	static const char *const cards[] = { "empty", "ready", "updating", "no_card" };
+	const struct pi_card *card = d->card;
+	const char *version = "";
+	unsigned int state = PI_STATE_UPDATING + 1;
+	uint32_t generation = 0;
+	/* The update's thread writes these as it goes, each on its own: done is held to total below. */
+	uint32_t total = d->stats.blocks_total;
+	uint32_t done = d->stats.blocks_done;
+	int written;
+
+	if (card->open && card->st.state <= PI_STATE_UPDATING) {
+		const char *held = card->st.state == PI_STATE_UPDATING ? card->neu.version
+								      : card->cur.version;
+
+		state = card->st.state;
+		generation = card->st.generation;
+		if (state != PI_STATE_EMPTY && pi_version_valid(held, PI_VERSION_MAX + 1)) {
+			version = held;
+		}
+	}
+	written = snprintf(buf, len,
+			   "{\"card\":\"%s\",\"version\":\"%s\",\"generation\":%u,\"step\":\"%s\","
+			   "\"done\":%u,\"total\":%u}",
+			   cards[state], version, (unsigned int)generation,
+			   pi_step_name(job ? d->step : PI_STEP_IDLE),
+			   (unsigned int)(done < total ? done : total), (unsigned int)total);
+	return written < 0 || (size_t)written >= len ? -ENOSPC : written;
 }

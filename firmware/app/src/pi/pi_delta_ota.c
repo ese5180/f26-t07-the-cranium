@@ -37,6 +37,8 @@ LOG_MODULE_REGISTER(pi_delta, CONFIG_APP_LOG_LEVEL);
 #define REPORT_SECONDS        30
 #define URL_WAIT_SECONDS      20
 #define RETRY_WAIT_SECONDS    10
+/* The longest the heartbeat waits for the card's lock: a card operation in progress ends sooner. */
+#define REPORT_LOCK_MS        500
 
 enum phase {
 	PHASE_IDLE,
@@ -72,7 +74,6 @@ static struct {
 	/* Set by the thread when a call ends. */
 	atomic_t done;
 	enum pi_err result;
-	bool already;
 	bool card_ok;
 } pi;
 
@@ -327,7 +328,6 @@ static void thread_main(void *a, void *b, void *c)
 		err = pi_delta_run(&delta, &pi.job, &already);
 		http_close();
 		pi.result = err;
-		pi.already = already;
 		pi.card_ok = card.open;
 		atomic_set(&pi.done, 1);
 	}
@@ -336,32 +336,14 @@ static void thread_main(void *a, void *b, void *c)
 /* ------------------------------------------------------------------------------------------- */
 /* The job, on the main loop                                                                    */
 
-static const char *step_name(uint8_t step)
-{
-	switch (step) {
-	case PI_STEP_MANIFEST:
-		return "manifest";
-	case PI_STEP_TABLE:
-		return "table";
-	case PI_STEP_COMPARE:
-		return "compare";
-	case PI_STEP_BLOCKS:
-		return "blocks";
-	case PI_STEP_DONE:
-		return "done";
-	default:
-		return "idle";
-	}
-}
-
 static void job_update(const char *status, const char *details)
 {
 	char body[320];
 	int written = snprintf(body, sizeof(body), "{\"status\":\"%s\",\"statusDetails\":{%s}}", status,
 			       details);
 
+	/* Never so: the longest details (finish_succeeded()'s) make 266 bytes. */
 	if (written < 0 || written >= (int)sizeof(body)) {
-		LOG_ERR("Pi job report too long");
 		return;
 	}
 	if (cloud_jobs_update(pi.job_id, body) != 0) {
@@ -377,7 +359,7 @@ static void report_progress(void)
 
 	(void)snprintf(details, sizeof(details),
 		       "\"step\":\"%s\",\"progress\":\"%u\",\"done\":\"%u\",\"total\":\"%u\"",
-		       step_name(delta.step), total == 0 ? 0u : (unsigned int)(100ull * done / total),
+		       pi_step_name(delta.step), total == 0 ? 0u : (unsigned int)(100ull * done / total),
 		       (unsigned int)done, (unsigned int)total);
 	job_update("IN_PROGRESS", details);
 	pi.since_report = 0;
@@ -400,8 +382,8 @@ static void finish_succeeded(void)
 		       pi.job.version, (unsigned int)card.st.generation,
 		       (unsigned int)delta.stats.blocks_fetched, (unsigned int)delta.stats.changed,
 		       (unsigned long long)delta.stats.bytes_fetched, fw_version_running_string());
-	LOG_INF("Pi image %s is on the card (%s)", pi.job.version,
-		pi.already ? "it was already" : "updated");
+	/* fetched says whether it was there already (0). */
+	LOG_INF("Pi image %s is on the card", pi.job.version);
 	job_update("SUCCEEDED", details);
 	finish();
 }
@@ -411,7 +393,7 @@ static void finish_failed(enum pi_err err)
 	char details[160];
 
 	(void)snprintf(details, sizeof(details), "\"reason\":\"%s\",\"step\":\"%s\",\"running\":\"%s\"",
-		       pi_err_reason(err), step_name(delta.step), fw_version_running_string());
+		       pi_err_reason(err), pi_step_name(delta.step), fw_version_running_string());
 	LOG_ERR("Pi job %s failed: %s", pi.job_id, pi_err_reason(err));
 	job_update("FAILED", details);
 	finish();
@@ -581,20 +563,19 @@ void pi_delta_ota_on_tick(void)
 
 int pi_delta_ota_report(char *buf, size_t len)
 {
-	static const char *const states[] = { "empty", "ready", "updating" };
-	const char *state = card.open && card.st.state <= PI_STATE_UPDATING ? states[card.st.state]
-									      : "no_card";
-	const struct pi_manifest *m = card.st.state == PI_STATE_UPDATING ? &card.neu : &card.cur;
 	int written;
 
-	written = snprintf(buf, len,
-			   "{\"card\":\"%s\",\"version\":\"%s\",\"generation\":%u,\"step\":\"%s\","
-			   "\"done\":%u,\"total\":%u}",
-			   state, card.open && card.st.state != PI_STATE_EMPTY ? m->version : "",
-			   (unsigned int)card.st.generation,
-			   pi.phase == PHASE_IDLE ? "idle" : step_name(delta.step),
-			   (unsigned int)delta.stats.blocks_done, (unsigned int)delta.stats.blocks_total);
-	return written < 0 || (size_t)written >= len ? -ENOSPC : written;
+	/*
+	 * The card's state, its version and generation, change under its lock, on the update's thread
+	 * and the link's queue. A card that keeps it longer than REPORT_LOCK_MS (one that fails, in the
+	 * SD stack's timeouts) leaves this report out rather than hold up the main loop.
+	 */
+	if (pi_card_disk_lock_within(REPORT_LOCK_MS) != 0) {
+		return -EBUSY;
+	}
+	written = pi_delta_report(&delta, pi.phase != PHASE_IDLE, buf, len);
+	pi_card_unlock(&card);
+	return written;
 }
 
 int pi_delta_ota_init(void)

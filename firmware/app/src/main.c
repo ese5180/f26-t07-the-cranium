@@ -48,6 +48,9 @@
 #if defined(CONFIG_APP_PI_LINK)
 #include "pi_link.h"
 #endif
+#if defined(CONFIG_APP_PI_DELTA)
+#include "pi_delta_ota.h"
+#endif
 #include "stuck.h"
 #include "ui.h"
 #include "version.h"
@@ -71,6 +74,16 @@ LOG_MODULE_REGISTER(app, CONFIG_APP_LOG_LEVEL);
 #define REPORT_FLOOR_MS         2000
 /* The most that app_restart() waits for AWS IoT to take the last report. */
 #define RESTART_ACK_MS          2000
+/* The heartbeat with every field at its longest fits, with room (test_app.c, the longest report). */
+#define REPORT_BASE             400
+#if defined(CONFIG_APP_PI_DELTA)
+/* A Pi build's card goes after the uptime: ,"pi":{...}, at most PI_DELTA_REPORT_MAX with its zero. */
+#define REPORT_PI_KEY           ",\"pi\":"
+#define REPORT_MAX              (REPORT_BASE + sizeof(REPORT_PI_KEY) - 1 + PI_DELTA_REPORT_MAX - 1)
+#else
+#define REPORT_MAX              REPORT_BASE
+#endif
+BUILD_ASSERT(REPORT_MAX <= CLOUD_REPORTED_MAX, "the longest heartbeat must fit the shadow document");
 
 K_MSGQ_DEFINE(event_queue, sizeof(struct app_event), 32, 4);
 
@@ -185,6 +198,27 @@ static void status_text(char *buf, size_t len)
 		       stuck_reason_name(), net_is_up());
 }
 
+#if defined(CONFIG_APP_PI_DELTA)
+/*
+ * A Pi build's SD card (pi_delta_ota_report()) in place of the report's closing brace: the console
+ * takes it only from the report that carries the uptime, so that a board that goes back to a build
+ * without it stops counting as one with a card. written is the report's length, below REPORT_BASE,
+ * which leaves PI_DELTA_REPORT_MAX and the brace after the key. A card that cannot be read now
+ * leaves the report as it was: what the card wrote is then past the report's terminating zero.
+ */
+static void report_add_pi(char *reported, int written)
+{
+	char *at = reported + written - 1 + sizeof(REPORT_PI_KEY) - 1;
+	int card = pi_delta_ota_report(at, PI_DELTA_REPORT_MAX);
+
+	if (card >= 0) {
+		memcpy(reported + written - 1, REPORT_PI_KEY, sizeof(REPORT_PI_KEY) - 1);
+		at[card] = '}';
+		at[card + 1] = '\0';
+	}
+}
+#endif
+
 /*
  * Publish what the console shows for this device. Nothing here is secret. AWS IoT stamps the time
  * that it gets the uptime, which is what the console calls the last heartbeat, and there is no other
@@ -194,7 +228,7 @@ static void status_text(char *buf, size_t len)
 static void publish_report_as(const char *state, int32_t ack_ms)
 {
 	char job[OTA_JOB_ID_MAX + 3] = "null";
-	char reported[400];
+	char reported[REPORT_MAX];
 	const char *job_id = ota_job_id();
 	int written;
 	int err = -ENOSPC;
@@ -223,7 +257,10 @@ static void publish_report_as(const char *state, int32_t ack_ms)
 			   (unsigned int)stuck_count(), stuck_reason_name(),
 			   k_uptime_get() / MSEC_PER_SEC);
 
-	if (written > 0 && written < (int)sizeof(reported)) {
+	if (written > 0 && written < REPORT_BASE) {
+#if defined(CONFIG_APP_PI_DELTA)
+		report_add_pi(reported, written);
+#endif
 		err = ack_ms > 0 ? cloud_shadow_report_acked(reported, ack_ms)
 				 : cloud_shadow_report(reported);
 	}

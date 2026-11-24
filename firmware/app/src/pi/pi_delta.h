@@ -142,4 +142,31 @@ void pi_delta_init(struct pi_delta *d, struct pi_card *card, const struct pi_del
  */
 enum pi_err pi_delta_run(struct pi_delta *d, const struct pi_delta_job *job, bool *already);
 
+/* A step's name in reports: "idle", "manifest", "table", "compare", "blocks" or "done". */
+const char *pi_step_name(uint8_t step);
+
+/*
+ * The longest report pi_delta_report() writes, with its terminating zero: an updating card, a
+ * version of PI_VERSION_MAX characters, the longest step and every number at 32 bits.
+ */
+#define PI_DELTA_REPORT_MAX                                                                        \
+	(sizeof("{\"card\":\"updating\",\"version\":\"\",\"generation\":4294967295,"                 \
+		"\"step\":\"manifest\",\"done\":4294967295,\"total\":4294967295}") +                   \
+	 PI_VERSION_MAX)
+
+/*
+ * The card and the update, as a board reports them with its heartbeat (pi_delta_ota_report()):
+ * {"card":"updating","version":"2026.11.24-1","generation":3,"step":"blocks","done":4,"total":10}.
+ *
+ * card is "empty", "ready", "updating" or "no_card". version is the image on the card, or the one
+ * an update brings it to; "" for none, and for one that is not a valid version, so that nothing
+ * read from a card can break the JSON. generation is 0 with no card. step is "idle" unless job is
+ * true. done and total count the blocks of the update, done never more than total.
+ *
+ * The caller holds the card's lock (pi_card_lock()): the update's thread and the Pi's link change
+ * the card's state under it. The step and the counts are read a word at a time, without it. The
+ * length written, or -ENOSPC if len is too small.
+ */
+int pi_delta_report(const struct pi_delta *d, bool job, char *buf, size_t len);
+
 #endif /* PI_DELTA_H_ */

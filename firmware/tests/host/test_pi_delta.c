@@ -10,10 +10,12 @@
  * tools/pi_image.py and pi_delta_harness.c).
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "cJSON.h"
 #include "ota_job.h"
 #include "pi_card.h"
 #include "pi_delta.h"
@@ -1462,6 +1464,149 @@ static void test_http(void)
 	CHECK(pi_http_request_tail(buf, 20, "bucket.example", 0, 1) == -1);
 }
 
+/* ------------------------------------------------------------------------------------------- */
+/* The report that goes with the heartbeat (pi_delta_report(), as main.c's "pi")                */
+
+/* The report is exactly `expected`, and JSON: an object with the six keys. */
+static bool report_is(const struct world *w, bool job, const char *expected)
+{
+	static const char *const keys[] = { "card", "version", "generation", "step", "done", "total" };
+	char buf[PI_DELTA_REPORT_MAX];
+	int written = pi_delta_report(&w->delta, job, buf, sizeof(buf));
+	cJSON *json = written > 0 ? cJSON_Parse(buf) : NULL;
+	bool ok = written == (int)strlen(expected) && strcmp(buf, expected) == 0 && cJSON_IsObject(json);
+
+	for (size_t i = 0; ok && i < sizeof(keys) / sizeof(keys[0]); i++) {
+		ok = cJSON_HasObjectItem(json, keys[i]);
+	}
+	if (!ok) {
+		printf("     report: %s\n", written > 0 ? buf : "(none)");
+	}
+	cJSON_Delete(json);
+	return ok;
+}
+
+static void test_report(void)
+{
+	uint64_t size;
+	uint8_t *v1 = make_image(9, BLOCKS, &size);
+	uint8_t *v2 = malloc((size_t)size);
+	char buf[PI_DELTA_REPORT_MAX];
+	struct world w;
+
+	memcpy(v2, v1, (size_t)size);
+	for (uint32_t b = 10; b < 30; b++) {
+		change_block(v2, b, 9);
+	}
+	world_create(&w);
+	pi_card_init(&w.card, &fake_disk_ops, &w.disk);
+	pi_delta_init(&w.delta, &w.card, &config, &w.fetch, fake_verify, &w.stop);
+
+	/* Before the card is read, and with the slot empty: no card. */
+	CHECK(report_is(&w, false,
+			"{\"card\":\"no_card\",\"version\":\"\",\"generation\":0,\"step\":\"idle\",\"done\":0,"
+			"\"total\":0}"));
+	w.disk.absent = true;
+	CHECK(pi_card_open(&w.card, MAX_BLOCKS) == PI_ERR_SD_ABSENT);
+	CHECK(report_is(&w, false,
+			"{\"card\":\"no_card\",\"version\":\"\",\"generation\":0,\"step\":\"idle\",\"done\":0,"
+			"\"total\":0}"));
+	w.disk.absent = false;
+
+	/* A new card: empty, with no version. */
+	CHECK(pi_card_open(&w.card, MAX_BLOCKS) == PI_OK);
+	CHECK(report_is(&w, false,
+			"{\"card\":\"empty\",\"version\":\"\",\"generation\":0,\"step\":\"idle\",\"done\":0,"
+			"\"total\":0}"));
+
+	/* An image on it: ready, its version and generation. The step is the job's, while it has one. */
+	install(&w, v1, size, "v1");
+	CHECK(report_is(&w, false,
+			"{\"card\":\"ready\",\"version\":\"v1\",\"generation\":1,\"step\":\"idle\",\"done\":40,"
+			"\"total\":40}"));
+	CHECK(report_is(&w, true,
+			"{\"card\":\"ready\",\"version\":\"v1\",\"generation\":1,\"step\":\"done\",\"done\":40,"
+			"\"total\":40}"));
+
+	/* Cut off five of twenty changed blocks in: updating, to the new image, with the update's numbers. */
+	serve(&w, v2, size, "v2");
+	w.server.drop_after = 512 + BLOCKS * 32 + 5 * BS + 1234;
+	CHECK(run(&w, NULL) == PI_ERR_DOWNLOAD);
+	CHECK(report_is(&w, true,
+			"{\"card\":\"updating\",\"version\":\"v2\",\"generation\":1,\"step\":\"blocks\",\"done\":5,"
+			"\"total\":20}"));
+	/* Between calls (waiting for a fresh URL), the step is the one it stopped in. Withdrawn: idle. */
+	CHECK(report_is(&w, false,
+			"{\"card\":\"updating\",\"version\":\"v2\",\"generation\":1,\"step\":\"idle\",\"done\":5,"
+			"\"total\":20}"));
+
+	/* The thread writes the counts one at a time, and a report can come in between: done stays within total. */
+	w.delta.stats.blocks_done = 21;
+	CHECK(report_is(&w, true,
+			"{\"card\":\"updating\",\"version\":\"v2\",\"generation\":1,\"step\":\"blocks\",\"done\":20,"
+			"\"total\":20}"));
+	w.delta.stats.blocks_total = 0;
+	CHECK(report_is(&w, true,
+			"{\"card\":\"updating\",\"version\":\"v2\",\"generation\":1,\"step\":\"blocks\",\"done\":0,"
+			"\"total\":0}"));
+
+	/*
+	 * A version that is not one never reaches the JSON: one with a quote, a backslash and a control
+	 * character, and one that fills its field with no terminating zero. The card's bytes are only
+	 * ever decoded and checked, but a report must not be able to break the heartbeat it goes in.
+	 */
+	{
+		struct pi_manifest kept = w.card.neu;
+
+		memset(w.card.neu.version, 0, sizeof(w.card.neu.version));
+		memcpy(w.card.neu.version, "v2\",\"x\":\"\\\n", 11);
+		CHECK(report_is(&w, false,
+				"{\"card\":\"updating\",\"version\":\"\",\"generation\":1,\"step\":\"idle\",\"done\":0,"
+				"\"total\":0}"));
+		memset(w.card.neu.version, 'a', sizeof(w.card.neu.version));
+		CHECK(report_is(&w, false,
+				"{\"card\":\"updating\",\"version\":\"\",\"generation\":1,\"step\":\"idle\",\"done\":0,"
+				"\"total\":0}"));
+		w.card.neu = kept;
+	}
+
+	/* The rest of it: ready with the new image, a generation on. */
+	CHECK(run(&w, NULL) == PI_OK);
+	CHECK(mirror_is(&w, v2, size));
+	CHECK(report_is(&w, true,
+			"{\"card\":\"ready\",\"version\":\"v2\",\"generation\":2,\"step\":\"done\",\"done\":20,"
+			"\"total\":20}"));
+
+	/* Taken out: no card, and nothing of the one that was there. */
+	pi_card_close(&w.card);
+	CHECK(report_is(&w, false,
+			"{\"card\":\"no_card\",\"version\":\"\",\"generation\":0,\"step\":\"idle\",\"done\":20,"
+			"\"total\":20}"));
+
+	/*
+	 * Every field at its longest is PI_DELTA_REPORT_MAX with the terminating zero, exactly, which is
+	 * what main.c leaves for it. A byte less is refused, and a step it does not know is "idle".
+	 */
+	CHECK(pi_card_open(&w.card, MAX_BLOCKS) == PI_OK);
+	w.card.st.state = PI_STATE_UPDATING;
+	w.card.st.generation = UINT32_MAX;
+	memset(w.card.neu.version, 0, sizeof(w.card.neu.version));
+	memset(w.card.neu.version, '9', PI_VERSION_MAX);
+	w.delta.step = PI_STEP_MANIFEST;
+	w.delta.stats.blocks_total = UINT32_MAX;
+	w.delta.stats.blocks_done = UINT32_MAX;
+	CHECK(pi_delta_report(&w.delta, true, buf, sizeof(buf)) == (int)PI_DELTA_REPORT_MAX - 1);
+	CHECK(strstr(buf, "\"version\":\"9999999999999999999999999999999\"") != NULL);
+	CHECK(pi_delta_report(&w.delta, true, buf, sizeof(buf) - 1) == -ENOSPC);
+	w.delta.step = 77;
+	CHECK(pi_delta_report(&w.delta, true, buf, sizeof(buf)) > 0 && strstr(buf, "\"step\":\"idle\"") != NULL);
+	CHECK(strcmp(pi_step_name(PI_STEP_COMPARE), "compare") == 0 && strcmp(pi_step_name(PI_STEP_TABLE), "table") == 0);
+
+	world_free(&w);
+	free(v1);
+	free(v2);
+}
+
 int main(void)
 {
 	pi_card_layout_for(MAX_BLOCKS, &layout);
@@ -1480,6 +1625,7 @@ int main(void)
 	test_shared_link();
 	test_job_document();
 	test_http();
+	test_report();
 
 	printf("pi_delta_tests: %d checks, %d failures\n", checks, failures);
 	return failures == 0 ? 0 : 1;

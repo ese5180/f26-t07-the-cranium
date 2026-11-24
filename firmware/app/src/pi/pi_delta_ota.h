@@ -15,6 +15,7 @@
 #include <stddef.h>
 
 #include "ota_job.h"
+#include "pi_delta.h"
 
 /* The card, the link to the Pi and the update's thread. 0, or a negative errno. */
 int pi_delta_ota_init(void);
@@ -35,8 +36,10 @@ void pi_delta_ota_withdrawn(void);
 void pi_delta_ota_on_tick(void);
 
 /*
- * The card and the job, for STATUS: {"card":"ready","version":"2026.11.24-1","generation":3,
- * "step":"blocks","done":4,"total":10}. The length written, or a negative errno.
+ * The card and the job, for the heartbeat (main.c, "pi"): {"card":"ready","version":"2026.11.24-1",
+ * "generation":3,"step":"blocks","done":4,"total":10}, as pi_delta_report() says, in at most
+ * PI_DELTA_REPORT_MAX bytes. It takes the card's lock, waiting half a second at most. The length
+ * written, or a negative errno: -EBUSY when the card stays busy, -ENOSPC when len is too small.
  */
 int pi_delta_ota_report(char *buf, size_t len);
 

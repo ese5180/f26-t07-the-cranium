@@ -43,7 +43,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
 		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests \
 		$(BUILD)/pi_delta_tests $(BUILD)/pi_delta_harness $(BUILD)/ota_pi_tests \
-		$(BUILD)/pi_rx_tests $(BUILD)/pi_rx_delta_tests
+		$(BUILD)/pi_rx_tests $(BUILD)/pi_rx_delta_tests $(BUILD)/app_pi_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -87,6 +87,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/ota_pi_tests
 	./$(BUILD)/pi_rx_tests
 	./$(BUILD)/pi_rx_delta_tests
+	./$(BUILD)/app_pi_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -158,6 +159,14 @@ $(BUILD)/app_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/s
 		$(CONSOLE_HEADERS)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) -o $@ test_app.c $(SRC)/policy/stuck_policy.c $(SRC)/policy/join_policy.c
+
+# main.c in a Pi build (CONFIG_APP_PI_DELTA, from 1.20.0): the heartbeat carries the SD card after its
+# uptime, against a fake of pi_delta_ota_report(), and goes without it when the card cannot be read.
+$(BUILD)/app_pi_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/stuck.c $(SRC)/policy/stuck_policy.c $(SRC)/policy/join_policy.c \
+		$(CONSOLE_HEADERS) $(PI_DELTA_HEADERS) $(BUILD)/cJSON.o
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) -DCONFIG_APP_PI_DELTA=1 -o $@ test_app.c $(SRC)/policy/stuck_policy.c \
+		$(SRC)/policy/join_policy.c $(BUILD)/cJSON.o -lm
 
 # cloud.c, included by its test to get at the AWS IoT library's callback and the connection's work,
 # against a fake of that library: what the console's MQTT command counts, and the topics it lists.

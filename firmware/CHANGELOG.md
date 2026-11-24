@@ -30,12 +30,25 @@ message link's session and ack, and the request's seq. In a Pi build the link's 
 work runs on a queue of its own, as a READ waits for the SD card. `tools/pi_delta_sim.py` is the protocol's executable
 contract for the Pi's side. The Pi's own program is not part of this.
 
+The card in the shadow: a Pi build's heartbeat carries its SD card after the uptime, in the same report, as
+`"pi":{"card","version","generation","step","done","total"}` (`pi_delta_report()`), which the console (#285) needs
+before it offers a board a Pi image: it counts the card only when it comes with the uptime. `card` is `empty`, `ready`,
+`updating` or `no_card`; a version that is not one of the manifest's characters is reported as `""`, so nothing from a
+card can break the JSON; `done` is never more than `total`. The report takes the card's lock, waiting 500 ms at most; a
+card that stays busy (a failing one) leaves `pi` out of that heartbeat rather than hold up the main loop. In a Pi build
+the heartbeat's buffer is 548 bytes and the shadow document 576 (`CLOUD_REPORTED_MAX`, checked by a `BUILD_ASSERT`);
+other builds report exactly as before. Details: `docs/pi-delta-update.md`, "The card in the shadow".
+
 Tests: `firmware/tests/host/test_pi_delta.c` (the formats, the card, the update with a power cut at every write in
 turn, a card pulled out, lost connections, wrong blocks, every link request including malformed ones, the job document,
-the HTTP head) and `firmware/tests/hil/test_pi_delta.py` (the tool, and the board's C code on the host with real
+the HTTP head, the card's report: no card, empty, ready, mid-update, a version that is not one, the longest),
+`test_app.c` built as a Pi build (`app_pi_tests`: the heartbeat with its card, and without it when the card cannot be
+read) and `firmware/tests/hil/test_pi_delta.py` (the tool, and the board's C code on the host with real
 ECDSA against packages the tool signed, with the stand-in Pi taking only the changed blocks, messages between its
 requests, and `pi/cranium_link.py` beside them), and `test_pi_rx.c` (the message link's receiver with and without this). Memory (local builds): the default build is #58's to the byte, 33,226 bytes of flash and 1,860 of RAM free; a `--pi` build has
-98,442 of flash and 18,944 of RAM free, its floors in `tools/memory_budgets.json` (`Pi delta updates`).
+98,370 of flash and 18,880 of RAM free, its floors in `tools/memory_budgets.json` (`Pi delta updates`); the card
+in the heartbeat (392 bytes of flash) is paid for by the SD stack's notes, which a Pi build leaves out (it logs their
+warnings and errors), and two of the update's log lines.
 
 ## 1.19.3
 
