@@ -9,6 +9,8 @@
   ECDSA against the test's key, onto a card in a file.
 - tools/pi_delta_sim.py as the Pi, the SPI controller, against that card: it takes only the blocks
   that changed and ends with the new image's SHA-256.
+- The link the requests share with the Pi's messages (src/pi/pi_link.c, docs/pi-link.md): messages
+  between the requests, and pi/cranium_link.py itself, the Pi's sender, beside them.
 
 Every key here is made by the test, in a temporary directory, and thrown away with it.
 """
@@ -30,6 +32,9 @@ sys.path.insert(0, str(REPO / "tools"))
 
 import pi_delta_sim as sim  # noqa: E402
 import pi_image as pi  # noqa: E402
+
+sys.path.insert(0, str(REPO / "pi"))
+import cranium_link  # noqa: E402  (the Pi's sender, read only: pi/ is the Pi side's)
 
 HOST = REPO / "firmware" / "tests" / "host"
 HARNESS = HOST / "build" / "pi_delta_harness"
@@ -389,22 +394,85 @@ class BoardTests(Base):
                 (sim.CHANGED, struct.pack("<IHH", 0, 121, 0), "bad_request"),
                 (sim.CHANGED, struct.pack("<IHH", 17, 1, 0), "out_of_range"),
                 (sim.INFO, b"x", "bad_request"),
-                (0x01, b"{}", "unknown_type"),
-                (0x7E, b"", "unknown_type"),
             ]
             for kind, payload, name in cases:
                 with self.assertRaises(sim.BoardError, msg=(kind, payload)) as caught:
                     client.request(kind, payload)
                 self.assertEqual(caught.exception.name, name, (kind, payload))
-            # Garbage on the wire: the board answers that the frame was damaged.
-            transport.transfer(b"\x13\x37" * 256)
-            answer = sim.decode(transport.transfer(sim.encode(sim.POLL, 1, 0)))
-            self.assertEqual((answer.kind, answer.payload[0]), (sim.ERROR, 1))
+            # What is not a delta request goes to the message link, which answers it with STATUS:
+            # a type nobody takes, DATA, and garbage on the wire.
+            for mosi in (sim.encode(0x7E, 1, 3), sim.encode(sim.DATA, 1, 4, b"{}"), b"\x13\x37" * 256):
+                transport.transfer(mosi)
+                answer = sim.decode(transport.transfer(sim.encode(sim.POLL, 1, 0)))
+                self.assertEqual(answer.kind, sim.STATUS, mosi[:4])
+            self.assertEqual((answer.session, answer.ack), (1, 4))
+            # A request with no answer of its own is sent again, then given up.
+            with self.assertRaises(sim.LinkError):
+                client.request(0x14)
             # And the link still works after all of that.
             self.assertEqual(client.manifest(0, 2)[1], hashlib.sha256(v1[4096:8192]).digest())
         finally:
             board = transport.close()
-        self.assertRegex(board, r"bad_frames=1 ")
+        self.assertRegex(board, r"refused=10 ")
+        self.assertRegex(board, r"delivered=1 ")
+        # 0x7E, garbage, and 0x14 five times.
+        self.assertRegex(board, r"bad=7 ")
+        self.assertRegex(board, r"unknown=6\b")
+
+    def test_messages_share_the_link(self):
+        """The Pi's messages between the requests: each delivered once, and the update unharmed."""
+        v1 = image_bytes(20, 64 * 4096)
+        v2 = changed(changed(v1, 4, 4096, 1), 50, 4096, 2)
+        p1, _ = self.package(v1, "v1")
+        p2, m2 = self.package(v2, "v2")
+        card = self.card_from(p1)
+        self.assertEqual(self.update(card, p2, m2)["result"], "ok")
+        for flip_every in (0, 7):
+            transport = sim.HarnessTransport(HARNESS, card, flip_every)
+            messages = sim.MessageSender(transport)
+            try:
+                client = sim.PiClient(transport, messages=messages, messages_every=1)
+                image, stats = sim.take_update(client, bytes(v1), "v1")
+            finally:
+                board = transport.close()
+            self.assertEqual(image, bytes(v2))
+            self.assertGreaterEqual(messages.sent, client.asked)
+            self.assertRegex(board, rf"delivered={messages.sent} ")
+            if flip_every == 0:
+                self.assertEqual((stats["retries"], messages.not_status), (0, 0))
+                self.assertRegex(board, r"duplicates=0 ")
+
+    def test_the_pis_sender_beside_delta_requests(self):
+        """pi/cranium_link.py takes only STATUS: a delta answer it reads costs it a transfer, nothing more."""
+        v1 = image_bytes(21, 16 * 4096)
+        p1, _ = self.package(v1, "v1")
+        card = self.card_from(p1)
+        transport = sim.HarnessTransport(HARNESS, card)
+        try:
+            link = cranium_link.Link(transport, cranium_link.NoReady(), session=0x77, sleep=lambda _: None)
+            client = sim.PiClient(transport)
+            # A delta request whose answer nobody took (a process stopped half way): the sender's DATA
+            # transfer brings that answer, which it counts as a bad reply, and its POLL the STATUS.
+            transport.transfer(sim.encode(sim.INFO, 0x5A5A, 9))
+            self.assertTrue(link.send('{"t":"hb"}'))
+            self.assertEqual((link.stats["bad_reply"], link.stats["resent"]), (1, 0))
+            # cranium-link --status is one POLL: right after a delta request it reads the delta answer,
+            # and finds no status; the POLL after it always has STATUS.
+            transport.transfer(sim.encode(sim.INFO, 0x5A5A, 10))
+            self.assertIsNone(link.status())
+            got = link.status()
+            self.assertEqual((got.type, got.session, got.ack), (cranium_link.STATUS, 0x77, link.seq))
+            # A whole update between two messages: the delta client ends each request with the POLL that
+            # takes its answer, so STATUS is what the sender meets next.
+            image, _ = sim.take_update(client, bytes(v1), "none")
+            self.assertEqual(image, bytes(v1))
+            self.assertIsNotNone(link.status())
+            self.assertTrue(link.send('{"t":"np"}'))
+            self.assertEqual((link.stats["sent"], link.stats["bad_reply"], link.stats["resent"]), (2, 2, 0))
+        finally:
+            board = transport.close()
+        self.assertRegex(board, r"delivered=2 ")
+        self.assertRegex(board, r"duplicates=0 ")
 
 
 if __name__ == "__main__":

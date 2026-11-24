@@ -6,14 +6,20 @@
 
 This is not the Pi's program: that is the Pi's owner's to write. It is the protocol's executable
 contract, used by firmware/tests/hil/test_pi_delta.py against the board's real C code
-(src/pi/pi_dlink.c, through firmware/tests/host/pi_delta_harness.c). It does what a Pi does: asks
-INFO, takes the list of changed blocks when the card's update started from the image it runs (or
-compares the board's block hashes with its own otherwise), reads only the blocks that differ, checks
-each one's SHA-256, and checks the whole image's SHA-256 at the end.
+(src/pi/pi_rx.c and pi_dlink.c, as src/pi/pi_link.c has them, through
+firmware/tests/host/pi_delta_harness.c). It does what a Pi does: asks INFO, takes the list of
+changed blocks when the card's update started from the image it runs (or compares the board's block
+hashes with its own otherwise), reads only the blocks that differ, checks each one's SHA-256, and
+checks the whole image's SHA-256 at the end.
 
-Every transfer is 512 bytes each way (the frames of the Pi's message link, PR #58). The board
-answers a request in the transfer after it; the Pi sends its next request in that same transfer
-(pipelining), or a POLL when it has none.
+The requests share the Pi's message link (docs/pi-link.md, pi/cranium_link.py): its pins, its
+512-byte frames and its rule that the board answers each frame in the transfer after it. A delta
+request gets its answer, and anything else STATUS. The Pi sends its next request in the transfer
+that brings the last answer (pipelining), or a POLL when it has none. An answer is the Pi's when its
+type is the request's with 0x80 set (or ERROR naming the request's type) and its seq is the
+request's; anything else, STATUS above all, is not, and the request goes again: every request only
+reads. With --messages-every N, a stand-in for cranium-link sends a message (DATA, then a POLL whose
+STATUS must acknowledge it) before every Nth request, on the same link, as one process at a time.
 """
 
 from __future__ import annotations
@@ -30,14 +36,16 @@ from pathlib import Path
 FRAME = 512
 HEADER = 12
 VERSION = 1
-POLL = 0x02
+DATA, POLL, STATUS = 0x01, 0x02, 0x81
 INFO, MANIFEST, CHANGED, READ = 0x10, 0x11, 0x12, 0x13
 ANSWER = 0x80
 ERROR = 0xFF
 MANIFEST_MAX, CHANGED_MAX, READ_MAX = 15, 120, 480
 STATE_EMPTY, STATE_READY, STATE_UPDATING = 0, 1, 2
 INFO_LIST, INFO_PREPARING, INFO_NO_CARD = 1, 2, 4
-CODES = {1: "bad_frame", 2: "bad_request", 3: "unknown_type", 4: "no_image", 5: "updating",
+# 1 (a damaged frame) is no longer sent: on the shared link a damaged frame gets STATUS. 3 never
+# reaches the Pi: a type that is not a delta request goes to the message link.
+CODES = {2: "bad_request", 3: "unknown_type", 4: "no_image", 5: "updating",
          6: "out_of_range", 7: "card", 8: "no_list"}
 
 
@@ -113,11 +121,41 @@ class HarnessTransport:
     def close(self) -> str:
         self.proc.stdin.close()
         self.proc.wait(timeout=30)
-        return self.proc.stderr.read().decode()
+        board = self.proc.stderr.read().decode()
+        self.proc.stdout.close()
+        self.proc.stderr.close()
+        return board
+
+
+class MessageSender:
+    """The message link's sender, as pi/cranium_link.py sends: DATA, then a POLL whose STATUS names it."""
+
+    def __init__(self, transport, session: int = 0x4D4D, attempts: int = 5):
+        self.t = transport
+        self.session = session
+        self.seq = 0
+        self.attempts = attempts
+        self.sent = 0
+        self.not_status = 0
+
+    def send(self, payload: bytes) -> bool:
+        seq = (self.seq + 1) & 0xFFFF
+        for _ in range(self.attempts):
+            self.t.transfer(encode(DATA, self.session, seq, payload))
+            got = decode(self.t.transfer(encode(POLL, self.session, 0)))
+            if got is None or got.kind != STATUS:
+                self.not_status += 1
+                continue
+            if got.session == self.session and got.ack == seq:
+                self.seq = seq
+                self.sent += 1
+                return True
+        return False
 
 
 class PiClient:
-    def __init__(self, transport, session: int = 0x5A5A, attempts: int = 5):
+    def __init__(self, transport, session: int = 0x5A5A, attempts: int = 5,
+                 messages: MessageSender | None = None, messages_every: int = 0):
         self.t = transport
         self.session = session
         self.seq = 0
@@ -125,6 +163,16 @@ class PiClient:
         self.transfers = 0
         self.retries = 0
         self.generation: int | None = None
+        self.messages = messages
+        self.messages_every = messages_every
+        self.asked = 0
+
+    def _between(self):
+        """Before a request: now and then, a message on the same link, as cranium-link would send."""
+        self.asked += 1
+        if self.messages is not None and self.messages_every and self.asked % self.messages_every == 0:
+            if not self.messages.send(b'{"t":"hb","n":%d}' % self.asked):
+                raise LinkError("a message was not acknowledged")
 
     def _next_seq(self) -> int:
         self.seq = (self.seq + 1) & 0xFFFF or 1
@@ -135,19 +183,20 @@ class PiClient:
         return self.t.transfer(mosi)
 
     def _answer(self, raw: bytes, seq: int, kind: int) -> Frame | None:
+        """The answer to request seq of that kind, or None for anything else (STATUS, damage, another's)."""
         frame = decode(raw)
-        if frame is None or frame.ack != seq or frame.session != self.session:
+        # Session and ack are the message link's (pi_frame.h): not the Pi's to check here.
+        if frame is None or frame.seq != seq:
             return None
-        if frame.kind == ERROR:
+        if frame.kind == ERROR and len(frame.payload) >= 12 and frame.payload[8] == kind:
             code, state = frame.payload[0], frame.payload[1]
             generation = struct.unpack_from("<I", frame.payload, 4)[0]
-            if code == 1:
-                return None  # the board got a damaged frame: send it again
             raise BoardError(code, state, generation)
         return frame if frame.kind == (kind | ANSWER) else None
 
     def request(self, kind: int, payload: bytes = b"") -> Frame:
-        """Send a request, then POLL for its answer, and again on anything damaged."""
+        """Send a request, then POLL for its answer, and the request again on anything else."""
+        self._between()
         for _ in range(self.attempts):
             seq = self._next_seq()
             self._xfer(encode(kind, self.session, seq, payload))
@@ -199,6 +248,7 @@ class PiClient:
 
     def read_block(self, block: int, length: int) -> bytes:
         """A whole block, pipelined: each transfer carries the next READ and brings the last answer."""
+        self._between()
         pieces = [(off, min(READ_MAX, length - off)) for off in range(0, length, READ_MAX)]
         out = bytearray(length)
         pending: tuple[int, int, int] | None = None
@@ -289,15 +339,20 @@ def main(argv=None) -> int:
     parser.add_argument("--version", required=True, help="its version")
     parser.add_argument("--out", required=True)
     parser.add_argument("--flip-every", type=int, default=0, help="damage one transfer in this many")
+    parser.add_argument("--messages-every", type=int, default=0,
+                        help="send a message on the same link before every Nth request")
     args = parser.parse_args(argv)
     transport = HarnessTransport(Path(args.harness), Path(args.card), args.flip_every)
+    messages = MessageSender(transport)
     try:
-        image, stats = take_update(PiClient(transport), Path(args.image).read_bytes(), args.version)
+        image, stats = take_update(PiClient(transport, messages=messages, messages_every=args.messages_every),
+                                   Path(args.image).read_bytes(), args.version)
     finally:
         board = transport.close()
     Path(args.out).write_bytes(image)
     print(f"took {stats['blocks']} of {stats['of']} blocks ({stats['how']}) in {stats['transfers']} transfers, "
-          f"{stats['retries']} again; now {stats['version']}, SHA-256 {hashlib.sha256(image).hexdigest()}; board: {board.strip()}")
+          f"{stats['retries']} again, {messages.sent} messages beside them; now {stats['version']}, "
+          f"SHA-256 {hashlib.sha256(image).hexdigest()}; board: {board.strip()}")
     return 0
 
 

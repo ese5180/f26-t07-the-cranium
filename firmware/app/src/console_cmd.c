@@ -950,6 +950,11 @@ static void print_pi(void)
 	console_reply_line("%-14s %u", "pi polls", (unsigned int)pi.polls);
 	console_reply_line("%-14s %u (crc %u)", "pi bad frames", (unsigned int)pi.bad,
 			   (unsigned int)pi.bad_crc);
+#if defined(CONFIG_APP_PI_DELTA)
+	/* Pi delta updates' requests on the same link (src/pi/pi_dlink.h). */
+	console_reply_line("%-14s %u answered, %u refused", "pi delta",
+			   (unsigned int)pi.delta_answered, (unsigned int)pi.delta_refused);
+#endif
 	pi_link_get_last(PI_LINK_NP, last, sizeof(last));
 	console_reply_line("%-14s %s", "pi last np", last[0] != '\0' ? last : "none");
 	pi_link_get_last(PI_LINK_HB, last, sizeof(last));

@@ -1,7 +1,8 @@
 /*
  * Host tests of Raspberry Pi delta updates (firmware 1.20.0, docs/pi-delta-update.md): the formats
  * (src/pi/pi_delta_fmt.c), the card (pi_card.c), the update (pi_delta.c), the Pi's link
- * (pi_dlink.c) and the "pi_delta" job document (src/ota/ota_job.c).
+ * (pi_dlink.c, behind the message link's pi_rx.c, as pi_link.c has them) and the "pi_delta" job
+ * document (src/ota/ota_job.c).
  *
  * The card is in memory and can lose power at any write, be pulled out or fail; the server hands
  * out ranges in pieces of any size and can drop the connection or send wrong bytes; the signature is
@@ -21,6 +22,7 @@
 #include "pi_dlink.h"
 #include "pi_frame.h"
 #include "pi_http.h"
+#include "pi_rx.h"
 #include "pi_sha256.h"
 
 static int failures;
@@ -829,18 +831,54 @@ static size_t request(uint8_t *rx, uint8_t type, const uint8_t *payload, uint16_
 	return pi_frame_encode(rx, PI_FRAME_SIZE, &frame) > 0 ? PI_FRAME_SIZE : 0;
 }
 
-/* Ask, and read the answer as the Pi would in the next transfer. */
+/* The message link's receiver, which every frame goes through first, as in pi_link.c. */
+static struct pi_rx link_rx;
+
+/*
+ * One transfer, as pi_link.c takes it: the frame goes to pi_rx_handle(), then pi_dlink_answer()
+ * writes what the board sends in the next transfer, and the SPI peripheral's overrun character
+ * (0xff) follows it. Returns the answer's length.
+ */
+static size_t transfer(struct pi_dlink *link, struct pi_rx *rx, const uint8_t *in, size_t received,
+		       uint8_t *tx, enum pi_rx_result *result)
+{
+	struct pi_frame frame;
+	enum pi_rx_result r = pi_rx_handle(rx, in, received, &frame);
+
+	memset(tx, 0xff, PI_FRAME_SIZE);
+	if (result != NULL) {
+		*result = r;
+	}
+	return pi_dlink_answer(link, rx, r, &frame, tx, PI_FRAME_SIZE);
+}
+
+/* The frame is the message link's STATUS, naming that session and seq (0 and 0: none yet). */
+static bool is_status(const uint8_t *tx, uint16_t session, uint16_t ack)
+{
+	struct pi_frame f;
+
+	return pi_frame_decode(tx, PI_FRAME_SIZE, &f) == PI_FRAME_OK && f.type == PI_FRAME_STATUS &&
+	       f.session == session && f.ack == ack && f.seq == 0 && f.length == 0;
+}
+
+/*
+ * Ask, and read the answer as the Pi would in the next transfer: its seq is the request's, and its
+ * session and ack are the message link's, as in STATUS.
+ */
 static bool ask(struct pi_dlink *link, uint8_t type, const uint8_t *payload, uint16_t length,
 		struct pi_frame *answer, uint8_t *tx)
 {
 	uint8_t rx[PI_FRAME_SIZE];
+	enum pi_rx_result result;
+	size_t n;
 
 	request(rx, type, payload, length);
-	if (!pi_dlink_handle(link, rx, sizeof(rx), tx)) {
-		return false;
-	}
-	return pi_frame_decode(tx, PI_FRAME_SIZE, answer) == PI_FRAME_OK &&
-	       answer->ack == request_seq && answer->session == 0x1234;
+	n = transfer(link, &link_rx, rx, sizeof(rx), tx, &result);
+	return result == PI_RX_DELTA && pi_frame_decode(tx, PI_FRAME_SIZE, answer) == PI_FRAME_OK &&
+	       n == PI_FRAME_HEADER + (size_t)answer->length + PI_FRAME_CRC &&
+	       answer->seq == request_seq &&
+	       answer->session == (link_rx.accepted_any ? link_rx.session : 0) &&
+	       answer->ack == (link_rx.accepted_any ? link_rx.seq : 0);
 }
 
 static uint8_t error_code(const struct pi_frame *answer)
@@ -943,6 +981,7 @@ static void test_link(void)
 	/* No card open yet: INFO says so, the rest is refused. */
 	pi_card_init(&card, &fake_disk_ops, &w.disk);
 	pi_dlink_init(&link, &card);
+	pi_rx_init(&link_rx);
 	CHECK(ask(&link, PI_DLINK_INFO, NULL, 0, &a, tx));
 	CHECK(a.type == 0x90 && a.length == PI_DLINK_INFO_SIZE && a.payload[3] == PI_DLINK_INFO_NO_CARD);
 	read_args(args, 0, 0, 16);
@@ -1009,38 +1048,52 @@ static void test_link(void)
 	CHECK(ask(&link, PI_DLINK_READ, args, 13, &a, tx) && error_code(&a) == PI_DLINK_BAD_REQUEST);
 	CHECK(ask(&link, PI_DLINK_INFO, args, 1, &a, tx) && error_code(&a) == PI_DLINK_BAD_REQUEST);
 
-	/* Frames that are not requests. */
-	CHECK(ask(&link, 0x01, (const uint8_t *)"{}", 2, &a, tx) &&
-	      error_code(&a) == PI_DLINK_UNKNOWN_TYPE);
-	request(rx, PI_DLINK_INFO, NULL, 0);
-	rx[13] ^= 1; /* the CRC */
-	CHECK(pi_dlink_handle(&link, rx, sizeof(rx), tx));
-	CHECK(pi_frame_decode(tx, PI_FRAME_SIZE, &a) == PI_FRAME_OK && error_code(&a) == PI_DLINK_BAD_FRAME);
-	CHECK(link.bad_frames == 1);
-	request(rx, PI_DLINK_INFO, NULL, 0);
-	rx[0] = 'X';
-	CHECK(pi_dlink_handle(&link, rx, sizeof(rx), tx));
-	CHECK(pi_frame_decode(tx, PI_FRAME_SIZE, &a) == PI_FRAME_OK && error_code(&a) == PI_DLINK_BAD_FRAME);
-	CHECK(pi_dlink_handle(&link, rx, 10, tx));
-	request(rx, PI_DLINK_INFO, NULL, 0);
-	pi_put16(rx + 10, 600); /* a length past the frame */
-	CHECK(pi_dlink_handle(&link, rx, sizeof(rx), tx));
-	CHECK(pi_frame_decode(tx, PI_FRAME_SIZE, &a) == PI_FRAME_OK && error_code(&a) == PI_DLINK_BAD_FRAME);
-	/* A POLL, or a transfer with nothing in it, leaves the last answer to go out again. */
-	CHECK(ask(&link, PI_DLINK_INFO, NULL, 0, &a, tx));
-	memcpy(rx, tx, sizeof(rx));
+	/*
+	 * Frames that are not delta requests go to the message link: DATA, a damaged frame, a type
+	 * nobody takes. Each is answered with STATUS, as the message link answers it, and never
+	 * reaches pi_dlink; the Pi sends its request again. test_shared_link() has more.
+	 */
 	{
-		uint8_t poll[PI_FRAME_SIZE];
-		uint8_t empty[PI_FRAME_SIZE];
+		uint32_t answered = link.answered;
+		uint32_t errors = link.errors;
+		enum pi_rx_result result;
 
-		request(poll, PI_FRAME_POLL, NULL, 0);
-		CHECK(!pi_dlink_handle(&link, poll, sizeof(poll), tx));
-		memset(empty, 0xff, sizeof(empty));
-		CHECK(!pi_dlink_handle(&link, empty, sizeof(empty), tx));
-		memset(empty, 0, sizeof(empty));
-		CHECK(!pi_dlink_handle(&link, empty, sizeof(empty), tx));
-		CHECK(memcmp(rx, tx, sizeof(rx)) == 0);
-		CHECK(link.polls == 1);
+		request(rx, 0x01, (const uint8_t *)"{}", 2);
+		CHECK(transfer(&link, &link_rx, rx, sizeof(rx), tx, &result) == 16 &&
+		      result == PI_RX_DELIVER && is_status(tx, 0x1234, request_seq));
+		request(rx, 0x7e, NULL, 0);
+		transfer(&link, &link_rx, rx, sizeof(rx), tx, &result);
+		CHECK(result == PI_RX_BAD && link_rx.unknown == 1 && is_status(tx, 0x1234, request_seq - 1));
+		request(rx, PI_DLINK_INFO, NULL, 0);
+		rx[13] ^= 1; /* the CRC */
+		transfer(&link, &link_rx, rx, sizeof(rx), tx, &result);
+		CHECK(result == PI_RX_BAD && link_rx.bad_crc == 1 && is_status(tx, 0x1234, request_seq - 2));
+		request(rx, PI_DLINK_INFO, NULL, 0);
+		rx[0] = 'X';
+		transfer(&link, &link_rx, rx, sizeof(rx), tx, &result);
+		CHECK(result == PI_RX_BAD && is_status(tx, 0x1234, request_seq - 3));
+		request(rx, PI_DLINK_INFO, NULL, 0);
+		transfer(&link, &link_rx, rx, 10, tx, &result);
+		CHECK(result == PI_RX_BAD && is_status(tx, 0x1234, request_seq - 4));
+		request(rx, PI_DLINK_INFO, NULL, 0);
+		pi_put16(rx + 10, 600); /* a length past the frame */
+		transfer(&link, &link_rx, rx, sizeof(rx), tx, &result);
+		CHECK(result == PI_RX_BAD && is_status(tx, 0x1234, request_seq - 5));
+		CHECK(link.answered == answered && link.errors == errors);
+
+		/* A POLL, or a transfer with nothing in it, is answered with STATUS: not the last answer again. */
+		CHECK(ask(&link, PI_DLINK_INFO, NULL, 0, &a, tx));
+		request(rx, PI_FRAME_POLL, NULL, 0);
+		transfer(&link, &link_rx, rx, sizeof(rx), tx, &result);
+		CHECK(result == PI_RX_POLL && is_status(tx, 0x1234, request_seq - 7));
+		CHECK(ask(&link, PI_DLINK_INFO, NULL, 0, &a, tx));
+		memset(rx, 0xff, sizeof(rx));
+		transfer(&link, &link_rx, rx, sizeof(rx), tx, &result);
+		CHECK(result == PI_RX_NOTHING && is_status(tx, 0x1234, request_seq - 8));
+		memset(rx, 0, sizeof(rx));
+		transfer(&link, &link_rx, rx, sizeof(rx), tx, &result);
+		CHECK(result == PI_RX_NOTHING && is_status(tx, 0x1234, request_seq - 8));
+		CHECK(link_rx.polls == 1 && link_rx.delivered == 1);
 	}
 
 	/* v2: the Pi, on v1, takes only the listed blocks, and ends with v2's digest. */
@@ -1108,6 +1161,156 @@ static void test_link(void)
 	free(v1);
 	free(v2);
 	free(pi);
+}
+
+/* A frame from the Pi: any type, session and seq. */
+static void frame_to(uint8_t *in, uint8_t type, uint16_t session, uint16_t seq, const void *payload,
+		     uint16_t length)
+{
+	struct pi_frame f = {
+		.type = type,
+		.session = session,
+		.seq = seq,
+		.length = length,
+		.payload = payload,
+	};
+
+	memset(in, 0, PI_FRAME_SIZE);
+	CHECK(pi_frame_encode(in, PI_FRAME_SIZE, &f) > 0);
+}
+
+/*
+ * The message link and the delta requests on one link, a mixed sequence as pi_link.c takes it. One
+ * rule: each frame is answered in the next transfer, a delta request with its answer and anything
+ * else with STATUS. DATA and POLL work as on the message link alone (docs/pi-link.md); a delta
+ * answer carries the message link's session and ack, so a sender of messages is told nothing new.
+ */
+static void test_shared_link(void)
+{
+	uint64_t size;
+	uint8_t *v1 = make_image(21, BLOCKS, &size);
+	struct world w;
+	struct pi_card card;
+	struct pi_dlink link;
+	struct pi_dlink no_card;
+	struct pi_rx rx;
+	struct pi_frame a;
+	struct pi_frame f;
+	enum pi_rx_result r;
+	uint8_t in[PI_FRAME_SIZE];
+	uint8_t tx[PI_FRAME_SIZE];
+	uint8_t small[PI_FRAME_HEADER + PI_FRAME_CRC];
+	uint8_t args[16];
+	static const char hb[] = "{\"t\":\"hb\",\"mx\":1}";
+	size_t n;
+
+	world_create(&w);
+	install(&w, v1, size, "v1");
+	pi_card_init(&card, &fake_disk_ops, &w.disk);
+	CHECK(pi_card_open(&card, MAX_BLOCKS) == PI_OK);
+	pi_dlink_init(&link, &card);
+	pi_rx_init(&rx);
+
+	/* Before any DATA: a delta answer names no session, as STATUS does. */
+	frame_to(in, PI_DLINK_INFO, 0x5a5a, 40, NULL, 0);
+	n = transfer(&link, &rx, in, sizeof(in), tx, &r);
+	CHECK(r == PI_RX_DELTA && n == PI_FRAME_HEADER + PI_DLINK_INFO_SIZE + PI_FRAME_CRC);
+	CHECK(pi_frame_decode(tx, sizeof(tx), &a) == PI_FRAME_OK && a.type == 0x90 && a.seq == 40 &&
+	      a.session == 0 && a.ack == 0 && a.payload[2] == PI_STATE_READY);
+
+	/* DATA: delivered, and the next transfer's STATUS acknowledges it, 16 bytes and then 0xff. */
+	frame_to(in, PI_FRAME_DATA, 0x4242, 7, hb, sizeof(hb) - 1);
+	n = transfer(&link, &rx, in, sizeof(in), tx, &r);
+	CHECK(r == PI_RX_DELIVER && n == PI_FRAME_HEADER + PI_FRAME_CRC && is_status(tx, 0x4242, 7));
+	CHECK(tx[16] == 0xff && tx[PI_FRAME_SIZE - 1] == 0xff);
+
+	/* A delta request: its answer, with the message link's session and ack and the request's seq. */
+	read_args(args, 3, 100, 200);
+	frame_to(in, PI_DLINK_READ, 0x5a5a, 41, args, 12);
+	n = transfer(&link, &rx, in, sizeof(in), tx, &r);
+	CHECK(r == PI_RX_DELTA && n == PI_FRAME_HEADER + PI_DLINK_ANSWER_HEAD + 200 + PI_FRAME_CRC);
+	CHECK(pi_frame_decode(tx, sizeof(tx), &a) == PI_FRAME_OK && a.type == 0x93 && a.seq == 41 &&
+	      a.session == 0x4242 && a.ack == 7);
+	CHECK(memcmp(a.payload + PI_DLINK_ANSWER_HEAD, v1 + 3 * BS + 100, 200) == 0);
+	CHECK(tx[n] == 0xff);
+
+	/* POLL: STATUS, not the delta answer again. */
+	frame_to(in, PI_FRAME_POLL, 0x5a5a, 0, NULL, 0);
+	CHECK(transfer(&link, &rx, in, sizeof(in), tx, &r) == 16 && r == PI_RX_POLL &&
+	      is_status(tx, 0x4242, 7));
+
+	/* The same DATA again, after a delta request: acknowledged, and not delivered twice. */
+	frame_to(in, PI_DLINK_INFO, 0x5a5a, 42, NULL, 0);
+	CHECK(transfer(&link, &rx, in, sizeof(in), tx, &r) > 16 && r == PI_RX_DELTA);
+	frame_to(in, PI_FRAME_DATA, 0x4242, 7, hb, sizeof(hb) - 1);
+	CHECK(transfer(&link, &rx, in, sizeof(in), tx, &r) == 16 && r == PI_RX_DUPLICATE &&
+	      is_status(tx, 0x4242, 7));
+
+	/* Types nobody takes, next to the delta requests or an answer's own: unknown, and STATUS. */
+	frame_to(in, 0x14, 0x5a5a, 43, NULL, 0);
+	CHECK(transfer(&link, &rx, in, sizeof(in), tx, &r) == 16 && r == PI_RX_BAD &&
+	      is_status(tx, 0x4242, 7));
+	frame_to(in, 0x0f, 0x5a5a, 44, NULL, 0);
+	CHECK(transfer(&link, &rx, in, sizeof(in), tx, &r) == 16 && r == PI_RX_BAD);
+	frame_to(in, 0x93, 0x5a5a, 45, NULL, 0);
+	CHECK(transfer(&link, &rx, in, sizeof(in), tx, &r) == 16 && r == PI_RX_BAD);
+	CHECK(rx.unknown == 3 && rx.bad == 3);
+
+	/* A delta request with a bad CRC: bad, and STATUS; it never reaches the card. */
+	frame_to(in, PI_DLINK_READ, 0x5a5a, 46, args, 12);
+	in[PI_FRAME_HEADER + 12] ^= 0x01;
+	CHECK(transfer(&link, &rx, in, sizeof(in), tx, &r) == 16 && r == PI_RX_BAD &&
+	      is_status(tx, 0x4242, 7));
+	CHECK(rx.bad_crc == 1 && rx.bad == 4);
+
+	/* Nothing clocked in: STATUS. */
+	memset(in, 0xff, sizeof(in));
+	CHECK(transfer(&link, &rx, in, sizeof(in), tx, &r) == 16 && r == PI_RX_NOTHING &&
+	      is_status(tx, 0x4242, 7));
+
+	/* A refused request (past the end): ERROR, with the message link's session and ack too. */
+	read_args(args, BLOCKS, 0, 16);
+	frame_to(in, PI_DLINK_READ, 0x5a5a, 47, args, 12);
+	CHECK(transfer(&link, &rx, in, sizeof(in), tx, &r) == PI_FRAME_HEADER + 12 + PI_FRAME_CRC);
+	CHECK(pi_frame_decode(tx, sizeof(tx), &a) == PI_FRAME_OK && a.type == PI_DLINK_ERROR &&
+	      a.seq == 47 && a.session == 0x4242 && a.ack == 7 &&
+	      error_code(&a) == PI_DLINK_OUT_OF_RANGE && a.payload[8] == PI_DLINK_READ);
+
+	/* A new message: the next delta answer carries its ack. */
+	frame_to(in, PI_FRAME_DATA, 0x4242, 8, "{}", 2);
+	CHECK(transfer(&link, &rx, in, sizeof(in), tx, &r) == 16 && r == PI_RX_DELIVER &&
+	      is_status(tx, 0x4242, 8));
+	frame_to(in, PI_DLINK_INFO, 0x5a5a, 48, NULL, 0);
+	CHECK(transfer(&link, &rx, in, sizeof(in), tx, &r) > 16 && r == PI_RX_DELTA);
+	CHECK(pi_frame_decode(tx, sizeof(tx), &a) == PI_FRAME_OK && a.type == 0x90 && a.ack == 8);
+
+	CHECK(rx.delivered == 2 && rx.duplicates == 1 && rx.polls == 1 && rx.delta == 5);
+	CHECK(link.answered == 4 && link.errors == 1);
+
+	/* Before pi_link.c is given the card: INFO says there is none, the rest is refused. */
+	pi_dlink_init(&no_card, NULL);
+	frame_to(in, PI_DLINK_INFO, 0x5a5a, 49, NULL, 0);
+	CHECK(transfer(&no_card, &rx, in, sizeof(in), tx, &r) > 16 && r == PI_RX_DELTA);
+	CHECK(pi_frame_decode(tx, sizeof(tx), &a) == PI_FRAME_OK && a.type == 0x90 &&
+	      a.payload[3] == PI_DLINK_INFO_NO_CARD);
+	read_args(args, 0, 0, 16);
+	frame_to(in, PI_DLINK_READ, 0x5a5a, 50, args, 12);
+	transfer(&no_card, &rx, in, sizeof(in), tx, &r);
+	CHECK(pi_frame_decode(tx, sizeof(tx), &a) == PI_FRAME_OK && error_code(&a) == PI_DLINK_CARD &&
+	      a.payload[1] == PI_STATE_EMPTY);
+	range_args(args, 0, 1);
+	frame_to(in, PI_DLINK_MANIFEST, 0x5a5a, 51, args, 8);
+	transfer(&no_card, &rx, in, sizeof(in), tx, &r);
+	CHECK(pi_frame_decode(tx, sizeof(tx), &a) == PI_FRAME_OK && error_code(&a) == PI_DLINK_CARD);
+
+	/* A transmit buffer too small for a delta answer (the message link's 16 bytes) gets STATUS. */
+	frame_to(in, PI_DLINK_INFO, 0x5a5a, 52, NULL, 0);
+	CHECK(pi_rx_handle(&rx, in, sizeof(in), &f) == PI_RX_DELTA);
+	CHECK(pi_dlink_answer(&link, &rx, PI_RX_DELTA, &f, small, sizeof(small)) == sizeof(small));
+	CHECK(pi_frame_decode(small, sizeof(small), &a) == PI_FRAME_OK && a.type == PI_FRAME_STATUS);
+
+	world_free(&w);
+	free(v1);
 }
 
 /* ------------------------------------------------------------------------------------------- */
@@ -1253,6 +1456,7 @@ int main(void)
 	test_interruptions();
 	test_other_image_half_way();
 	test_link();
+	test_shared_link();
 	test_job_document();
 	test_http();
 

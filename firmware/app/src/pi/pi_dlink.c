@@ -12,8 +12,13 @@ void pi_dlink_init(struct pi_dlink *link, struct pi_card *card)
 	link->card = card;
 }
 
-/* The answer's header and CRC around a payload already in place at tx + PI_FRAME_HEADER. */
-static void seal(uint8_t *tx, uint8_t type, const struct pi_frame *request, uint16_t length)
+/*
+ * The answer's header and CRC around a payload already in place at tx + PI_FRAME_HEADER. Session and
+ * ack are the message link's, as in its STATUS (pi_rx_status()), so that a sender of messages that
+ * reads this frame is told nothing new; seq is the request's. Returns the frame's length.
+ */
+static size_t seal(uint8_t *tx, uint8_t type, const struct pi_rx *rx, const struct pi_frame *request,
+		   uint16_t length)
 {
 	uint32_t crc;
 
@@ -21,12 +26,13 @@ static void seal(uint8_t *tx, uint8_t type, const struct pi_frame *request, uint
 	tx[1] = 'L';
 	tx[2] = PI_FRAME_VERSION;
 	tx[3] = type;
-	pi_put16(tx + 4, request != NULL ? request->session : 0);
-	pi_put16(tx + 6, 0);
-	pi_put16(tx + 8, request != NULL ? request->seq : 0);
+	pi_put16(tx + 4, rx->accepted_any ? rx->session : 0);
+	pi_put16(tx + 6, request->seq);
+	pi_put16(tx + 8, rx->accepted_any ? rx->seq : 0);
 	pi_put16(tx + 10, length);
 	crc = pi_crc32(tx, PI_FRAME_HEADER + (size_t)length);
 	pi_put32(tx + PI_FRAME_HEADER + length, crc);
+	return PI_FRAME_HEADER + (size_t)length + PI_FRAME_CRC;
 }
 
 static uint8_t *payload_of(uint8_t *tx)
@@ -34,19 +40,24 @@ static uint8_t *payload_of(uint8_t *tx)
 	return tx + PI_FRAME_HEADER;
 }
 
-static void answer_error(struct pi_dlink *link, uint8_t *tx, const struct pi_frame *request,
-			 uint8_t code)
+static bool card_open(const struct pi_dlink *link)
+{
+	return link->card != NULL && link->card->open;
+}
+
+static size_t answer_error(struct pi_dlink *link, uint8_t *tx, const struct pi_rx *rx,
+			   const struct pi_frame *request, uint8_t code)
 {
 	uint8_t *p = payload_of(tx);
-	const struct pi_card_state *st = &link->card->st;
+	bool open = card_open(link);
 
 	link->errors++;
 	memset(p, 0, 12);
 	p[0] = code;
-	p[1] = link->card->open ? st->state : PI_STATE_EMPTY;
-	pi_put32(p + 4, link->card->open ? st->generation : 0);
-	p[8] = request != NULL ? request->type : 0;
-	seal(tx, PI_DLINK_ERROR, request, 12);
+	p[1] = open ? link->card->st.state : PI_STATE_EMPTY;
+	pi_put32(p + 4, open ? link->card->st.generation : 0);
+	p[8] = request->type;
+	return seal(tx, PI_DLINK_ERROR, rx, request, 12);
 }
 
 /* The mirror may be read: a card that is open and ready. Otherwise the code to refuse with. */
@@ -54,7 +65,7 @@ static uint8_t readable(const struct pi_dlink *link)
 {
 	const struct pi_card *card = link->card;
 
-	if (!card->open) {
+	if (!card_open(link)) {
 		return PI_DLINK_CARD;
 	}
 	if (card->st.state == PI_STATE_UPDATING) {
@@ -69,16 +80,17 @@ static uint8_t readable(const struct pi_dlink *link)
 static uint8_t info(struct pi_dlink *link, uint8_t *p)
 {
 	const struct pi_card *card = link->card;
-	const struct pi_card_state *st = &card->st;
+	const struct pi_card_state *st;
 	const struct pi_manifest *m = NULL;
 	uint8_t flags = 0;
 
 	memset(p, 0, PI_DLINK_INFO_SIZE);
 	pi_put16(p, PI_DLINK_VERSION);
-	if (!card->open) {
+	if (!card_open(link)) {
 		p[3] = PI_DLINK_INFO_NO_CARD;
 		return PI_DLINK_OK;
 	}
+	st = &card->st;
 	p[2] = st->state;
 	pi_put32(p + 4, st->generation);
 	if (st->state == PI_STATE_READY) {
@@ -259,52 +271,41 @@ static uint8_t read_mirror(struct pi_dlink *link, const uint8_t *req, uint8_t *p
 	return PI_DLINK_OK;
 }
 
-bool pi_dlink_handle(struct pi_dlink *link, const uint8_t *rx, size_t rx_len, uint8_t *tx)
+/* A delta request's answer, or ERROR. */
+static size_t answer_request(struct pi_dlink *link, const struct pi_rx *rx,
+			     const struct pi_frame *request, uint8_t *tx)
 {
-	struct pi_frame request;
-	enum pi_frame_result decoded = pi_frame_decode(rx, rx_len, &request);
 	uint8_t *p = payload_of(tx);
 	uint16_t length = 0;
 	uint8_t code;
+	size_t written;
 
-	if (decoded == PI_FRAME_NOTHING) {
-		return false;
+	if (link->card != NULL) {
+		pi_card_lock(link->card);
 	}
-	if (decoded == PI_FRAME_OK && request.type == PI_FRAME_POLL) {
-		link->polls++;
-		return false;
-	}
-	memset(tx, 0xff, PI_FRAME_SIZE);
-	if (decoded != PI_FRAME_OK) {
-		link->bad_frames++;
-		answer_error(link, tx, NULL, PI_DLINK_BAD_FRAME);
-		return true;
-	}
-
-	pi_card_lock(link->card);
-	switch (request.type) {
+	switch (request->type) {
 	case PI_DLINK_INFO:
-		code = request.length == 0 ? info(link, p) : PI_DLINK_BAD_REQUEST;
+		code = request->length == 0 ? info(link, p) : PI_DLINK_BAD_REQUEST;
 		length = PI_DLINK_INFO_SIZE;
 		break;
 	case PI_DLINK_MANIFEST:
-		code = request.length != 8 || pi_get16(request.payload + 6) != 0 ||
-				       pi_get16(request.payload + 4) == 0 ||
-				       pi_get16(request.payload + 4) > PI_DLINK_MANIFEST_MAX
+		code = request->length != 8 || pi_get16(request->payload + 6) != 0 ||
+				       pi_get16(request->payload + 4) == 0 ||
+				       pi_get16(request->payload + 4) > PI_DLINK_MANIFEST_MAX
 			       ? PI_DLINK_BAD_REQUEST
-			       : manifest(link, request.payload, p, &length);
+			       : manifest(link, request->payload, p, &length);
 		break;
 	case PI_DLINK_CHANGED:
-		code = request.length != 8 || pi_get16(request.payload + 6) != 0 ||
-				       pi_get16(request.payload + 4) == 0 ||
-				       pi_get16(request.payload + 4) > PI_DLINK_CHANGED_MAX
+		code = request->length != 8 || pi_get16(request->payload + 6) != 0 ||
+				       pi_get16(request->payload + 4) == 0 ||
+				       pi_get16(request->payload + 4) > PI_DLINK_CHANGED_MAX
 			       ? PI_DLINK_BAD_REQUEST
-			       : changed(link, request.payload, p, &length);
+			       : changed(link, request->payload, p, &length);
 		break;
 	case PI_DLINK_READ:
-		code = request.length != 12 || pi_get16(request.payload + 10) != 0
+		code = request->length != 12 || pi_get16(request->payload + 10) != 0
 			       ? PI_DLINK_BAD_REQUEST
-			       : read_mirror(link, request.payload, p, &length);
+			       : read_mirror(link, request->payload, p, &length);
 		break;
 	default:
 		code = PI_DLINK_UNKNOWN_TYPE;
@@ -313,11 +314,21 @@ bool pi_dlink_handle(struct pi_dlink *link, const uint8_t *rx, size_t rx_len, ui
 
 	if (code == PI_DLINK_OK) {
 		link->answered++;
-		seal(tx, (uint8_t)(request.type | PI_DLINK_ANSWER), &request, length);
+		written = seal(tx, (uint8_t)(request->type | PI_DLINK_ANSWER), rx, request, length);
 	} else {
-		memset(tx, 0xff, PI_FRAME_SIZE);
-		answer_error(link, tx, &request, code);
+		written = answer_error(link, tx, rx, request, code);
 	}
-	pi_card_unlock(link->card);
-	return true;
+	if (link->card != NULL) {
+		pi_card_unlock(link->card);
+	}
+	return written;
+}
+
+size_t pi_dlink_answer(struct pi_dlink *link, const struct pi_rx *rx, enum pi_rx_result result,
+		       const struct pi_frame *frame, uint8_t *tx, size_t size)
+{
+	if (result != PI_RX_DELTA || size < PI_FRAME_SIZE) {
+		return pi_rx_status(rx, tx, size);
+	}
+	return answer_request(link, rx, frame, tx);
 }

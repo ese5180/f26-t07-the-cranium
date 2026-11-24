@@ -1,17 +1,11 @@
 /*
  * From 1.20.0, only in a build with SB_CONFIG_APP_PI_DELTA (pi_delta_sysbuild.conf), which
- * sysbuild.cmake adds this to: the SD card that holds the mirror of the Pi's image, and the Pi's SPI
- * link (docs/pi-delta-update.md, "Wiring"). nRF7002 DK only: the nRF5340 DK has no cloud.
+ * sysbuild.cmake adds this to: the SD card that holds the mirror of the Pi's image
+ * (docs/pi-delta-update.md, "Wiring"). nRF7002 DK only: the nRF5340 DK has no cloud.
  *
- * The Pi's link: the pins of the Pi's message link (PR #58), tested on hardware with a Pi 5.
- * The Pi is the controller; the board is the target on the Arduino SPI pins, and raises READY on
- * D9 while it has an answer ready:
- *
- *   D13 P1.15  SCK     Pi GPIO11, header pin 23
- *   D11 P1.13  MOSI    Pi GPIO10, header pin 19
- *   D12 P1.14  MISO    Pi GPIO9,  header pin 21
- *   D10 P1.12  CS      Pi GPIO8 (CE0), header pin 24
- *   D9  P1.11  READY   Pi GPIO25, header pin 22
+ * The Pi asks for the image over its message link (src/pi/pi_link.c, docs/pi-link.md): SPIS3 on
+ * D10 to D13 and READY on D9, which the board's own overlay (nrf7002dk_nrf5340_cpuapp_ns.overlay)
+ * sets up for every build. Nothing of it is here.
  *
  * The SD card, on its own bus: SPIM2 (SERIAL2) on the analog header, as PR #196 had it.
  *
@@ -19,32 +13,13 @@
  *   D3 P1.05  card detect
  *
  * Why these: SERIAL0 is the console (uart0, P0.19 to P0.22), SERIAL1 TF-M's UART (uart1, P1.00 and
- * P1.01), SERIAL4 the external flash (spi4, P0.08 to P0.11); the Wi-Fi chip has QSPI and P0.12 to
- * P0.18, P0.23, P0.24, P0.28 to P0.31 and P1.10; the Arduino I2C is P1.02 and P1.03; the LEDs and
- * buttons are P1.06 to P1.09. That leaves SERIAL2 and SERIAL3, and these pins. The board overlay
- * turns the GPIO forwarder off, so P1.05 and P1.11 to P1.15 stay with the application core.
+ * P1.01), SERIAL3 the Pi's link, SERIAL4 the external flash (spi4, P0.08 to P0.11); the Wi-Fi chip
+ * has QSPI and P0.12 to P0.18, P0.23, P0.24, P0.28 to P0.31 and P1.10; the Arduino I2C is P1.02 and
+ * P1.03; the LEDs and buttons are P1.06 to P1.09. That leaves SERIAL2, and these pins. The board
+ * overlay turns the GPIO forwarder off, so P1.05 stays with the application core.
  */
 
 &pinctrl {
-	spi3_pi_default: spi3_pi_default {
-		group1 {
-			psels = <NRF_PSEL(SPIS_SCK, 1, 15)>,
-				<NRF_PSEL(SPIS_MOSI, 1, 13)>,
-				<NRF_PSEL(SPIS_MISO, 1, 14)>,
-				<NRF_PSEL(SPIS_CSN, 1, 12)>;
-		};
-	};
-
-	spi3_pi_sleep: spi3_pi_sleep {
-		group1 {
-			psels = <NRF_PSEL(SPIS_SCK, 1, 15)>,
-				<NRF_PSEL(SPIS_MOSI, 1, 13)>,
-				<NRF_PSEL(SPIS_MISO, 1, 14)>,
-				<NRF_PSEL(SPIS_CSN, 1, 12)>;
-			low-power-enable;
-		};
-	};
-
 	sd_spi_default: sd_spi_default {
 		group1 {
 			psels = <NRF_PSEL(SPIM_SCK, 0, 4)>,
@@ -71,22 +46,9 @@
 / {
 	pi_delta: pi-delta {
 		compatible = "cranium,pi-delta";
-		ready-gpios = <&gpio1 11 GPIO_ACTIVE_HIGH>;
 		/* SparkFun's microSD breakout: CD is closed to ground with a card in. */
 		cd-gpios = <&gpio1 5 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 	};
-};
-
-&spi3 {
-	compatible = "nordic,nrf-spis";
-	status = "okay";
-	/* Clocked out while the board is not armed: the Pi reads all 0xff as no answer. */
-	def-char = <0xff>;
-	overrun-character = <0xff>;
-	pinctrl-0 = <&spi3_pi_default>;
-	pinctrl-1 = <&spi3_pi_sleep>;
-	pinctrl-names = "default", "sleep";
-	/delete-property/ cs-gpios;
 };
 
 &spi2 {

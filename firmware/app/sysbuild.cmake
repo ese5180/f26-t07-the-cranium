@@ -62,7 +62,7 @@ if(SB_CONFIG_APP_PI_DELTA)
   endif()
   add_overlay_config(${DEFAULT_IMAGE} "${CMAKE_CURRENT_LIST_DIR}/pi_delta.conf")
   set(${DEFAULT_IMAGE}_EXTRA_DTC_OVERLAY_FILE "${CMAKE_CURRENT_LIST_DIR}/boards/pi_delta.overlay"
-      CACHE INTERNAL "The SD card on SPIM2 and the Pi's link on SPIS3")
+      CACHE INTERNAL "The SD card on SPIM2; the Pi's link is the board overlay's SPIS3")
 endif()
 
 # Firmware update over Bluetooth LE, off unless bt_ota_sysbuild.conf is given.

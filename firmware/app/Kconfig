@@ -140,20 +140,17 @@ config APP_OTA_DOWNLOAD_ATTEMPTS
 	  with the default, so that an update survives a short outage of the network.
 
 config APP_PI_DELTA
-	bool "Raspberry Pi delta updates: an SD card mirror of the Pi's image, and the Pi's SPI link"
-	depends on !APP_BT_ONLY
-	select SPI
-	select SPI_ASYNC
-	select GPIO
+	bool "Raspberry Pi delta updates: an SD card mirror of the Pi's image, served over the Pi's link"
+	depends on APP_PI_LINK
 	help
 	  From 1.20.0 (docs/pi-delta-update.md). A "pi_delta" job brings the mirror of the Pi's image
 	  on the SD card to a new image, downloading only the blocks that changed, each checked against
-	  a signed manifest before it is written. The Pi, as SPI controller on the Arduino SPI pins
-	  (the pins and frames of the Pi's message link, PR #58), asks the board which blocks changed
-	  and reads them. Both use SPIS3: until the two links are one, a build has one or the other.
-	  Built with scripts/firmware/build.sh --pi, which turns Bluetooth off for the RAM. The card's
-	  drivers (disk access, the SD host, the SD/MMC disk) are in pi_delta.conf: selected from here
-	  they would make a dependency loop through the flash drivers.
+	  a signed manifest before it is written. The Pi asks the board which blocks changed and reads
+	  them over the Pi's message link (APP_PI_LINK, docs/pi-link.md): the same SPI peripheral, pins
+	  and frames, with request types of their own (0x10 to 0x13). Built with
+	  scripts/firmware/build.sh --pi, which turns Bluetooth off for the RAM. The card's drivers
+	  (disk access, the SD host, the SD/MMC disk) are in pi_delta.conf: selected from here they
+	  would make a dependency loop through the flash drivers.
 
 if APP_PI_DELTA
 
@@ -198,7 +195,11 @@ config APP_PI_DELTA_PRIORITY
 
 config APP_PI_DELTA_LINK_STACK_SIZE
 	int "Stack of the Pi link's work queue, which reads the SD card"
-	default 1536
+	default 2048
+	help
+	  With Pi delta updates the Pi's link runs on a work queue of its own instead of the system
+	  work queue, so that a READ waiting for the SD card holds up nothing else. It also prints the
+	  Pi's messages on the console, as the system work queue did: hence that queue's 2048 bytes.
 
 config APP_PI_DELTA_LINK_PRIORITY
 	int "Priority of the Pi link's work queue: above the update, to answer the Pi at once"

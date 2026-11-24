@@ -42,7 +42,8 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
 		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests \
-		$(BUILD)/pi_delta_tests $(BUILD)/pi_delta_harness $(BUILD)/ota_pi_tests
+		$(BUILD)/pi_delta_tests $(BUILD)/pi_delta_harness $(BUILD)/ota_pi_tests \
+		$(BUILD)/pi_rx_tests $(BUILD)/pi_rx_delta_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -84,6 +85,8 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/sessions_tests
 	./$(BUILD)/pi_delta_tests
 	./$(BUILD)/ota_pi_tests
+	./$(BUILD)/pi_rx_tests
+	./$(BUILD)/pi_rx_delta_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -103,14 +106,23 @@ $(BUILD)/sessions_tests: test_sessions.c $(SRC)/cloud/sessions.c $(SRC)/cloud/se
 # formats, the update against a card in memory that loses power at every write in turn, is pulled out or
 # fails, and a server that drops the connection or sends wrong bytes; every request of the Pi's link, the
 # malformed ones too; and the "pi_delta" job document, with CONFIG_APP_PI_DELTA as a Pi build has it.
-PI_DELTA_SOURCES := $(SRC)/pi/pi_frame.c $(SRC)/pi/pi_sha256.c $(SRC)/pi/pi_delta_fmt.c $(SRC)/pi/pi_card.c \
-	$(SRC)/pi/pi_delta.c $(SRC)/pi/pi_dlink.c $(SRC)/pi/pi_http.c
+PI_DELTA_SOURCES := $(SRC)/pi/pi_frame.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_sha256.c $(SRC)/pi/pi_delta_fmt.c \
+	$(SRC)/pi/pi_card.c $(SRC)/pi/pi_delta.c $(SRC)/pi/pi_dlink.c $(SRC)/pi/pi_http.c
 PI_DELTA_HEADERS := $(wildcard $(SRC)/pi/*.h) pi_delta_fakes.h
 $(BUILD)/pi_delta_tests: test_pi_delta.c pi_delta_fakes.c $(PI_DELTA_SOURCES) $(PI_DELTA_HEADERS) \
 		$(SRC)/ota/ota_job.c $(SRC)/ota/ota_job.h $(SRC)/ota/version.c $(BUILD)/cJSON.o
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_PI_DELTA=1 -o $@ test_pi_delta.c pi_delta_fakes.c \
 		$(PI_DELTA_SOURCES) $(SRC)/ota/ota_job.c $(SRC)/ota/version.c $(BUILD)/cJSON.o -lm
+
+# The Pi message link's receiver (src/pi/pi_rx.c, docs/pi-link.md), as every build without Pi delta updates has
+# it, and with them, where their requests go to pi_dlink.c and everything else stays as it was.
+$(BUILD)/pi_rx_tests: test_pi_rx.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_frame.c $(SRC)/pi/pi_rx.h $(SRC)/pi/pi_frame.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_pi_rx.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_frame.c
+$(BUILD)/pi_rx_delta_tests: test_pi_rx.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_frame.c $(SRC)/pi/pi_rx.h $(SRC)/pi/pi_frame.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_PI_DELTA=1 -o $@ test_pi_rx.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_frame.c
 
 # The same code as a program for firmware/tests/hil/test_pi_delta.py: it runs an update from a package that
 # tools/pi_image.py built and signed (checked with MCUboot's own ECDSA, tinycrypt, against the key it is
@@ -125,8 +137,8 @@ $(BUILD)/tinycrypt/%.o: $(TINYCRYPT)/source/%.c
 	$(CC) $(CFLAGS) -I$(TINYCRYPT)/include -c -o $@ $<
 $(BUILD)/pi_delta_harness: pi_delta_harness.c pi_delta_fakes.c $(PI_DELTA_SOURCES) $(PI_DELTA_HEADERS) $(TINYCRYPT_OBJECTS)
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(WARNINGS) -I$(TINYCRYPT)/include -o $@ pi_delta_harness.c pi_delta_fakes.c \
-		$(PI_DELTA_SOURCES) $(TINYCRYPT_OBJECTS)
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_PI_DELTA=1 -I$(TINYCRYPT)/include -o $@ pi_delta_harness.c \
+		pi_delta_fakes.c $(PI_DELTA_SOURCES) $(TINYCRYPT_OBJECTS)
 
 $(BUILD)/host_tests: test_main.c $(SRC)/ota/ota_job.c $(SRC)/ota/ota_outcome.c $(SRC)/ota/version.c $(BUILD)/cJSON.o
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ $^ -lm

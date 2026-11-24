@@ -50,8 +50,8 @@ config APP_BT_OTA
 config APP_PI_DELTA
 	bool "Raspberry Pi delta updates"
 	help
-	  Adds pi_delta.conf and boards/pi_delta.overlay to the application: the SD card and the Pi's
-	  SPI link. The nRF7002 DK's RAM does not hold this and Bluetooth together, so
-	  pi_delta_sysbuild.conf turns Bluetooth off.
+	  Adds pi_delta.conf and boards/pi_delta.overlay to the application: the SD card, served to
+	  the Pi over its message link. The nRF7002 DK's RAM does not hold this and Bluetooth
+	  together, so pi_delta_sysbuild.conf turns Bluetooth off.
 
 source "share/sysbuild/Kconfig"

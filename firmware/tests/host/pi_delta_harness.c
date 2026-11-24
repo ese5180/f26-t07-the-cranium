@@ -15,9 +15,11 @@
  *       --corrupt-at OFFSET    the byte at that offset of the package comes wrong, every time
  *
  *   pi_delta_harness serve CARD [--max-blocks N]
- *       Be the SPI target: each 512 bytes on stdin is what the Pi clocked in during a transfer;
- *       for each, the 512 bytes the board clocked out during it go to stdout (the answer it had
- *       ready before), and then it handles what came in.
+ *       Be the board's end of the Pi's link, as pi_link.c is: each 512 bytes on stdin is what the
+ *       Pi clocked in during a transfer; for each, the 512 bytes the board clocked out during it go
+ *       to stdout (the answer it had armed, then 0xff), and then it takes what came in. DATA and POLL
+ *       go to the message link's receiver (pi_rx.c), delta requests to pi_dlink.c. At the end, one
+ *       line of counts on stderr.
  */
 
 #include <errno.h>
@@ -34,6 +36,7 @@
 #include "pi_delta_fakes.h"
 #include "pi_dlink.h"
 #include "pi_frame.h"
+#include "pi_rx.h"
 #include "pi_sha256.h"
 
 static uint8_t public_key[64];
@@ -232,6 +235,9 @@ static int serve(int argc, char **argv)
 	struct fake_disk disk;
 	struct pi_card card;
 	struct pi_dlink link;
+	struct pi_rx link_rx;
+	struct pi_frame frame;
+	enum pi_rx_result result;
 	uint8_t rx[PI_FRAME_SIZE];
 	uint8_t tx[PI_FRAME_SIZE];
 
@@ -242,18 +248,25 @@ static int serve(int argc, char **argv)
 	pi_card_init(&card, &fake_disk_ops, &disk);
 	(void)pi_card_open(&card, (uint32_t)option(argc, argv, "--max-blocks", 1024));
 	pi_dlink_init(&link, &card);
-	/* Before the first answer, the board clocks out its default character. */
+	pi_rx_init(&link_rx);
+	/* Before the first transfer the board arms STATUS; after an answer, it clocks out 0xff. */
 	memset(tx, 0xff, sizeof(tx));
+	(void)pi_rx_status(&link_rx, tx, sizeof(tx));
 
 	while (fread(rx, 1, sizeof(rx), stdin) == sizeof(rx)) {
 		if (fwrite(tx, 1, sizeof(tx), stdout) != sizeof(tx)) {
 			return 3;
 		}
 		fflush(stdout);
-		(void)pi_dlink_handle(&link, rx, sizeof(rx), tx);
+		result = pi_rx_handle(&link_rx, rx, sizeof(rx), &frame);
+		memset(tx, 0xff, sizeof(tx));
+		(void)pi_dlink_answer(&link, &link_rx, result, &frame, tx, sizeof(tx));
 	}
-	fprintf(stderr, "answered=%u errors=%u bad_frames=%u polls=%u\n", link.answered, link.errors,
-		link.bad_frames, link.polls);
+	fprintf(stderr,
+		"answered=%u refused=%u delta=%u delivered=%u duplicates=%u polls=%u bad=%u bad_crc=%u "
+		"unknown=%u\n",
+		link.answered, link.errors, link_rx.delta, link_rx.delivered, link_rx.duplicates,
+		link_rx.polls, link_rx.bad, link_rx.bad_crc, link_rx.unknown);
 	fake_disk_free(&disk);
 	return 0;
 }

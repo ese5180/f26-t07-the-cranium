@@ -26,7 +26,7 @@
 #include "pi_card.h"
 #include "pi_card_disk.h"
 #include "pi_delta.h"
-#include "pi_dlink_spis.h"
+#include "pi_link.h"
 #include "pi_http.h"
 #include "pi_key.h"
 #include "version.h"
@@ -611,10 +611,8 @@ int pi_delta_ota_init(void)
 	/* The card is read at once, on the thread, so that the Pi can ask about it before any job. */
 	atomic_set(&open_only, 1);
 
-	err = pi_dlink_spis_start(&card);
-	if (err != 0) {
-		LOG_ERR("The Pi's SPI link did not start: %d", err);
-	}
+	/* The Pi's link (pi_link.c), started before this, answers its requests from this card now. */
+	pi_link_serve_card(&card);
 
 	k_thread_create(&thread, thread_stack, K_THREAD_STACK_SIZEOF(thread_stack), thread_main,
 			NULL, NULL, NULL, CONFIG_APP_PI_DELTA_PRIORITY, 0, K_NO_WAIT);
