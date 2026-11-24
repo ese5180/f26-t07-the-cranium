@@ -365,6 +365,10 @@ static void on_tick(void)
 	stuck_on_tick();
 	report_changes();
 	cloud_events_send();
+#if defined(CONFIG_APP_PI_PLAYS)
+	/* The Pi's last np, if it has not gone yet, as a play. */
+	pi_link_plays_on_tick();
+#endif
 	mflt_on_tick();
 }
 

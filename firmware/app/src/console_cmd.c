@@ -955,6 +955,11 @@ static void print_pi(void)
 	console_reply_line("%-14s %u answered, %u refused", "pi delta",
 			   (unsigned int)pi.delta_answered, (unsigned int)pi.delta_refused);
 #endif
+#if defined(CONFIG_APP_PI_PLAYS)
+	/* Each np to the cloud as a play (pi_link_plays_on_tick()). */
+	console_reply_line("%-14s %u sent, %u skipped, %u failed", "pi plays", (unsigned int)pi.plays_sent,
+			   (unsigned int)pi.plays_skipped, (unsigned int)pi.plays_failed);
+#endif
 	pi_link_get_last(PI_LINK_NP, last, sizeof(last));
 	console_reply_line("%-14s %s", "pi last np", last[0] != '\0' ? last : "none");
 	pi_link_get_last(PI_LINK_HB, last, sizeof(last));

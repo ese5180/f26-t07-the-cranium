@@ -39,6 +39,7 @@ The firmware is one Zephyr application (`firmware/app`) behind MCUboot, document
 | Board's own passkey | A 6-digit passkey kept in protected storage, for boards with no cloud | 1.x | `src/bt/bt_passkey.c` | Locks after 3 wrong tries |
 | Offline mode | With no Wi-Fi or cloud, a paired phone reads the board's status and accepts a waiting update | 1.19.0 | `src/bt/bt_offline.c` | Own GATT service, authenticated link only |
 | Listening sessions | Sends what is played to the cloud for the customer site | 1.18.0 | README "Sessions" | Product-specific telemetry over MQTT |
+| Plays from the Pi | Forwards each track Mixxx reports playing (the Pi's `np` message) to the cloud as a play, rate-limited, newest first when they come faster; the cloud dates it, as the board has no clock | 1.20.1 (draft, not yet on hardware) | README "Plays", `src/pi/pi_link.c`, `src/cloud/sessions.c` | Forward a co-processor's JSON as it came, wrapped, and let the cloud check every field: no parser on a board short of flash |
 | LED and button language | Fixed patterns for every state on both DKs | 1.x | `docs/led-guide.md`, README "Buttons" | One table a customer can read |
 | Memory budgets | Every build reports flash and RAM free per board; CI fails below the floors | — (#189) | `tools/memory_budget.py`, `tools/memory_budgets.json` | Catch growth before it reaches the board |
 | nRF5340 DK support | The same app as a Bluetooth-only board | 1.x | README "The nRF5340 DK" | Shows how to port to a board with no Wi-Fi |
@@ -180,6 +181,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-24 | Plays from the Pi: each `np` to the cloud, for the console's Plays and the customer site's Mixes (draft, not yet on hardware) | firmware 1.20.1 | #281 |
 | 2026-11-24 | Pi delta updates: only the changed blocks of the Pi's image travel, onto the board's SD card and from it to the Pi over SPI (draft, not yet on hardware) | firmware 1.20.0 | #279 |
 | 2026-11-16 | Golden image promotion over the air: signed record, counter floor, the bootloader seals it (board runs it; the promotion itself not yet tried on hardware) | firmware 1.19.3 | v1.19.3 |
 | 2026-11-15 | Closed-loop HIL bench (Adam's): UART to Bluetooth telemetry app, Saleae and PPK2 acceptance, MCP bench tools, host tests in CI (not yet on hardware) | — | #261 |
