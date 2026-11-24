@@ -35,7 +35,7 @@ turn, a card pulled out, lost connections, wrong blocks, every link request incl
 the HTTP head) and `firmware/tests/hil/test_pi_delta.py` (the tool, and the board's C code on the host with real
 ECDSA against packages the tool signed, with the stand-in Pi taking only the changed blocks, messages between its
 requests, and `pi/cranium_link.py` beside them), and `test_pi_rx.c` (the message link's receiver with and without this). Memory (local builds): the default build is #58's to the byte, 33,226 bytes of flash and 1,860 of RAM free; a `--pi` build has
-98,474 of flash and 18,960 of RAM free, its floors in `tools/memory_budgets.json` (`Pi delta updates`).
+98,442 of flash and 18,944 of RAM free, its floors in `tools/memory_budgets.json` (`Pi delta updates`).
 
 ## 1.19.3
 

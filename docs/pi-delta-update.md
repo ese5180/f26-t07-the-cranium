@@ -526,7 +526,7 @@ and without `--pi`), read with `tools/memory_budget.py`.
 | --- | --- | --- | --- | --- |
 | Default (Bluetooth, the message link, no delta updates), this branch | 33,226 | 1,860 | 12,484 | 552 / 12,532 |
 | Default, #58 alone, for comparison | 33,226 | 1,860 | 12,484 | 552 / 12,532 |
-| `--pi` (the message link with delta updates, no Bluetooth), this branch | 98,474 | 18,960 | 12,484 | 552 / 12,532 |
+| `--pi` (the message link with delta updates, no Bluetooth), this branch | 98,442 | 18,944 | 12,484 | 552 / 12,532 |
 | `--pi` with a link of its own (#276), for comparison | 100,210 | 19,808 | 12,484 | 552 / 12,532 |
 | No Bluetooth, 1.18.0, for comparison (`tools/memory_budgets.json`) | 128,410 | 36,104 | 15,212 | 552 / 12,532 |
 
@@ -548,7 +548,7 @@ build.
 | The message link's own: the start of the last `np` and `hb`, its counts | about 0.3 KiB |
 | The SD host, disk access and SPI peripheral drivers | the rest |
 
-That leaves 18,960 bytes free, 848 fewer than with a link of its own: the larger queue stack (512) and
+That leaves 18,944 bytes free, 864 fewer than with a link of its own: the larger queue stack (512) and
 the message link's own state. `tools/memory_budgets.json` holds the `Pi delta updates` configuration's
 floors (18 KiB of RAM and 96 KiB of flash for the application), and `.github/workflows/ci.yml` builds it
 when CI runs again. None of the stacks has been measured on a board
@@ -558,7 +558,7 @@ when CI runs again. None of the stacks has been measured on a board
 
 | Where | What | Count |
 | --- | --- | --- |
-| `make -C firmware/tests/host`: `pi_delta_tests` | The formats and every refusal; the card's two state copies, a save cut in half, a card too small; the first image onto an empty card; deltas, larger and smaller images; a bad signature, a changed header, a job that names another image, a table that is not the signed one, too many blocks (the card untouched); a block from the server wrong once and always (never written); a card that writes wrong; **the power cut at each of 215 writes of an update in turn**, each resuming to the new image with at most one block downloaded twice; lost connections in the blocks and in the table; the card pulled out and put back; a withdrawn job; another image half way; every link request, the malformed ones, a READ while updating, a cached sector after an update; **the shared link, a mixed sequence as `pi_link.c` takes it** (DATA, delta requests, POLL, a repeated DATA, unknown types, a bad CRC, nothing, a refusal, no card yet), each frame answered in the next transfer with its answer or STATUS; the job document; the HTTP head | 1009 checks |
+| `make -C firmware/tests/host`: `pi_delta_tests` | The formats and every refusal; the card's two state copies, a save cut in half, a card too small; the first image onto an empty card; deltas, larger and smaller images; a bad signature, a changed header, a job that names another image, a table that is not the signed one, too many blocks (the card untouched); a block from the server wrong once and always (never written); a card that writes wrong; **the power cut at each of 215 writes of an update in turn**, each resuming to the new image with at most one block downloaded twice; lost connections in the blocks and in the table; the card pulled out and put back; a withdrawn job; another image half way, with the power cut between its state and its slot header; every link request, the malformed ones, a READ while updating, a cached sector after an update and after the card is opened again; **the shared link, a mixed sequence as `pi_link.c` takes it** (DATA, delta requests, POLL, a repeated DATA, unknown types, a bad CRC, nothing, a refusal, no card yet), each frame answered in the next transfer with its answer or STATUS; the job document; the HTTP head | 1015 checks |
 | `make -C firmware/tests/host`: `pi_rx_tests`, `pi_rx_delta_tests` | The message link's receiver (`pi_rx.c`) built as every other build has it, where `0x10` to `0x13` are unknown types, and as a Pi build has it, where they are delta requests; DATA, repeats, POLL, a bad CRC and nothing the same in both | 32 checks each |
 | `make -C firmware/tests/host`: `ota_pi_tests` | `ota.c` in a Pi build, against a fake of the Pi side: a Pi job goes to it, again for a fresh URL; a firmware job named while it runs, or no job at all, withdraws it; a Pi job waits while a firmware update runs; a bad Pi document is refused | 511 checks (21 of them new) |
 | `firmware/tests/hil/test_pi_delta.py` | `tools/pi_image.py` (the package, its checks, the comparison, the records, the built-in key, the card's layout); the board's C code on the host with real ECDSA (tinycrypt, MCUboot's own) against packages the tool signed; `tools/pi_delta_sim.py` as the Pi taking only the changed blocks and ending with the new image's SHA-256: from the list, by comparison two versions behind, from an empty card, with power cuts, a lost connection, a wrong block, a noisy wire, 64 KiB blocks, and malformed requests; messages between the requests on the same link, each delivered once, on a clean and a noisy wire; and `pi/cranium_link.py` itself beside delta requests (a delta answer costs it a transfer; `--status` right after an untaken delta answer finds none, the next one finds STATUS) | 19 tests |
