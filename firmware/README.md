@@ -989,8 +989,7 @@ of their own: the caller gives the buffer (`SESSION_JSON_MAX`, 448 bytes), and t
 each message. A text is made printable ASCII, with a quote and a backslash escaped, and cut to 48 characters; a
 message the cloud would refuse (a bad id, a time before 2024, an end before the start, a track outside its session, a
 length outside 1 to 14400 s) is not sent at all. The board has no clock of its own, so the times are Unix seconds that
-come with the data. **The Raspberry Pi link is not in this firmware yet**: it will call `session_send_session()` and
-`session_send_now()` with what Mixxx reports.
+come with the data. What Mixxx plays comes in as plays (below), which need no clock on the board.
 
 Until it is, `SESSION_TEST|<UTC time>` (in the Test bench section of `HELP`) sends a made-up session so the path can be
 tried over the air: `SESSION_TEST|2026-11-10T02:00:00Z` with the current UTC time sends three messages (the session with a
@@ -1009,7 +1008,7 @@ The console's rule `BoardSessionRule` is also in that release, and drops a messa
 
 `tests/host/test_sessions.c` checks the dates (leap days, the earliest time, every bad form), the JSON of each message
 against the cloud's contract, each refusal, the escaping, and with canary bytes on both sides that no buffer of any
-size is written past. `tests/host/test_console.c` checks `SESSION_TEST` (not connected, a bad time, the three messages)
+size is written past; from 1.20.1 also the play (below), from its own buffer and in place. `tests/host/test_console.c` checks `SESSION_TEST` (not connected, a bad time, the three messages)
 and `tests/host/test_cloud.c` the topic. On an nRF7002 DK, `SESSION_TEST` sent its three messages and the cloud kept the session, its tracks and now playing; RAM free in `STATS` was unchanged.
 
 ## Location by Wi-Fi
@@ -1139,7 +1138,8 @@ On the nRF7002 DK the board is the SPI peripheral of the Raspberry Pi: SPIS3 on 
 READY pin (D9) to the Pi (`CONFIG_APP_PI_LINK`, `src/pi/`, and the board's overlay). The Pi sends the collector's
 `np` and `hb` messages (`pi/`). Each message is printed on the serial console as `[PI] <message>`, and
 `STATUS|pi` shows the link's state, its counts, and the last `np` and `hb`. The `[PI]` message lines stay on the
-serial console; only `[PI] link up` goes to the cloud's events. The wiring, the frames and the tests are in
+serial console; only `[PI] link up` goes to the cloud's events, and from 1.20.1 each `np` goes to the cloud as a play
+(below). The wiring, the frames and the tests are in
 [`docs/pi-link.md`](../docs/pi-link.md).
 
 From 1.20.0, a build for a board wired to a Pi (`scripts/firmware/build.sh --pi`, `CONFIG_APP_PI_DELTA`, no
@@ -1147,6 +1147,36 @@ Bluetooth) also keeps the Pi's image on an SD card and updates it with only the 
 takes them over this same link, with request types of their own (`0x10` to `0x13`), and `STATUS|pi` counts
 them under `pi delta`. The link's work then runs on a queue of its own, as a read from the card can wait.
 Not yet tried on hardware: [`docs/pi-delta-update.md`](../docs/pi-delta-update.md).
+
+### Plays
+
+From 1.20.1 (`CONFIG_APP_PI_PLAYS`, on wherever the link is), each `np` also goes to the cloud as a **play**, on
+`cranium/<thing name>/session` at QoS 0, for the console's Plays card and the customer site's Mixes:
+
+```json
+{"v":1,"type":"play","ageS":3,"np":{"t":"np","ti":"Strobe","ar":"deadmau5","ge":"House","bpm10":1280,"dur":600}}
+```
+
+The `np` goes as the Pi sent it, inside the play: the board checks only that it starts as an `np` and ends with a
+brace, and the cloud checks every field (`cloud/api/src/lib/sessions.mjs`, and the contract in
+[`docs/customer-data.md`](../docs/customer-data.md)), so a field the Pi adds later, such as the key, needs no new
+firmware. The board has no clock: `ageS` is how long ago the `np` came in, and the cloud dates the play from when AWS
+IoT took it, less that. The time each track played is worked out in the cloud, from one play to the next.
+
+The link keeps the last `np` whole up to 255 bytes for it (`PI_LINK_NP_KEPT_MAX`; a longer one is printed but not
+sent) and marks it waiting. `pi_link_plays_on_tick()`, on the main loop once a second, sends it while the cloud is
+connected and at most one every `CONFIG_APP_PI_PLAYS_INTERVAL_SECONDS` (5): of several in that time the newest goes,
+and the others count as skipped. While the board is offline the last one waits, with its age. The message is built in
+one buffer on the main loop's stack (305 bytes); what stays in RAM is the larger `np` and the counts, about 150 bytes.
+`STATUS|pi` counts them:
+
+```
+pi plays       12 sent, 1 skipped, 0 failed
+```
+
+The Pi's sender keeps up to 500 messages while the board does not answer and sends them in order once it does: after
+such a gap most of the `np` among them are skipped, and the few that go are dated when they reached the board, since an
+`np` has no time of its own. Not yet tried on hardware.
 
 ## Firmware update over Bluetooth
 

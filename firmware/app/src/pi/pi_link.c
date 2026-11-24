@@ -12,6 +12,9 @@
  * from the SD card) and everything else with STATUS, as without them. The answer is armed with its
  * own length, so the overrun character follows it as it follows STATUS. The work runs on the link's
  * own queue, so that a READ waiting for the card never holds up the system work queue.
+ *
+ * With plays (CONFIG_APP_PI_PLAYS), the last np waits here until the main loop sends it to the cloud
+ * (pi_link_plays_on_tick()): a newer np replaces one that has not gone yet, which then counts as skipped.
  */
 
 #include "pi_link.h"
@@ -31,6 +34,10 @@
 #include "pi_rx.h"
 #if defined(CONFIG_APP_PI_DELTA)
 #include "pi_dlink.h"
+#endif
+#if defined(CONFIG_APP_PI_PLAYS)
+#include "cloud.h"
+#include "sessions.h"
 #endif
 
 LOG_MODULE_REGISTER(pi_link, CONFIG_APP_LOG_LEVEL);
@@ -87,8 +94,17 @@ static struct pi_rx rx;
 static int link_error;
 static bool running;
 static int64_t last_frame_at;
-static char last_np[PI_LINK_KEPT_MAX + 1];
+static char last_np[PI_LINK_NP_KEPT_MAX + 1];
 static char last_hb[PI_LINK_KEPT_MAX + 1];
+#if defined(CONFIG_APP_PI_PLAYS)
+/* The last np is whole and has not gone to the cloud yet, and when it came in (k_uptime_get_32()). */
+static bool np_waiting;
+static uint32_t np_at;
+static uint32_t plays_skipped;
+/* Only on the main loop, read by pi_link_get_view(). */
+static uint32_t plays_sent;
+static uint32_t plays_failed;
+#endif
 
 static void on_transfer(const struct device *dev, int result, void *data)
 {
@@ -140,10 +156,19 @@ static void handle_transfer(size_t received)
 		pi_rx_clean_text((uint8_t *)frame.payload, frame.length);
 		into = kept_for(frame.payload, frame.length);
 		if (into != NULL) {
-			size_t n = MIN((size_t)frame.length, (size_t)PI_LINK_KEPT_MAX);
+			size_t n = MIN((size_t)frame.length,
+				       into == last_np ? (size_t)PI_LINK_NP_KEPT_MAX : (size_t)PI_LINK_KEPT_MAX);
 
 			memcpy(into, frame.payload, n);
 			into[n] = '\0';
+#if defined(CONFIG_APP_PI_PLAYS)
+			if (into == last_np) {
+				/* The one before, if still waiting, is skipped; so is one too long to send. */
+				plays_skipped += (np_waiting ? 1 : 0) + (n < frame.length ? 1 : 0);
+				np_waiting = n == frame.length;
+				np_at = (uint32_t)now;
+			}
+#endif
 		}
 	}
 	k_mutex_unlock(&view_lock);
@@ -293,6 +318,11 @@ void pi_link_get_view(struct pi_link_view *out)
 	out->delta_answered = dlink.answered;
 	out->delta_refused = dlink.errors;
 #endif
+#if defined(CONFIG_APP_PI_PLAYS)
+	out->plays_sent = plays_sent;
+	out->plays_skipped = plays_skipped;
+	out->plays_failed = plays_failed;
+#endif
 	k_mutex_unlock(&view_lock);
 }
 
@@ -306,3 +336,45 @@ void pi_link_get_last(enum pi_link_kind kind, char *buf, size_t size)
 	buf[size - 1] = '\0';
 	k_mutex_unlock(&view_lock);
 }
+
+#if defined(CONFIG_APP_PI_PLAYS)
+void pi_link_plays_on_tick(void)
+{
+	/* On the main loop's stack. The np goes at the end, and session_format_play() moves it down. */
+	char buf[SESSION_PLAY_HEAD_MAX + PI_LINK_NP_KEPT_MAX + 2];
+	char *np = buf + SESSION_PLAY_HEAD_MAX;
+	/* Ticks, a second each, before the next play may go. */
+	static uint16_t wait;
+	size_t length = 0;
+	uint32_t age_ms = 0;
+
+	if (wait > 0) {
+		wait--;
+		return;
+	}
+	if (!cloud_is_connected()) {
+		return;
+	}
+
+	k_mutex_lock(&view_lock, K_FOREVER);
+	if (np_waiting) {
+		length = strlen(last_np);
+		memcpy(np, last_np, length);
+		/* In 32 bits: right for any age under 49 days. */
+		age_ms = k_uptime_get_32() - np_at;
+		np_waiting = false;
+	}
+	k_mutex_unlock(&view_lock);
+	if (length == 0) {
+		return;
+	}
+
+	if (session_format_play(buf, sizeof(buf), age_ms / MSEC_PER_SEC, np, length) > 0 &&
+	    cloud_session_publish(buf) == 0) {
+		plays_sent++;
+	} else {
+		plays_failed++;
+	}
+	wait = CONFIG_APP_PI_PLAYS_INTERVAL_SECONDS - 1;
+}
+#endif

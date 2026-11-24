@@ -330,6 +330,30 @@ int session_format_now(char *buf, size_t size, const struct session_track *track
 	return finish(&w);
 }
 
+int session_format_play(char *buf, size_t size, uint32_t age_s, const char *np, size_t np_length)
+{
+	static const char start[] = "{\"t\":\"np\"";
+	char head[SESSION_PLAY_HEAD_MAX];
+	struct writer w = { .buf = head, .size = sizeof(head) };
+
+	if (np == NULL || np_length < sizeof(start) || memcmp(np, start, sizeof(start) - 1) != 0 ||
+	    np[np_length - 1] != '}') {
+		return -EINVAL;
+	}
+	put_text(&w, "{\"v\":1,\"type\":\"play\",\"ageS\":");
+	put_number(&w, age_s);
+	put_text(&w, ",\"np\":");
+	/* The head and the np, the closing brace and the NUL. */
+	if (buf == NULL || w.len + np_length + 2 > size) {
+		return -ENOSPC;
+	}
+	memmove(buf + w.len, np, np_length);
+	memcpy(buf, head, w.len);
+	buf[w.len + np_length] = '}';
+	buf[w.len + np_length + 1] = '\0';
+	return (int)(w.len + np_length + 1);
+}
+
 int session_send_session(char *scratch, size_t size, const char *id, int64_t started_s, int64_t ended_s,
 			 const char *title, const struct session_track *tracks, size_t count)
 {

@@ -170,6 +170,7 @@ pi messages    12
 pi repeats     0
 pi polls       12
 pi bad frames  0 (crc 0)
+pi plays       1 sent, 0 skipped, 0 failed
 pi last np     {"t":"np","ti":"Can I Live","ar":"Jaÿ‐Z","ge":"","bpm10":1520,"dur":250}
 pi last hb     {"t":"hb","up":28,"mx":1,"pl":2,"bpm10":1520,...}
 ```
@@ -233,11 +234,13 @@ does.
 
 The link has no thread of its own: the SPI driver hands each transfer to the system work queue. RAM is short on
 the nRF7002 DK, so it keeps one frame's receive buffer, its STATUS frame, and the first 128 bytes of the last `np`
-and `hb`. To fit it, the heap is 2 KB smaller in builds with Bluetooth updates (`firmware/app/bt_ota.conf`).
+and `hb` (from firmware 1.20.1, the last `np` whole up to 255 bytes, to go to the cloud). To fit it, the heap is 2 KB smaller in builds with Bluetooth updates (`firmware/app/bt_ota.conf`).
 
 The `[PI]` message lines go to the serial console only, not to the cloud's event feed: one line per message
 would be too many there. `[PI] link up`, printed when frames start arriving after 30 s without any, does go
-to the cloud.
+to the cloud. From firmware 1.20.1 each `np` also goes to the cloud as a play, at most one every 5 seconds, for the
+console's Plays card and the customer site's Mixes (`firmware/README.md`, "Plays"); `STATUS|pi` counts them
+under `pi plays`.
 
 The pins are set in `firmware/app/boards/nrf7002dk_nrf5340_cpuapp_ns.overlay` (SPIS3, and `pi-ready-gpios`), and are
 free in `main`'s firmware. The Raspberry Pi delta updates ([`pi-delta-update.md`](pi-delta-update.md), a `--pi`

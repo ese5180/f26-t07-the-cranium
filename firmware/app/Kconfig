@@ -314,6 +314,27 @@ config APP_PI_LINK
 	  on the serial console as "[PI] <message>", and STATUS|pi says how the link is doing. On by
 	  default where the overlay makes spi3 an SPI peripheral: the nRF7002 DK.
 
+config APP_PI_PLAYS
+	bool "Send each track the Pi reports playing to the cloud, as a play"
+	depends on APP_PI_LINK && APP_SESSIONS
+	default y
+	help
+	  From 1.20.1. Each np (now playing) message from the Pi's collector goes to
+	  cranium/<thing name>/session at QoS 0 as {"v":1,"type":"play","ageS":<s>,"np":<the np>},
+	  the np as the Pi sent it, for the console's Plays and the customer site's Mixes. The board
+	  has no clock: ageS is how long ago the np came in, and the cloud dates the play from when
+	  AWS IoT took it. Sent from the main loop while the cloud is connected, at most one every
+	  APP_PI_PLAYS_INTERVAL_SECONDS; of several np in that time only the newest goes, and
+	  STATUS|pi counts the others as skipped. The last np is kept whole up to 255 bytes for it
+	  (128 without): about 150 bytes of RAM and 550 of flash in all. See "Plays" in
+	  firmware/README.md.
+
+config APP_PI_PLAYS_INTERVAL_SECONDS
+	int "Least seconds between two plays sent to the cloud"
+	depends on APP_PI_PLAYS
+	range 1 600
+	default 5
+
 config APP_BT_OTA
 	bool "Firmware update over Bluetooth LE"
 	depends on APP_CONSOLE && BT
