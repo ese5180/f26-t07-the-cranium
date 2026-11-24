@@ -180,7 +180,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
-| 2026-11-24 | Pi delta updates: only the changed blocks of the Pi's image travel, onto the board's SD card and from it to the Pi over SPI (draft, not yet on hardware) | firmware 1.20.0 | #PR_NUMBER |
+| 2026-11-24 | Pi delta updates: only the changed blocks of the Pi's image travel, onto the board's SD card and from it to the Pi over SPI (draft, not yet on hardware) | firmware 1.20.0 | #276 |
 | 2026-11-16 | Golden image promotion over the air: signed record, counter floor, the bootloader seals it (board runs it; the promotion itself not yet tried on hardware) | firmware 1.19.3 | v1.19.3 |
 | 2026-11-15 | Closed-loop HIL bench (Adam's): UART to Bluetooth telemetry app, Saleae and PPK2 acceptance, MCP bench tools, host tests in CI (not yet on hardware) | — | #261 |
 | 2026-11-12 | Console navigation in groups, a floating tab bar shaped for the iPhone 17 Pro's corners, Fleet folded into Devices and Deployments, Memfault named Crashes | console 2.28.0 | #258 |
