@@ -175,7 +175,7 @@ class TheProjectsFloors(unittest.TestCase):
         # Configurations of the firmware job on open pull requests, by their names in those PRs' ci.yml,
         # so that their first run finds floors. Once such a job is on main it is in the matrix as well,
         # and this still passes; take its name out of here then.
-        coming = {"Pi image updates"}  # #165, the Raspberry Pi work
+        coming = set()
         workflow = (REPO / ".github" / "workflows" / "ci.yml").read_text()
         job = workflow.split("\n  firmware:\n", 1)[1].split("\n  # A release of firmware", 1)[0]
         in_matrix = set(re.findall(r"^ +- configuration: (.+)$", job, re.MULTILINE))

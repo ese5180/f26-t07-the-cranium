@@ -26,6 +26,10 @@
 #include "main.c"
 #undef main
 
+#if defined(CONFIG_APP_PI_DELTA)
+#include "cJSON.h"
+#endif
+
 /* Log lines go nowhere on a host. This one, about the last restart, is one to see. */
 #undef LOG_WRN
 #define LOG_WRN(...) console_event("stuck", "WRN: " __VA_ARGS__)
@@ -100,7 +104,7 @@ static struct {
 	/* hostap waits up to 5 s for the disconnect, inside the request. */
 	int64_t disconnect_takes_ms;
 	int shadow_reports;
-	char last_report[420];
+	char last_report[CLOUD_REPORTED_MAX];
 	/* The diagnostics report goes through the same call, and is counted apart. */
 	int diag_reports;
 	char last_diag[DIAG_REPORT_MAX];
@@ -3368,11 +3372,131 @@ static void test_the_longest_report_fits(void)
 		"\"wifi\":{\"rssi\":-127},\"stuck\":{\"count\":4,\"reason\":\"update_stall\"},"
 		"\"uptime\":9223372036854775}}}";
 
-	CHECK(sizeof(longest) < 400);
+	CHECK(sizeof(longest) < REPORT_BASE);
 	CHECK(sizeof(longest) < 512);
 	/* It goes out with its topic and the MQTT header, in CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE. */
 	CHECK(sizeof(longest) + 64 < 512);
+#if defined(CONFIG_APP_PI_DELTA)
+	/*
+	 * A Pi build's, with its card at its longest after the uptime (pi_delta.h), in what cloud.h says
+	 * the shadow document holds. The library sends that from the document, not from its buffer.
+	 */
+	CHECK(sizeof(longest) - sizeof("{\"state\":{\"reported\":}}") + 1 + sizeof(",\"pi\":") - 1 +
+		      PI_DELTA_REPORT_MAX - 1 <= CLOUD_REPORTED_MAX);
+	CHECK(REPORT_MAX <= CLOUD_REPORTED_MAX);
+#endif
 }
+
+#if defined(CONFIG_APP_PI_DELTA)
+/* pi_delta_ota.c's report of the SD card, which a Pi build's heartbeat carries. */
+static struct {
+	const char *json;
+	/* Below 0: what it returns, having written over the whole of its buffer first. */
+	int result;
+	size_t len;
+	int calls;
+} pi_card;
+
+int pi_delta_ota_report(char *buf, size_t len)
+{
+	pi_card.calls++;
+	pi_card.len = len;
+	if (pi_card.result < 0) {
+		memset(buf, 'x', len - 1);
+		buf[len - 1] = '\0';
+		return pi_card.result;
+	}
+	return snprintf(buf, len, "%s", pi_card.json);
+}
+
+#define PI_READY                                                                                   \
+	"{\"card\":\"ready\",\"version\":\"2026.11.24-1\",\"generation\":3,\"step\":\"idle\","        \
+	"\"done\":0,\"total\":0}"
+
+/* The last heartbeat is JSON, its uptime a number, and it ends with "pi":<pi> or, with pi NULL, without it. */
+static bool heartbeat_with(const char *pi)
+{
+	cJSON *report = cJSON_Parse(board.last_report);
+	const char *at = strstr(board.last_report, ",\"pi\":");
+	const char *uptime = strstr(board.last_report, ",\"uptime\":");
+	bool ok = cJSON_IsObject(report) && cJSON_IsNumber(cJSON_GetObjectItem(report, "uptime")) &&
+		  cJSON_IsObject(cJSON_GetObjectItem(report, "fw")) && uptime != NULL;
+
+	if (ok && pi == NULL) {
+		ok = at == NULL && !cJSON_HasObjectItem(report, "pi") &&
+		     strspn(uptime + 10, "0123456789") == strlen(uptime + 10) - 1 &&
+		     board.last_report[strlen(board.last_report) - 1] == '}';
+	} else if (ok) {
+		/* Straight after the uptime, and the report's last key. */
+		ok = at != NULL && strspn(uptime + 10, "0123456789") == (size_t)(at - uptime - 10) &&
+		     strncmp(at + 6, pi, strlen(pi)) == 0 && strcmp(at + 6 + strlen(pi), "}") == 0 &&
+		     cJSON_IsObject(cJSON_GetObjectItem(report, "pi"));
+	}
+	if (!ok) {
+		printf("     heartbeat: %s\n", board.last_report);
+	}
+	cJSON_Delete(report);
+	return ok;
+}
+
+static void test_a_pi_build_s_heartbeat_carries_its_card(void)
+{
+	/* Every field at its longest: what main.c leaves room for. */
+	static const char longest[] =
+		"{\"card\":\"updating\",\"version\":\"9999999999999999999999999999999\","
+		"\"generation\":4294967295,\"step\":\"manifest\",\"done\":4294967295,\"total\":4294967295}";
+	int reports;
+
+	memset(&pi_card, 0, sizeof(pi_card));
+	pi_card.json = PI_READY;
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	board.cloud_up = true;
+
+	/* In the report that carries the uptime, after it: the console takes it only from that one. */
+	app_send_reports();
+	CHECK(pi_card.calls == 1 && pi_card.len == PI_DELTA_REPORT_MAX);
+	CHECK(heartbeat_with(PI_READY));
+	CHECK(strstr(board.last_diag, "\"pi\"") == NULL);
+
+	/* Every heartbeat. */
+	reports = board.shadow_reports;
+	ticks(CONFIG_APP_SHADOW_INTERVAL_SECONDS);
+	CHECK(board.shadow_reports == reports + 1 && pi_card.calls == 2);
+	CHECK(heartbeat_with(PI_READY));
+
+	/* A card at its longest. */
+	CHECK(sizeof(longest) == PI_DELTA_REPORT_MAX);
+	pi_card.json = longest;
+	app_send_reports();
+	CHECK(heartbeat_with(longest));
+
+	/* One that cannot be read now (busy, or too long): the heartbeat goes all the same, without it. */
+	reports = board.shadow_reports;
+	pi_card.result = -EBUSY;
+	app_send_reports();
+	CHECK(board.shadow_reports == reports + 1);
+	CHECK(heartbeat_with(NULL));
+	pi_card.result = -ENOSPC;
+	app_send_reports();
+	CHECK(board.shadow_reports == reports + 2);
+	CHECK(heartbeat_with(NULL));
+
+	/* The last word before a restart has it too. */
+	pi_card.result = 0;
+	pi_card.json = PI_READY;
+	app_restart(MFLT_REBOOT_UPDATE);
+	CHECK(board.acked_reports == 1);
+	CHECK(strstr(board.last_report, "\"ota\":{\"state\":\"rebooting\"") != NULL);
+	CHECK(heartbeat_with(PI_READY));
+
+	/* Offline: nothing is asked of the card. */
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	board.cloud_up = false;
+	pi_card.calls = 0;
+	app_send_reports();
+	CHECK(pi_card.calls == 0 && board.shadow_reports == 0);
+}
+#endif
 
 #if defined(CONFIG_APP_TEST_FAULT_WIFI_DEAD)
 static void test_the_main_loop_gives_the_fault_its_ticks(void)
@@ -3494,6 +3618,9 @@ int main(void)
 	test_the_main_loop_gives_the_events_their_turn();
 	test_the_report_says_how_it_stands_with_being_stuck();
 	test_the_longest_report_fits();
+#if defined(CONFIG_APP_PI_DELTA)
+	test_a_pi_build_s_heartbeat_carries_its_card();
+#endif
 	test_diagnostics_go_on_connecting_and_every_five_minutes();
 	test_the_diagnostics_report_says_only_what_it_should();
 	test_the_diagnostics_report_says_the_board_type();

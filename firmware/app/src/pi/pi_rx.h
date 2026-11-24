@@ -6,6 +6,10 @@
  * DATA frame is acknowledged in the transfer after it. The Pi sends a DATA frame, then a POLL,
  * and sends the DATA frame again until the STATUS names its session and seq. A DATA frame with
  * the session and seq of the last one accepted is acknowledged again but not delivered twice.
+ *
+ * In a build with Raspberry Pi delta updates (CONFIG_APP_PI_DELTA), the same link also takes their
+ * requests (0x10 to 0x13), which pi_dlink.c answers: pi_dlink_answer() then writes the frame for the
+ * next transfer, the request's answer or STATUS. Any other build counts them as unknown.
  */
 
 #ifndef PI_RX_H_
@@ -31,6 +35,10 @@ struct pi_rx {
 	uint32_t bad_crc;
 	/* Frames of a type the board does not take: also counted in bad. */
 	uint32_t unknown;
+#if defined(CONFIG_APP_PI_DELTA)
+	/* Requests of a Pi delta update. */
+	uint32_t delta;
+#endif
 };
 
 enum pi_rx_result {
@@ -40,6 +48,10 @@ enum pi_rx_result {
 	PI_RX_POLL,
 	PI_RX_NOTHING,
 	PI_RX_BAD,
+#if defined(CONFIG_APP_PI_DELTA)
+	/* A Pi delta update's request (0x10 to 0x13): pi_dlink_answer() answers it. */
+	PI_RX_DELTA,
+#endif
 };
 
 void pi_rx_init(struct pi_rx *rx);

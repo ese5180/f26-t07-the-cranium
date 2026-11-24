@@ -18,8 +18,10 @@
     "mcuboot": { "flash_free_min": 20480 },
     "tfm": { "flash_free_min": 49152, "ram_free_min": 18432 }
   },
-  "Pi image updates": {
-    "_measured": "the firmware job's configuration 'Pi image updates', which comes with the Raspberry Pi work (#165); not built on main yet",
-    "app": { "ram_free_min": 20480 }
+  "Pi delta updates": {
+    "_measured": "1.20.0, Raspberry Pi delta updates on the Pi message link (#58), local build (scripts/firmware/build.sh --pi --keep --no-upload --without-key): app 98370 flash / 18880 RAM free with the card in the heartbeat (98442 / 18944 before it: 392 bytes of flash for it, 320 trimmed back from the SD stack's info-level notes and two of the update's log lines, and 64 bytes of RAM for the larger shadow document), mcuboot 12484 flash, tfm 552 flash / 12532 RAM. No Bluetooth; the update's thread (5 KiB of stack for TLS), the link's own work queue (2 KiB), the frames, the URL and the card's buffers take about 17 KiB of what the no-Bluetooth build leaves. The app's RAM floor was 19456 when the delta updates had a link of their own (#276, 19808 free): sharing #58's link adds its kept np and hb and a larger queue stack, which also prints the Pi's messages",
+    "app": { "flash_free_min": 98304, "ram_free_min": 18432 },
+    "mcuboot": { "flash_free_min": 12288 },
+    "tfm": { "flash_free_min": 500, "ram_free_min": 12288 }
   }
 }

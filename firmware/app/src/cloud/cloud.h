@@ -104,6 +104,16 @@ const char *cloud_subscription(size_t index);
 /* The commands topic is left out until a restart: see cloud_subscription(). From any thread. */
 bool cloud_commands_given_up(void);
 
+/*
+ * The longest object that cloud_shadow_report() takes, with its terminating zero: the shadow
+ * document holds it in {"state":{"reported":...}}. A Pi build's heartbeat also carries its SD card.
+ */
+#if defined(CONFIG_APP_PI_DELTA)
+#define CLOUD_REPORTED_MAX 553
+#else
+#define CLOUD_REPORTED_MAX 489
+#endif
+
 /* Publish the reported state. json is the object that goes under state.reported. */
 int cloud_shadow_report(const char *reported_json);
 

@@ -24,7 +24,8 @@
 LOG_MODULE_REGISTER(cloud, CONFIG_APP_LOG_LEVEL);
 
 #define TOPIC_MAX        128
-#define SHADOW_MAX       512
+/* 512, and 576 in a Pi build. The library sends it from here, and only its header from its buffer. */
+#define SHADOW_MAX       (sizeof("{\"state\":{\"reported\":}}") - 1 + CLOUD_REPORTED_MAX)
 /*
  * The board's own topics are "cranium/<thing name>/<what>", where the thing name is the prefix
  * and 16 hexadecimal digits. A PUBLISH at QoS 0 has a fixed header of 3 bytes (up to 16383 bytes

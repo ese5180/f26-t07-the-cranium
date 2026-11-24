@@ -8,7 +8,8 @@
  *        3     1  type (enum pi_frame_type)
  *        4     2  session: from the Pi, a number it picks at random when it starts, never 0;
  *                 from the board, the session of the last DATA frame it accepted, or 0 for none
- *        6     2  seq: from the Pi, the number of this DATA frame in its session
+ *        6     2  seq: from the Pi, the number of this DATA frame in its session; from the board,
+ *                 0 in STATUS, and in the answer to a delta request, that request's seq
  *        8     2  ack: from the board, the seq of the last DATA frame it accepted
  *       10     2  length of the payload, at most PI_FRAME_PAYLOAD_MAX
  *       12     n  payload: for DATA, one message (a JSON line, without its line ending)
@@ -36,6 +37,13 @@ enum pi_frame_type {
 	PI_FRAME_DATA = 0x01,
 	/* Pi to board: nothing, only to read the board's status. */
 	PI_FRAME_POLL = 0x02,
+	/*
+	 * Pi to board: the requests of a Raspberry Pi delta update, 0x10 to 0x13 (pi_dlink.h), taken
+	 * only in a build with CONFIG_APP_PI_DELTA; any other build counts them as of a type it does
+	 * not take. Their answers are 0x90 to 0x93, and 0xff for a refusal.
+	 */
+	PI_FRAME_DELTA_FIRST = 0x10,
+	PI_FRAME_DELTA_LAST = 0x13,
 	/* Board to Pi: what it has accepted. */
 	PI_FRAME_STATUS = 0x81,
 };

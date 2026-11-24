@@ -813,6 +813,126 @@ static bool last_update_says(const char *text)
 }
 #endif
 
+#if defined(CONFIG_APP_PI_DELTA)
+/*
+ * From 1.20.0, a Pi build: what ota.c hands to src/pi/pi_delta_ota.c, here a fake that only counts.
+ * The Pi side's own behaviour is tested in test_pi_delta.c.
+ */
+static struct {
+	bool busy;
+	int jobs;
+	int withdrawn;
+	int ticks;
+	int inits;
+	char last_job[OTA_JOB_ID_MAX + 1];
+	char last_version[OTA_PI_VERSION_MAX + 1];
+} pi_fake;
+
+int pi_delta_ota_init(void)
+{
+	pi_fake.inits++;
+	return 0;
+}
+
+void pi_delta_ota_on_job(const struct ota_job *job)
+{
+	pi_fake.jobs++;
+	pi_fake.busy = true;
+	strcpy(pi_fake.last_job, job->id);
+	strcpy(pi_fake.last_version, job->pi_version);
+}
+
+bool pi_delta_ota_busy(void)
+{
+	return pi_fake.busy;
+}
+
+void pi_delta_ota_withdrawn(void)
+{
+	if (pi_fake.busy) {
+		pi_fake.withdrawn++;
+	}
+	pi_fake.busy = false;
+}
+
+void pi_delta_ota_on_tick(void)
+{
+	pi_fake.ticks++;
+}
+
+int pi_delta_ota_report(char *buf, size_t len)
+{
+	(void)buf;
+	(void)len;
+	return 0;
+}
+
+static void pi_job_listed(const char *id, const char *status)
+{
+	static char message[700];
+
+	(void)snprintf(message, sizeof(message),
+		       "{\"clientToken\":\"x\",\"timestamp\":1760137000,\"execution\":{\"jobId\":\"%s\","
+		       "\"status\":\"%s\",\"queuedAt\":1760136000,\"lastUpdatedAt\":1760136000,"
+		       "\"versionNumber\":1,\"executionNumber\":1,\"jobDocument\":{\"op\":\"pi_delta\","
+		       "\"v\":1,\"pi\":{\"version\":\"2026.11.24-1\",\"sha256\":\""
+		       "0000000000000000000000000000000000000000000000000000000000000000\",\"url\":\""
+		       URL_PREFIX "pi.cpd\"}}}}",
+		       id, status);
+	reply_arrives(message);
+}
+
+static void test_a_pi_job_goes_to_the_pi_side(void)
+{
+	memset(&pi_fake, 0, sizeof(pi_fake));
+	a_board_on_the_cloud();
+	CHECK(pi_fake.inits == 1);
+
+	/* An idle board: the job is the Pi side's, and nothing of the firmware's moves. */
+	pi_job_listed("pi-1", "QUEUED");
+	CHECK(pi_fake.jobs == 1);
+	CHECK(strcmp(pi_fake.last_job, "pi-1") == 0);
+	CHECK(strcmp(pi_fake.last_version, "2026.11.24-1") == 0);
+	CHECK(ota_state() == OTA_IDLE);
+	CHECK(fake.job_updates == 0);
+	CHECK(fake.downloads == 0);
+
+	/* The same job again, as the Pi side asks for a fresh URL: handed over again. */
+	pi_job_listed("pi-1", "IN_PROGRESS");
+	CHECK(pi_fake.jobs == 2);
+	CHECK(pi_fake.withdrawn == 0);
+
+	/* Every second, the Pi side's tick. */
+	ota_on_tick();
+	ota_on_tick();
+	CHECK(pi_fake.ticks == 2);
+
+	/* While it runs, a firmware job named first means the Pi job is gone; the firmware job goes on. */
+	job_listed("job-2", "QUEUED", "9.0.0");
+	CHECK(pi_fake.withdrawn == 1);
+	CHECK(ota_state() == OTA_STARTING);
+	CHECK(strcmp(ota_job_id(), "job-2") == 0);
+
+	/* A Pi job while a firmware update is under way waits: AWS IoT names it again later. */
+	pi_job_listed("pi-2", "QUEUED");
+	CHECK(pi_fake.jobs == 2);
+
+	/* No job at all while the Pi side works: withdrawn. */
+	a_board_on_the_cloud();
+	pi_job_listed("pi-3", "QUEUED");
+	CHECK(pi_fake.jobs == 3 && pi_fake.busy);
+	no_job_listed();
+	CHECK(pi_fake.withdrawn == 2 && !pi_fake.busy);
+
+	/* A Pi job that does not parse is refused like any other. */
+	reply_arrives("{\"execution\":{\"jobId\":\"pi-4\",\"status\":\"QUEUED\","
+		      "\"jobDocument\":{\"op\":\"pi_delta\",\"v\":1,\"pi\":{\"version\":\"a b\"}}}}");
+	CHECK(pi_fake.jobs == 3);
+	CHECK(last_update_says("\"status\":\"REJECTED\""));
+	CHECK(last_update_says("\"reason\":\"bad_document\""));
+}
+#endif
+
 /* ---- the option off, which is the default: a job starts by itself ------------------------------ */
 
 #if defined(TEST_NO_CONSENT)
@@ -1535,6 +1655,9 @@ int main(void)
 	test_a_second_job_while_one_runs();
 	test_an_image_for_another_board_or_layout_is_refused();
 	test_the_slot_is_looked_at_again_right_before_the_swap();
+#if defined(CONFIG_APP_PI_DELTA)
+	test_a_pi_job_goes_to_the_pi_side();
+#endif
 #else
 	test_the_option_offers_and_waits();
 #endif

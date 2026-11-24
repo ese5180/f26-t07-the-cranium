@@ -1,0 +1,76 @@
+/*
+ * From 1.20.0, only in a build with SB_CONFIG_APP_PI_DELTA (pi_delta_sysbuild.conf), which
+ * sysbuild.cmake adds this to: the SD card that holds the mirror of the Pi's image
+ * (docs/pi-delta-update.md, "Wiring"). nRF7002 DK only: the nRF5340 DK has no cloud.
+ *
+ * The Pi asks for the image over its message link (src/pi/pi_link.c, docs/pi-link.md): SPIS3 on
+ * D10 to D13 and READY on D9, which the board's own overlay (nrf7002dk_nrf5340_cpuapp_ns.overlay)
+ * sets up for every build. Nothing of it is here.
+ *
+ * The SD card, on its own bus: SPIM2 (SERIAL2) on the analog header, as PR #196 had it.
+ *
+ *   A0 P0.04  SCK    A1 P0.05  MOSI (DI)    A2 P0.06  MISO (DO)    A3 P0.07  CS
+ *   D3 P1.05  card detect
+ *
+ * Why these: SERIAL0 is the console (uart0, P0.19 to P0.22), SERIAL1 TF-M's UART (uart1, P1.00 and
+ * P1.01), SERIAL3 the Pi's link, SERIAL4 the external flash (spi4, P0.08 to P0.11); the Wi-Fi chip
+ * has QSPI and P0.12 to P0.18, P0.23, P0.24, P0.28 to P0.31 and P1.10; the Arduino I2C is P1.02 and
+ * P1.03; the LEDs and buttons are P1.06 to P1.09. That leaves SERIAL2, and these pins. The board
+ * overlay turns the GPIO forwarder off, so P1.05 stays with the application core.
+ */
+
+&pinctrl {
+	sd_spi_default: sd_spi_default {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 4)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 5)>;
+		};
+
+		/* An SD card's DO is open until it drives it: keep it from floating. */
+		group2 {
+			psels = <NRF_PSEL(SPIM_MISO, 0, 6)>;
+			bias-pull-up;
+		};
+	};
+
+	sd_spi_sleep: sd_spi_sleep {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 4)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 5)>,
+				<NRF_PSEL(SPIM_MISO, 0, 6)>;
+			low-power-enable;
+		};
+	};
+};
+
+/ {
+	pi_delta: pi-delta {
+		compatible = "cranium,pi-delta";
+		/* SparkFun's microSD breakout: CD is closed to ground with a card in. */
+		cd-gpios = <&gpio1 5 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+	};
+};
+
+&spi2 {
+	compatible = "nordic,nrf-spim";
+	status = "okay";
+	pinctrl-0 = <&sd_spi_default>;
+	pinctrl-1 = <&sd_spi_sleep>;
+	pinctrl-names = "default", "sleep";
+	/* What MOSI sends while only receiving: an SD card in SPI mode wants 0xFF. */
+	overrun-character = <0xff>;
+	cs-gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;
+
+	sdhc0: sdhc@0 {
+		compatible = "zephyr,sdhc-spi-slot";
+		reg = <0>;
+		status = "okay";
+		spi-max-frequency = <8000000>;
+
+		mmc {
+			compatible = "zephyr,sdmmc-disk";
+			disk-name = "SD";
+			status = "okay";
+		};
+	};
+};

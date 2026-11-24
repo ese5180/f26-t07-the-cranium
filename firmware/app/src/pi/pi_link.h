@@ -7,6 +7,10 @@
  * It has no thread of its own: the SPI driver's callback hands each transfer to the system work
  * queue, which takes it and arms the peripheral again. RAM is short on this board, so the link keeps
  * little: one frame's worth of receive buffer, a STATUS frame, and the start of the last np and hb.
+ *
+ * In a build with Raspberry Pi delta updates (CONFIG_APP_PI_DELTA), the same link also answers their
+ * requests (pi_dlink.h, docs/pi-delta-update.md). Its work then runs on a queue of its own, since a
+ * READ waits for the SD card, and its transmit buffer holds a whole frame.
  */
 
 #ifndef PI_LINK_H_
@@ -31,6 +35,11 @@ struct pi_link_view {
 	uint32_t polls;
 	uint32_t bad;
 	uint32_t bad_crc;
+#if defined(CONFIG_APP_PI_DELTA)
+	/* Requests of Pi delta updates: answered, and refused with ERROR. */
+	uint32_t delta_answered;
+	uint32_t delta_refused;
+#endif
 };
 
 enum pi_link_kind {
@@ -46,5 +55,15 @@ void pi_link_get_view(struct pi_link_view *view);
 
 /* The start of the last message of that kind, as text, or "" if none yet. From any thread. */
 void pi_link_get_last(enum pi_link_kind kind, char *buf, size_t size);
+
+#if defined(CONFIG_APP_PI_DELTA)
+struct pi_card;
+
+/*
+ * Pi delta updates: the card the requests are answered from, once pi_card_init() has set it up.
+ * Until then they are answered as with no card in the slot. Call once, from any thread.
+ */
+void pi_link_serve_card(struct pi_card *card);
+#endif
 
 #endif /* PI_LINK_H_ */

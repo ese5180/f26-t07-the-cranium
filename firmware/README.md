@@ -1142,6 +1142,12 @@ READY pin (D9) to the Pi (`CONFIG_APP_PI_LINK`, `src/pi/`, and the board's overl
 serial console; only `[PI] link up` goes to the cloud's events. The wiring, the frames and the tests are in
 [`docs/pi-link.md`](../docs/pi-link.md).
 
+From 1.20.0, a build for a board wired to a Pi (`scripts/firmware/build.sh --pi`, `CONFIG_APP_PI_DELTA`, no
+Bluetooth) also keeps the Pi's image on an SD card and updates it with only the blocks that changed. The Pi
+takes them over this same link, with request types of their own (`0x10` to `0x13`), and `STATUS|pi` counts
+them under `pi delta`. The link's work then runs on a queue of its own, as a read from the card can wait.
+Not yet tried on hardware: [`docs/pi-delta-update.md`](../docs/pi-delta-update.md).
+
 ## Firmware update over Bluetooth
 
 An image can be uploaded from a phone over Bluetooth LE, for a board that has no Wi-Fi in reach or

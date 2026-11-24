@@ -6,6 +6,12 @@
  * the system work queue, which takes the frame (pi_rx.c) and arms the peripheral again. While it is not armed the peripheral
  * clocks out def-char (0xff), which the Pi reads as no answer; after the STATUS frame's 16 bytes it
  * clocks out the overrun character, which the Pi ignores.
+ *
+ * With Raspberry Pi delta updates (CONFIG_APP_PI_DELTA), one rule for every transfer: the board
+ * answers each frame in the next transfer, a delta request with its answer (pi_dlink_answer(), read
+ * from the SD card) and everything else with STATUS, as without them. The answer is armed with its
+ * own length, so the overrun character follows it as it follows STATUS. The work runs on the link's
+ * own queue, so that a READ waiting for the card never holds up the system work queue.
  */
 
 #include "pi_link.h"
@@ -23,6 +29,9 @@
 #include "console_port.h"
 #include "pi_frame.h"
 #include "pi_rx.h"
+#if defined(CONFIG_APP_PI_DELTA)
+#include "pi_dlink.h"
+#endif
 
 LOG_MODULE_REGISTER(pi_link, CONFIG_APP_LOG_LEVEL);
 
@@ -47,7 +56,23 @@ static const struct spi_config spi_cfg = {
 };
 
 static uint8_t rx_buf[PI_FRAME_SIZE];
+#if defined(CONFIG_APP_PI_DELTA)
+/* A whole frame: the answer to a delta request can take all of it. */
+static uint8_t tx_buf[PI_FRAME_SIZE];
+/* Only on the work queue: the length of the answer in tx_buf for arm(), or 0 for STATUS. */
+static size_t tx_length;
+/* Only on the work queue, but for its counts, which pi_link_get_view() reads. */
+static struct pi_dlink dlink;
+/* Set once by pi_link_serve_card(), from another thread. */
+static atomic_ptr_t served_card = ATOMIC_PTR_INIT(NULL);
+
+static K_THREAD_STACK_DEFINE(link_stack, CONFIG_APP_PI_DELTA_LINK_STACK_SIZE);
+static struct k_work_q link_queue;
+#define LINK_RESCHEDULE(delay) k_work_reschedule_for_queue(&link_queue, &link_work, (delay))
+#else
 static uint8_t tx_buf[PI_FRAME_HEADER + PI_FRAME_CRC];
+#define LINK_RESCHEDULE(delay) k_work_reschedule(&link_work, (delay))
+#endif
 
 static void link_work_handler(struct k_work *work);
 static K_WORK_DELAYABLE_DEFINE(link_work, link_work_handler);
@@ -72,7 +97,7 @@ static void on_transfer(const struct device *dev, int result, void *data)
 	/* At once, in the interrupt: the Pi looks at READY 0.5 ms after its transfer. */
 	(void)gpio_pin_set_dt(&ready, 0);
 	transfer_result = result;
-	(void)k_work_reschedule(&link_work, K_NO_WAIT);
+	(void)LINK_RESCHEDULE(K_NO_WAIT);
 }
 
 /* Where to keep the message: the last np or hb, if it starts as the Pi's do ({"t":"np", ...). */
@@ -139,18 +164,32 @@ static void handle_transfer(size_t received)
 	} else if (result == PI_RX_BAD) {
 		LOG_DBG("bad frame of %u bytes", (unsigned int)received);
 	}
+#if defined(CONFIG_APP_PI_DELTA)
+	if (result == PI_RX_DELTA) {
+		/* Its answer, for the next transfer; for anything else arm() writes STATUS. */
+		dlink.card = atomic_ptr_get(&served_card);
+		tx_length = pi_dlink_answer(&dlink, &rx, result, &frame, tx_buf, sizeof(tx_buf));
+	}
+#endif
 }
 
 static void arm(void)
 {
-	const struct spi_buf tx = { .buf = tx_buf, .len = sizeof(tx_buf) };
+	struct spi_buf tx = { .buf = tx_buf, .len = sizeof(tx_buf) };
 	const struct spi_buf rxb = { .buf = rx_buf, .len = sizeof(rx_buf) };
 	const struct spi_buf_set tx_set = { .buffers = &tx, .count = 1 };
 	const struct spi_buf_set rx_set = { .buffers = &rxb, .count = 1 };
 	int err;
 
 	k_mutex_lock(&view_lock, K_FOREVER);
+#if defined(CONFIG_APP_PI_DELTA)
+	if (tx_length == 0) {
+		tx_length = pi_rx_status(&rx, tx_buf, sizeof(tx_buf));
+	}
+	tx.len = tx_length;
+#else
 	(void)pi_rx_status(&rx, tx_buf, sizeof(tx_buf));
+#endif
 	k_mutex_unlock(&view_lock);
 	memset(rx_buf, 0, sizeof(rx_buf));
 
@@ -163,7 +202,7 @@ static void arm(void)
 		link_error = err;
 		k_mutex_unlock(&view_lock);
 		LOG_ERR("Could not arm the SPI peripheral: %d", err);
-		(void)k_work_reschedule(&link_work, K_SECONDS(1));
+		(void)LINK_RESCHEDULE(K_SECONDS(1));
 		return;
 	}
 	k_mutex_lock(&view_lock, K_FOREVER);
@@ -181,6 +220,10 @@ static void link_work_handler(struct k_work *work)
 
 		armed = false;
 		(void)gpio_pin_set_dt(&ready, 0);
+#if defined(CONFIG_APP_PI_DELTA)
+		/* STATUS, unless what came in was a delta request (handle_transfer()). */
+		tx_length = 0;
+#endif
 		if (result >= 0) {
 			handle_transfer((size_t)MIN(result, (int)sizeof(rx_buf)));
 		} else {
@@ -195,6 +238,9 @@ void pi_link_start(void)
 	int err = 0;
 
 	pi_rx_init(&rx);
+#if defined(CONFIG_APP_PI_DELTA)
+	pi_dlink_init(&dlink, NULL);
+#endif
 
 	if (!device_is_ready(spis)) {
 		err = -ENODEV;
@@ -215,9 +261,21 @@ void pi_link_start(void)
 	k_mutex_unlock(&view_lock);
 
 	if (err == 0) {
-		(void)k_work_reschedule(&link_work, K_NO_WAIT);
+#if defined(CONFIG_APP_PI_DELTA)
+		k_work_queue_start(&link_queue, link_stack, K_THREAD_STACK_SIZEOF(link_stack),
+				   CONFIG_APP_PI_DELTA_LINK_PRIORITY, NULL);
+		k_thread_name_set(&link_queue.thread, "pi_link");
+#endif
+		(void)LINK_RESCHEDULE(K_NO_WAIT);
 	}
 }
+
+#if defined(CONFIG_APP_PI_DELTA)
+void pi_link_serve_card(struct pi_card *card)
+{
+	atomic_ptr_set(&served_card, card);
+}
+#endif
 
 void pi_link_get_view(struct pi_link_view *out)
 {
@@ -230,6 +288,11 @@ void pi_link_get_view(struct pi_link_view *out)
 	out->polls = rx.polls;
 	out->bad = rx.bad;
 	out->bad_crc = rx.bad_crc;
+#if defined(CONFIG_APP_PI_DELTA)
+	/* Counted on the work queue outside the lock: a count read here may be one behind. */
+	out->delta_answered = dlink.answered;
+	out->delta_refused = dlink.errors;
+#endif
 	k_mutex_unlock(&view_lock);
 }
 

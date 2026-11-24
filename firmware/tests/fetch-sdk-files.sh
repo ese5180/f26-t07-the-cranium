@@ -7,8 +7,9 @@
 #   ZEPHYR_BASE=<that folder>/zephyr make -C firmware/tests/host
 #
 # It takes cJSON and the base64 library that the firmware builds against, MCUboot's imgtool, the
-# devicetree library that test_flash_layout.py reads partitions with, and the headers and sources
-# that test_golden.py holds the bench against. This is no substitute for
+# devicetree library that test_flash_layout.py reads partitions with, the headers and sources
+# that test_golden.py holds the bench against, and MCUboot's ECDSA (tinycrypt), which the Pi delta
+# harness checks signatures with. This is no substitute for
 # the SDK: nothing can be built for a board with it.
 #
 # Each revision is the one that the manifest of sdk-nrf v3.4.0 names, as a commit id, so a tag that
@@ -70,6 +71,11 @@ fetch nrfconnect/sdk-mcuboot c1d2d128a001a97db3ccfd66be524c0232094df6 bootloader
   boot/boot_serial/src/boot_serial.c \
   boot/zephyr/flash_map_extended.c \
   boot/zephyr/include/sysflash/sysflash.h \
-  boot/zephyr/main.c
+  boot/zephyr/main.c \
+  ext/tinycrypt/lib/include/tinycrypt \
+  ext/tinycrypt/lib/source/ecc.c \
+  ext/tinycrypt/lib/source/ecc_dsa.c \
+  ext/tinycrypt/lib/source/sha256.c \
+  ext/tinycrypt/lib/source/utils.c
 
 echo "SDK files are in $DEST"

@@ -220,6 +220,32 @@ static enum ota_job_result split_url(const char *url, const char *allowed_prefix
 	return OTA_JOB_OK;
 }
 
+#if defined(CONFIG_APP_PI_DELTA)
+/* 1 to 31 of A-Z a-z 0-9 . _ + -: the same rule as the signed manifest's (pi_delta_fmt.c). */
+static bool copy_pi_version(const char *text, char *out)
+{
+	size_t length;
+
+	if (text == NULL) {
+		return false;
+	}
+	length = strlen(text);
+	if (length == 0 || length > OTA_PI_VERSION_MAX) {
+		return false;
+	}
+	for (size_t i = 0; i < length; i++) {
+		char c = text[i];
+
+		if (!isalnum((unsigned char)c) && c != '.' && c != '_' && c != '+' && c != '-') {
+			return false;
+		}
+	}
+	memset(out, 0, OTA_PI_VERSION_MAX + 1);
+	memcpy(out, text, length);
+	return true;
+}
+#endif
+
 static enum ota_job_result parse_document(const cJSON *document, const char *allowed_url_prefix,
 					  struct ota_job *job)
 {
@@ -242,6 +268,20 @@ static enum ota_job_result parse_document(const cJSON *document, const char *all
 			       ? OTA_JOB_OK
 			       : OTA_JOB_BAD_DOCUMENT;
 	}
+
+#if defined(CONFIG_APP_PI_DELTA)
+	if (operation != NULL && strcmp(operation, "pi_delta") == 0 &&
+	    integer_member(document, "v", 1, 1, &document_version)) {
+		const cJSON *pi = cJSON_GetObjectItemCaseSensitive(document, "pi");
+
+		if (!cJSON_IsObject(pi) || !copy_pi_version(string_member(pi, "version"), job->pi_version) ||
+		    !parse_sha256(string_member(pi, "sha256"), job->sha256)) {
+			return OTA_JOB_BAD_DOCUMENT;
+		}
+		job->pi_delta = true;
+		return split_url(string_member(pi, "url"), allowed_url_prefix, job);
+	}
+#endif
 
 	if (operation == NULL || strcmp(operation, "fw_update") != 0 ||
 	    !integer_member(document, "v", 1, 1, &document_version)) {

@@ -49,6 +49,22 @@ if(SB_CONFIG_BOARD_NRF5340DK AND NOT SB_CONFIG_APP_BT_OTA)
   message(FATAL_ERROR "The nRF5340 DK has Bluetooth only: it cannot be built with no_bt_sysbuild.conf")
 endif()
 
+# From 1.20.0: Raspberry Pi delta updates (docs/pi-delta-update.md). Only with Wi-Fi and the cloud, and
+# not with Bluetooth, which the RAM does not hold as well.
+if(SB_CONFIG_APP_PI_DELTA)
+  if(SB_CONFIG_BOARD_NRF5340DK)
+    message(FATAL_ERROR "The nRF5340 DK has no cloud, so no Pi job reaches it: "
+                        "it cannot be built with pi_delta_sysbuild.conf")
+  endif()
+  if(SB_CONFIG_APP_BT_OTA)
+    message(FATAL_ERROR "SB_CONFIG_APP_PI_DELTA and SB_CONFIG_APP_BT_OTA do not fit the RAM together: "
+                        "use pi_delta_sysbuild.conf, which turns Bluetooth off")
+  endif()
+  add_overlay_config(${DEFAULT_IMAGE} "${CMAKE_CURRENT_LIST_DIR}/pi_delta.conf")
+  set(${DEFAULT_IMAGE}_EXTRA_DTC_OVERLAY_FILE "${CMAKE_CURRENT_LIST_DIR}/boards/pi_delta.overlay"
+      CACHE INTERNAL "The SD card on SPIM2; the Pi's link is the board overlay's SPIS3")
+endif()
+
 # Firmware update over Bluetooth LE, off unless bt_ota_sysbuild.conf is given.
 if(SB_CONFIG_APP_BT_OTA)
   if(NOT SB_CONFIG_NETCORE_HCI_IPC)

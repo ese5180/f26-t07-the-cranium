@@ -16,7 +16,7 @@ BUILD := build
 CC ?= cc
 SANITIZE := -fsanitize=address,undefined -fno-sanitize-recover=undefined
 # The firmware's sources are in folders under src/, each on the include path, as in its CMakeLists.txt.
-SRC_DIRS := $(SRC) $(addprefix $(SRC)/,bt bt_only cloud mflt ota policy)
+SRC_DIRS := $(SRC) $(addprefix $(SRC)/,bt bt_only cloud mflt ota pi policy)
 CFLAGS := -std=c11 -O1 -g $(SANITIZE) $(addprefix -I,$(SRC_DIRS)) -Istubs -I$(CJSON_DIR)
 WARNINGS := -Wall -Wextra -Werror
 
@@ -41,7 +41,9 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests \
+		$(BUILD)/pi_delta_tests $(BUILD)/pi_delta_harness $(BUILD)/ota_pi_tests \
+		$(BUILD)/pi_rx_tests $(BUILD)/pi_rx_delta_tests $(BUILD)/app_pi_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -81,6 +83,11 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/console_bt_only_tests
 	./$(BUILD)/bt_only_leds_tests
 	./$(BUILD)/sessions_tests
+	./$(BUILD)/pi_delta_tests
+	./$(BUILD)/ota_pi_tests
+	./$(BUILD)/pi_rx_tests
+	./$(BUILD)/pi_rx_delta_tests
+	./$(BUILD)/app_pi_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -95,6 +102,44 @@ $(BUILD)/base64.o: $(ZEPHYR_BASE)/lib/utils/base64.c
 $(BUILD)/sessions_tests: test_sessions.c $(SRC)/cloud/sessions.c $(SRC)/cloud/sessions.h $(SRC)/cloud/cloud.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_sessions.c $(SRC)/cloud/sessions.c
+
+# From 1.20.0, Raspberry Pi delta updates (src/pi/, docs/pi-delta-update.md): the manifest and the card's
+# formats, the update against a card in memory that loses power at every write in turn, is pulled out or
+# fails, and a server that drops the connection or sends wrong bytes; every request of the Pi's link, the
+# malformed ones too; and the "pi_delta" job document, with CONFIG_APP_PI_DELTA as a Pi build has it.
+PI_DELTA_SOURCES := $(SRC)/pi/pi_frame.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_sha256.c $(SRC)/pi/pi_delta_fmt.c \
+	$(SRC)/pi/pi_card.c $(SRC)/pi/pi_delta.c $(SRC)/pi/pi_dlink.c $(SRC)/pi/pi_http.c
+PI_DELTA_HEADERS := $(wildcard $(SRC)/pi/*.h) pi_delta_fakes.h
+$(BUILD)/pi_delta_tests: test_pi_delta.c pi_delta_fakes.c $(PI_DELTA_SOURCES) $(PI_DELTA_HEADERS) \
+		$(SRC)/ota/ota_job.c $(SRC)/ota/ota_job.h $(SRC)/ota/version.c $(BUILD)/cJSON.o
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_PI_DELTA=1 -o $@ test_pi_delta.c pi_delta_fakes.c \
+		$(PI_DELTA_SOURCES) $(SRC)/ota/ota_job.c $(SRC)/ota/version.c $(BUILD)/cJSON.o -lm
+
+# The Pi message link's receiver (src/pi/pi_rx.c, docs/pi-link.md), as every build without Pi delta updates has
+# it, and with them, where their requests go to pi_dlink.c and everything else stays as it was.
+$(BUILD)/pi_rx_tests: test_pi_rx.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_frame.c $(SRC)/pi/pi_rx.h $(SRC)/pi/pi_frame.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_pi_rx.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_frame.c
+$(BUILD)/pi_rx_delta_tests: test_pi_rx.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_frame.c $(SRC)/pi/pi_rx.h $(SRC)/pi/pi_frame.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_PI_DELTA=1 -o $@ test_pi_rx.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_frame.c
+
+# The same code as a program for firmware/tests/hil/test_pi_delta.py: it runs an update from a package that
+# tools/pi_image.py built and signed (checked with MCUboot's own ECDSA, tinycrypt, against the key it is
+# given), onto a card image in a file, and then answers the Pi's frames on stdin and stdout, which
+# tools/pi_delta_sim.py sends as the Pi would.
+TINYCRYPT := $(ZEPHYR_BASE)/../bootloader/mcuboot/ext/tinycrypt/lib
+TINYCRYPT_SOURCES := $(TINYCRYPT)/source/ecc.c $(TINYCRYPT)/source/ecc_dsa.c $(TINYCRYPT)/source/sha256.c \
+	$(TINYCRYPT)/source/utils.c
+TINYCRYPT_OBJECTS := $(patsubst $(TINYCRYPT)/source/%.c,$(BUILD)/tinycrypt/%.o,$(TINYCRYPT_SOURCES))
+$(BUILD)/tinycrypt/%.o: $(TINYCRYPT)/source/%.c
+	@mkdir -p $(BUILD)/tinycrypt
+	$(CC) $(CFLAGS) -I$(TINYCRYPT)/include -c -o $@ $<
+$(BUILD)/pi_delta_harness: pi_delta_harness.c pi_delta_fakes.c $(PI_DELTA_SOURCES) $(PI_DELTA_HEADERS) $(TINYCRYPT_OBJECTS)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_PI_DELTA=1 -I$(TINYCRYPT)/include -o $@ pi_delta_harness.c \
+		pi_delta_fakes.c $(PI_DELTA_SOURCES) $(TINYCRYPT_OBJECTS)
 
 $(BUILD)/host_tests: test_main.c $(SRC)/ota/ota_job.c $(SRC)/ota/ota_outcome.c $(SRC)/ota/version.c $(BUILD)/cJSON.o
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ $^ -lm
@@ -114,6 +159,14 @@ $(BUILD)/app_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/s
 		$(CONSOLE_HEADERS)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) -o $@ test_app.c $(SRC)/policy/stuck_policy.c $(SRC)/policy/join_policy.c
+
+# main.c in a Pi build (CONFIG_APP_PI_DELTA, from 1.20.0): the heartbeat carries the SD card after its
+# uptime, against a fake of pi_delta_ota_report(), and goes without it when the card cannot be read.
+$(BUILD)/app_pi_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/stuck.c $(SRC)/policy/stuck_policy.c $(SRC)/policy/join_policy.c \
+		$(CONSOLE_HEADERS) $(PI_DELTA_HEADERS) $(BUILD)/cJSON.o
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) -DCONFIG_APP_PI_DELTA=1 -o $@ test_app.c $(SRC)/policy/stuck_policy.c \
+		$(SRC)/policy/join_policy.c $(BUILD)/cJSON.o -lm
 
 # cloud.c, included by its test to get at the AWS IoT library's callback and the connection's work,
 # against a fake of that library: what the console's MQTT command counts, and the topics it lists.
@@ -257,6 +310,11 @@ $(BUILD)/ota_bt_tests: $(OTA_DEPS)
 $(BUILD)/ota_bt_no_consent_tests: $(OTA_DEPS)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -DTEST_NO_CONSENT=1 -o $@ $(OTA_SOURCES)
+
+# From 1.20.0, a Pi build (CONFIG_APP_PI_DELTA): which jobs ota.c hands to the Pi side, against a fake of it.
+$(BUILD)/ota_pi_tests: $(OTA_DEPS)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -DTEST_NO_CONSENT=1 -DCONFIG_APP_PI_DELTA=1 -o $@ $(OTA_SOURCES)
 
 $(BUILD)/ota_bt_no_confirm_tests: $(OTA_DEPS)
 	@mkdir -p $(BUILD)
