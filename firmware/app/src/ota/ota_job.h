@@ -21,6 +21,17 @@
  * 130 bytes of sysbuild/mcuboot/golden/src/golden_record.h in lower-case hex:
  *
  *   { "op": "golden_promote", "v": 1, "record": "<260 hex digits>" }
+ *
+ * or, from 1.20.0 in a build for a board wired to a Raspberry Pi (CONFIG_APP_PI_DELTA), a delta
+ * update of the Pi's image (docs/pi-delta-update.md, src/pi/pi_delta_ota.c). The URL is the
+ * package that tools/pi_image.py builds: the signed manifest, its table and the image, which the
+ * board fetches in ranges. Version and digest have to match what the signed manifest says:
+ *
+ *   { "op": "pi_delta", "v": 1,
+ *     "pi": { "version": "2026.11.24-1", "sha256": "<64 hex digits: the whole image>",
+ *             "url": "https://<host>/<path>?<query>" } }
+ *
+ * Any other build answers that "op" as unsupported, as it always has an "op" it does not know.
  */
 
 #ifndef OTA_JOB_H_
@@ -40,6 +51,8 @@
 #define OTA_JOB_FILE_MAX 2047
 /* GOLDEN_RECORD_SIZE: golden_promote.c checks that they agree. */
 #define OTA_GOLDEN_RECORD_SIZE 130
+/* A Pi image's version: 1 to 31 of A-Z a-z 0-9 . _ + - (PI_VERSION_MAX in src/pi/pi_delta_fmt.h). */
+#define OTA_PI_VERSION_MAX 31
 
 struct ota_job {
 	char id[OTA_JOB_ID_MAX + 1];
@@ -52,6 +65,14 @@ struct ota_job {
 	char host[OTA_JOB_HOST_MAX + 1];
 	/* A golden image promotion: only id, in_progress and golden_record are valid. */
 	bool golden;
+#if defined(CONFIG_APP_PI_DELTA)
+	/*
+	 * A Raspberry Pi delta update: id, in_progress, sha256 (the image's), host, file and
+	 * pi_version are valid. Only in a Pi build, so that no other build keeps it in RAM.
+	 */
+	bool pi_delta;
+	char pi_version[OTA_PI_VERSION_MAX + 1];
+#endif
 	/* A promotion has no download, so its record takes the place of the URL's path: no RAM more. */
 	union {
 		/* Everything after the slash that follows the host name. */
