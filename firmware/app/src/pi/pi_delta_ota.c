@@ -565,6 +565,10 @@ int pi_delta_ota_report(char *buf, size_t len)
 {
 	int written;
 
+	/* pi_delta_ota_init() has not run (ota_init() stopped first): nothing to report. */
+	if (delta.card == NULL) {
+		return -ENODEV;
+	}
 	/*
 	 * The card's state, its version and generation, change under its lock, on the update's thread
 	 * and the link's queue. A card that keeps it longer than REPORT_LOCK_MS (one that fails, in the
