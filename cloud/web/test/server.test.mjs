@@ -119,6 +119,22 @@ test('the page may talk to itself, the login pages and the user pool API, and to
   assert.match(policy, /(^|; )form-action 'none'(;|$)/);
 });
 
+test('with the firmware bucket for Pi image packages, the console may send to its origin, and the customer site may not', async () => {
+  const BUCKET = 'https://bucket-1.s3.region-1.cloud.test';
+  const customer = { hosts: ['customer.test'], userPoolId: 'xx-test-1_Customers1', clientId: 'customer-client' };
+  const serving = quiet({ ...SETTINGS, customer, uploadOrigin: BUCKET });
+  const connect = (response) =>
+    response.headers['content-security-policy'].split('; ').find((directive) => directive.startsWith('connect-src '));
+  assert.deepEqual(
+    connect(await serving(request('/')))
+      .split(' ')
+      .slice(1),
+    ["'self'", LOGIN, USER_POOL_API, BUCKET]
+  );
+  assert.equal(connect(await serving(request('/', { domainName: 'customer.test' }))).includes(BUCKET), false);
+  assert.throws(() => createWebHandler({ ...SETTINGS, uploadOrigin: 'https://bucket/<x>' }), /uploadOrigin/);
+});
+
 test("with the live API, both sites' pages are told where it is, and may talk to its origin and no more of it", async () => {
   const LIVE = 'wss://f6e5d4c3b2.execute-api.region-1.cloud.test/live';
   const customer = { hosts: ['customer.test'], userPoolId: 'xx-test-1_Customers1', clientId: 'customer-client' };

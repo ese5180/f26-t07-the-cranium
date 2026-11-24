@@ -64,6 +64,8 @@ import {
   uploadInHand,
   versionOfDeployment,
 } from './core.js';
+// Raspberry Pi images (console 2.29.0): the package's header, read before it is sent; boards that take one.
+import { PI_HEADER_SIZE, piUnderWay, readPiHeader, takesPiImage } from './core.js';
 import {
   accountView,
   activityView,
@@ -79,6 +81,8 @@ import {
   navView,
   notesDialog,
   goldenDialog,
+  piCancelDialog,
+  piDeployDialog,
   overviewView,
   render,
   revokeDialog,
@@ -99,6 +103,8 @@ import { COMMAND_ANSWER_MS, IDENTIFY_SECONDS, commandAnswer } from './core.js';
 // refreshed when nothing is being installed, so that they do not go stale. Deployments
 // are not: they follow pollInterval() alone.
 const IDLE_REFRESH_MS = 30000;
+// The Firmware page while a Pi deployment is under way: a board reports its progress every 30 s.
+const PI_ACTIVE_REFRESH_MS = 15000;
 const REDRAW_MS = 15000;
 // Pressing twice on what opens a dialog is one wish. The second press lands on the backdrop.
 const DOUBLE_CLICK_MS = 350;
@@ -153,6 +159,18 @@ const state = {
   deviceDetails: new Map(),
   deploymentDetails: new Map(),
   upload: { stage: 'idle', over: false },
+  // Raspberry Pi images (console 2.29.0): GET /api/pi-images, and the package being sent from this tab.
+  pi: resource(),
+  piUpload: {
+    stage: 'idle',
+    file: null,
+    header: null,
+    headerBytes: null,
+    notes: '',
+    sent: 0,
+    error: null,
+    image: null,
+  },
   // The map, commands and alerts (docs/fleet.md): each board's last positions, by thing; the last
   // command sent to each board from this tab and what became of it; the caller's own e-mail alerts.
   positions: new Map(),
@@ -613,15 +631,18 @@ const pages = {
     title: 'Firmware',
     view: firmwareView,
     resources: () => [state.firmware],
-    refresh: () =>
+    refresh: (full) =>
       Promise.all([
         load(state.firmware, api.firmware),
         // Whether the release that was just uploaded has been deployed since.
         state.upload.stage === 'done' ? load(state.deployments, api.deployments) : null,
+        // The Raspberry Pi images and their deployments, and which boards report a Pi (console 2.29.0).
+        load(state.pi, api.piImages),
+        full || state.devices.loadedAt === 0 ? load(state.devices, api.devices) : null,
       ]),
-    interval: () => IDLE_REFRESH_MS,
+    interval: () => ((state.pi.value?.deployments ?? []).some(piUnderWay) ? PI_ACTIVE_REFRESH_MS : IDLE_REFRESH_MS),
     // A release that changes under an open dialog or a file in hand can wait for a moment.
-    holdStill: () => dialogOpen() || uploadInHand(state.upload.stage),
+    holdStill: () => dialogOpen() || uploadInHand(state.upload.stage) || PI_SENDING.has(state.piUpload.stage),
   },
   deployments: {
     title: 'Deployments',
@@ -2390,6 +2411,188 @@ function openGolden(release) {
   self = openDialog(() => goldenDialog(model, { state, actions }));
 }
 
+// Raspberry Pi images (console 2.29.0, docs/pi-delta-update.md): a package goes from this tab straight to S3, with
+// a URL the console gives only once its header's signature holds; then the console checks what arrived.
+
+const PI_SENDING = new Set(['reading', 'describing', 'sending', 'verifying']);
+
+function piFileProblem(message) {
+  return new ApiError(400, 'bad_file', message);
+}
+
+async function choosePiFile(file) {
+  const upload = state.piUpload;
+  if (!state.me.canWrite || PI_SENDING.has(upload.stage)) return;
+  Object.assign(upload, {
+    stage: 'idle',
+    file: null,
+    header: null,
+    headerBytes: null,
+    error: null,
+    image: null,
+    sent: 0,
+  });
+  if (!file) {
+    draw();
+    return;
+  }
+  upload.stage = 'reading';
+  draw();
+  try {
+    const bytes = new Uint8Array(await file.slice(0, PI_HEADER_SIZE).arrayBuffer());
+    let header;
+    try {
+      header = readPiHeader(bytes);
+    } catch (error) {
+      throw piFileProblem(error.message);
+    }
+    if (header.packageSize !== file.size) {
+      throw piFileProblem(
+        `This file is ${file.size} bytes, and its header says the package is ${header.packageSize}. Choose the whole .cpd file.`
+      );
+    }
+    const most = state.pi.value?.maxPackageSize ?? null;
+    if (most !== null && file.size > most) {
+      throw piFileProblem(`This package is larger than one upload takes (${most} bytes).`);
+    }
+    Object.assign(upload, { stage: 'idle', file, header, headerBytes: bytes });
+  } catch (error) {
+    Object.assign(upload, { stage: 'failed', error: asProblem(error) });
+  }
+  draw();
+}
+
+function setPiNotes(text) {
+  state.piUpload.notes = String(text ?? '').slice(0, 500);
+}
+
+async function uploadPi() {
+  const upload = state.piUpload;
+  if (!state.me.canWrite || !upload.file || !upload.header || PI_SENDING.has(upload.stage)) return;
+  upload.error = null;
+  upload.image = null;
+  try {
+    upload.stage = 'describing';
+    draw();
+    const described = await api.describePiImage({ header: upload.headerBytes, notes: upload.notes.trim() });
+    upload.stage = 'sending';
+    upload.sent = 0;
+    draw();
+    let shown = 0;
+    await api.sendPiPackage(described.upload, upload.file, (sent) => {
+      upload.sent = sent;
+      // Drawn once a percent, not on every event.
+      if (Math.floor(sent * 100) !== shown) {
+        shown = Math.floor(sent * 100);
+        draw();
+      }
+    });
+    upload.stage = 'verifying';
+    draw();
+    upload.image = await api.verifyPiImage(upload.header.version);
+    upload.stage = 'done';
+    notify(`The Pi image ${upload.header.version} is checked and can be deployed.`);
+  } catch (error) {
+    upload.stage = 'failed';
+    upload.error = asProblem(error);
+  }
+  await load(state.pi, api.piImages);
+}
+
+function openPiDeploy(image) {
+  if (!state.me.canWrite || dialogOpen() || !image) return;
+  let self = null;
+  const boards = () => (state.devices.value?.devices ?? []).filter((device) => device.pi);
+  const model = {
+    image,
+    get boards() {
+      return boards();
+    },
+    // Every board that can take it, ticked; from the first change by hand on, the choice is the user's.
+    chosen: new Set(
+      boards()
+        .filter(takesPiImage)
+        .map((device) => device.thing)
+    ),
+    estimates: null,
+    estimateError: null,
+    note: '',
+    sending: false,
+    error: null,
+    close: () => self.close(),
+    signIn: beginSignIn,
+    toggle(thing) {
+      if (model.chosen.has(thing)) model.chosen.delete(thing);
+      else model.chosen.add(thing);
+      model.error = null;
+      self.redraw();
+    },
+    setNote(text) {
+      model.note = String(text ?? '').slice(0, 200);
+      self.redraw();
+    },
+    submit: () =>
+      submitFrom(self, model, async () => {
+        const things = model.boards
+          .filter((device) => model.chosen.has(device.thing) && takesPiImage(device))
+          .map((device) => device.thing);
+        await api.deployPiImage({ version: image.version, things, note: model.note.trim() });
+        self.close(true);
+        notify(
+          `The Pi image ${image.version} goes to ${things.length === 1 ? '1 board' : `${things.length} boards`}. ` +
+            'Each one’s progress is under Pi deployments.'
+        );
+        await load(state.pi, api.piImages);
+      }),
+  };
+  self = openDialog(() => piDeployDialog(model));
+  if (state.devices.loadedAt === 0) {
+    load(state.devices, api.devices).then(() => {
+      for (const device of boards().filter(takesPiImage)) model.chosen.add(device.thing);
+      if (self.isOpen()) self.redraw();
+    });
+  }
+  api.piEstimate(image.version).then(
+    (estimates) => {
+      model.estimates = new Map(estimates.map((estimate) => [estimate.thing, estimate]));
+      if (self.isOpen()) self.redraw();
+    },
+    (error) => {
+      model.estimateError = asProblem(error);
+      if (self.isOpen()) self.redraw();
+    }
+  );
+}
+
+function openPiCancel(deployment) {
+  if (!state.me.canWrite || dialogOpen() || !deployment) return;
+  let self = null;
+  const model = {
+    deployment,
+    force: false,
+    sending: false,
+    error: null,
+    close: () => self.close(),
+    signIn: beginSignIn,
+    setForce(force) {
+      model.force = force;
+      self.redraw();
+    },
+    submit: (force) =>
+      submitFrom(self, model, async () => {
+        await api.cancelPiDeployment(deployment.id, force);
+        self.close(true);
+        notify(
+          force
+            ? 'The Pi deployment is cancelled; boards at work stop at their next piece and keep what they wrote.'
+            : 'The Pi deployment is cancelled; boards at work carry on.'
+        );
+        await load(state.pi, api.piImages);
+      }),
+  };
+  self = openDialog(() => piCancelDialog(model));
+}
+
 // API tokens. A new token is shown once, in the dialog that made it, and is gone with
 // the dialog: nothing else on the page ever holds it.
 
@@ -2762,6 +2965,13 @@ const actions = {
   },
   openNotes,
   openGolden,
+  // Raspberry Pi images (console 2.29.0).
+  choosePiFile,
+  setPiNotes,
+  uploadPi,
+  openPiDeploy,
+  openPiCancel,
+  signIn: beginSignIn,
   redraw: draw,
   signOut: () => auth.signOut(),
   toggleMore: () => showMore(!state.moreOpen),

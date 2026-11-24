@@ -45,6 +45,7 @@ wifi_secrets.h
 !/firmware/certs/AmazonRootCA1.pem
 !/cloud/api/test/fixtures/other_signing_pub.pem
 !/cloud/api/test/fixtures/test_signing_pub.pem
+!/cloud/api/test/fixtures/pi_test_signing_pub.pem
 
 # Account-specific deployment output and local environment files
 /cloud/.deploy/

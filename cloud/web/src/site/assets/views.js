@@ -87,6 +87,8 @@ import { canCommand, distanceWords, positionSteps, unplacedReason } from './core
 import { describeOutcome, updateHow, updateSummary, updateTime, updateTotals } from './core.js';
 // Golden image promotion (console 2.27.7): which releases can become golden.
 import { takesGolden } from './core.js';
+// Raspberry Pi images (console 2.29.0): boards with a Pi, the packages, their deployments.
+import { PI_CARD_WORDS, piCardWords, piEstimateWords, piProgressWords, piUnderWay, takesPiImage } from './core.js';
 // Search and filters of the long lists (docs/search-filters.md).
 import {
   ACTIVITY_KINDS,
@@ -3921,7 +3923,21 @@ function deviceFacts(device, ctx, { offer = openOffer(device, ctx), withScale = 
     ['Uptime', uptimeFact(device)],
     // From firmware 1.19.3 (firmware/README.md, "Golden image"): only for a board that reports it.
     device.golden ? ['Golden image', goldenFact(device.golden)] : null,
+    // From firmware 1.20.0 built with --pi (docs/pi-delta-update.md): only for a board that reports its Pi's card.
+    device.pi ? ['Raspberry Pi', piFact(device.pi)] : null,
   ]);
+}
+
+/** A board's Raspberry Pi: the state of the SD card that holds the Pi's image, and which image. */
+export function piFact(pi) {
+  return h(
+    'span',
+    { class: 'pi-fact' },
+    PI_CARD_WORDS[pi.card] ?? pi.card,
+    pi.version ? [', ', mono(pi.version)] : null,
+    pi.generation > 0 ? h('span', { class: 'quiet' }, ` (generation ${pi.generation})`) : null,
+    pi.card === 'updating' && pi.total > 0 ? factNote(`${pi.done} of ${plural(pi.total, 'block')} written`) : null
+  );
 }
 
 // What a board's bootloader said of the last promotion record it was given.
@@ -4194,6 +4210,10 @@ export function devicesView(ctx) {
                 h('h2', { class: 'device-name' }, boardLabel(device, 'cover-link'), icon('arrow-right', 'is-small')),
                 boardName(device) === device.thing ? null : h('p', { class: 'device-thing' }, boardThing(device)),
                 ctx.fleet?.boardTags(device, ctx) ?? null,
+                // A board wired to a Raspberry Pi, as a firmware built with --pi reports (console 2.29.0).
+                device.pi
+                  ? h('p', { class: 'device-pi' }, badge('info', 'chip', 'Raspberry Pi', piCardWords(device.pi)))
+                  : null,
                 seenInRow(device, state.now, viaPhone),
                 device.lastSeen || device.online || viaPhone
                   ? null
@@ -5365,6 +5385,303 @@ function releaseRow(release, ctx) {
   );
 }
 
+// Raspberry Pi images (console 2.29.0, docs/pi-delta-update.md): for boards wired to a Pi. A board built with
+// --pi, from firmware 1.20.0, keeps the Pi's image on an SD card and downloads only the blocks that changed.
+
+const PI_UPLOAD_STEPS = Object.freeze({
+  reading: 'Reading the header',
+  describing: 'Checking the signature',
+  sending: 'Sending the package to S3',
+  verifying: 'Checking what arrived',
+});
+
+function piUploadPanel(ctx) {
+  const { state, actions } = ctx;
+  if (!state.me.canWrite) return null;
+  // The apps' pages may talk to the console only: the package goes to S3 from the website.
+  if (state.app) {
+    return h(
+      'p',
+      { class: 'row-note pi-upload is-app', key: 'pi-upload' },
+      'A Pi image package is sent from the console’s website. ',
+      onTheWebsite(ctx, 'firmware', 'Upload on the website')
+    );
+  }
+  const upload = state.piUpload;
+  const busy = Object.hasOwn(PI_UPLOAD_STEPS, upload.stage);
+  const header = upload.header;
+  return card(
+    { key: 'pi-upload', className: 'pi-upload' },
+    h(
+      'form',
+      {
+        class: 'pi-upload-form',
+        onSubmit: (event) => {
+          event.preventDefault();
+          if (!busy && header) actions.uploadPi();
+        },
+      },
+      h(
+        'label',
+        { class: 'field' },
+        h('span', { class: 'field-label' }, 'Pi image package (.cpd, from tools/pi_image.py package)'),
+        h('input', {
+          type: 'file',
+          class: 'input',
+          accept: '.cpd,application/octet-stream',
+          disabled: busy,
+          onChange: (event) => actions.choosePiFile(event.target.files?.[0] ?? null),
+        })
+      ),
+      header
+        ? h(
+            'p',
+            { class: 'row-note dotted' },
+            h('span', null, mono(header.version)),
+            h('span', null, `${fileSize(header.imageSize)} image`),
+            h('span', null, `${plural(header.blocks, 'block')} of ${fileSize(header.blockSize)}`)
+          )
+        : null,
+      h(
+        'label',
+        { class: 'field' },
+        h('span', { class: 'field-label' }, 'Note (optional)'),
+        h('input', {
+          type: 'text',
+          class: 'input',
+          maxlength: '500',
+          value: upload.notes,
+          disabled: busy,
+          onInput: (event) => actions.setPiNotes(event.target.value),
+        })
+      ),
+      busy
+        ? h(
+            'div',
+            { class: 'pi-upload-progress', role: 'status' },
+            h(
+              'p',
+              null,
+              PI_UPLOAD_STEPS[upload.stage],
+              upload.stage === 'sending' ? ` (${Math.floor(upload.sent * 100)} %)` : '…'
+            ),
+            upload.stage === 'sending' ? meter(Math.floor(upload.sent * 100), 'Sent to S3') : null
+          )
+        : null,
+      upload.stage === 'done' && upload.image
+        ? h(
+            'p',
+            { class: 'row-note', role: 'status' },
+            icon('check-circle', 'is-small'),
+            ' ',
+            mono(upload.image.version),
+            ' is checked and can be deployed.'
+          )
+        : null,
+      upload.error ? failure('The package was not taken.', upload.error, null, actions.signIn) : null,
+      h(
+        'button',
+        { type: 'submit', class: 'ui-btn btn is-primary', disabled: busy || !header },
+        icon('upload'),
+        busy ? 'Uploading…' : 'Upload and check'
+      )
+    )
+  );
+}
+
+function piImageRow(image, ctx) {
+  const { now, me } = ctx.state;
+  const deployable = me.canWrite && image.status === 'active' && typeof ctx.actions.openPiDeploy === 'function';
+  return h(
+    'li',
+    {
+      key: `pi:${image.version}`,
+      class: `row release pi-image ${image.status === 'refused' ? 'is-revoked' : ''}`.trim(),
+    },
+    h(
+      'div',
+      { class: 'release-main' },
+      h(
+        'div',
+        { class: 'release-story' },
+        h(
+          'div',
+          { class: 'release-title' },
+          mono(image.version, 'release-version'),
+          badge('info', 'chip', 'Pi image', 'A Raspberry Pi image, for boards built with --pi'),
+          image.status === 'uploading'
+            ? badge('warn', 'hourglass', 'Not checked yet', 'Its package has not arrived, or was not checked yet')
+            : null,
+          image.status === 'refused' ? badge('bad', 'ban', 'Refused', image.refusedReason) : null
+        ),
+        image.notes ? h('p', { class: 'release-notes is-clamped', title: image.notes }, image.notes) : null,
+        image.status === 'refused'
+          ? h('p', { class: 'release-revoked' }, icon('ban', 'is-small'), image.refusedReason)
+          : null,
+        image.status === 'uploading' && me.canWrite
+          ? h('p', { class: 'row-note' }, 'Choose its package above again to send it and have it checked.')
+          : null
+      ),
+      h(
+        'div',
+        { class: 'release-numbers' },
+        h(
+          'p',
+          { class: 'row-note dotted' },
+          h('span', null, `${fileSize(image.imageSize)} image`),
+          h('span', null, `${plural(image.blocks ?? 0, 'block')} of ${fileSize(image.blockSize)}`),
+          h('span', null, 'Uploaded ', when(image.uploadedAt, now), ' by ', who(image.uploadedBy))
+        ),
+        image.sha256
+          ? h('p', { class: 'row-note digest-row' }, 'Image SHA-256 ', mono(`${image.sha256.slice(0, 16)}…`))
+          : null
+      )
+    ),
+    deployable
+      ? h(
+          'div',
+          { class: 'release-actions' },
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'ui-btn btn is-small',
+              'aria-label': `Deploy the Pi image ${image.version}`,
+              onClick: () => ctx.actions.openPiDeploy(image),
+            },
+            icon('send'),
+            'Deploy'
+          )
+        )
+      : null
+  );
+}
+
+function piDeploymentRow(deployment, ctx) {
+  const { now, me } = ctx.state;
+  const devices = ctx.state.devices.value?.devices ?? [];
+  const underWay = piUnderWay(deployment);
+  const cancellable = me.canWrite && underWay && typeof ctx.actions.openPiCancel === 'function';
+  return h(
+    'li',
+    { key: deployment.id, class: 'row release pi-deployment' },
+    h(
+      'div',
+      { class: 'release-main' },
+      h(
+        'div',
+        { class: 'release-story' },
+        h(
+          'div',
+          { class: 'release-title' },
+          mono(deployment.version, 'release-version'),
+          badge('info', 'chip', 'Pi image'),
+          underWay ? badge('warn', 'hourglass', 'Under way') : badge('idle', 'check', 'Over')
+        ),
+        deployment.note ? h('p', { class: 'release-notes' }, deployment.note) : null,
+        h(
+          'ul',
+          { class: 'plain-list pi-boards', 'aria-label': 'Each board' },
+          deployment.executions.length === 0
+            ? h('li', { class: 'quiet' }, 'Waiting for AWS IoT to offer it to the boards')
+            : deployment.executions.map((row) =>
+                h(
+                  'li',
+                  { key: row.thing, class: 'pi-board' },
+                  h(
+                    'span',
+                    { class: 'pi-board-name' },
+                    boardLabel(devices.find((device) => device.thing === row.thing) ?? { thing: row.thing })
+                  ),
+                  h('span', { class: 'pi-board-words' }, piProgressWords(row)),
+                  row.status === 'IN_PROGRESS' && row.step === 'blocks' && row.progress !== null
+                    ? meter(row.progress, `Changed blocks downloaded by ${row.thing}`)
+                    : null
+                )
+              )
+        )
+      ),
+      h(
+        'div',
+        { class: 'release-numbers' },
+        h(
+          'p',
+          { class: 'row-note dotted' },
+          h('span', null, 'Started ', when(deployment.createdAt, now)),
+          deployment.createdBy ? h('span', null, 'by ', who(deployment.createdBy)) : null
+        ),
+        h('p', { class: 'row-note digest-row' }, mono(deployment.id))
+      )
+    ),
+    cancellable
+      ? h(
+          'div',
+          { class: 'release-actions' },
+          button('is-small is-danger-quiet', () => ctx.actions.openPiCancel(deployment), icon('stop'), 'Cancel')
+        )
+      : null
+  );
+}
+
+/** The Firmware page's part for boards wired to a Raspberry Pi. */
+export function piSection(ctx) {
+  const { state } = ctx;
+  const pi = state.pi.value;
+  const devices = state.devices.value?.devices ?? [];
+  const withPi = devices.filter((device) => device.pi);
+  const able = withPi.filter(takesPiImage);
+  let images;
+  if (!pi) images = pending(state.pi, 'the Pi images');
+  else if (pi.images.length === 0) {
+    images = card(
+      { key: 'pi-none' },
+      empty({
+        iconName: 'chip',
+        title: 'No Raspberry Pi image has been uploaded yet.',
+        text: 'Package an image with tools/pi_image.py package, then upload the .cpd file here.',
+      })
+    );
+  } else {
+    images = card(
+      { key: 'pi-images', className: 'is-flush' },
+      h(
+        'ul',
+        { class: 'rows' },
+        pi.images.map((image) => piImageRow(image, ctx))
+      )
+    );
+  }
+  const deployments = pi?.deployments ?? [];
+  return [
+    h('h2', { class: 'section-title', key: 'pi-title', id: 'pi-images' }, 'Raspberry Pi images'),
+    h(
+      'p',
+      { class: 'card-lede', key: 'pi-lede' },
+      'For boards wired to a Raspberry Pi. A board built with ',
+      mono('--pi', 'pi-option'),
+      `, from firmware ${pi?.firstFirmware ?? '1.20.0'}, keeps the Pi’s image on an SD card and downloads only the ` +
+        'blocks that changed. ',
+      withPi.length === 0
+        ? 'No board reports a Pi yet.'
+        : `${plural(withPi.length, 'board')} with a Pi, ${able.length} of them able to take an image now.`
+    ),
+    loadProblem(state.pi, 'the Pi images', ctx),
+    piUploadPanel(ctx),
+    images,
+    deployments.length > 0 ? h('h3', { class: 'section-title', key: 'pi-deploy-title' }, 'Pi deployments') : null,
+    deployments.length > 0
+      ? card(
+          { key: 'pi-deployments', className: 'is-flush' },
+          h(
+            'ul',
+            { class: 'rows' },
+            deployments.map((deployment) => piDeploymentRow(deployment, ctx))
+          )
+        )
+      : null,
+  ];
+}
+
 export function firmwareView(ctx) {
   const { state } = ctx;
   const firmware = state.firmware.value;
@@ -5458,7 +5775,9 @@ export function firmwareView(ctx) {
     timeline,
     canWrite ? null : h('section', { class: 'ui-card card upload is-readonly', key: 'upload' }, trustPanel(ctx)),
     h('h2', { class: 'section-title', key: 'title' }, 'Releases'),
-    releases
+    releases,
+    // Raspberry Pi images (console 2.29.0): on a console that has the state for them.
+    state.pi ? piSection(ctx) : null
   );
 }
 
@@ -7582,6 +7901,151 @@ export function goldenDialog(model) {
     body,
     error: model.error ? failure('That did not work.', model.error, null, model.signIn) : null,
     foot: [dialogButton({ key: 'cancel', disabled: model.sending, onClick: model.close }, 'Cancel'), SPACER(), foot],
+  });
+}
+
+// Raspberry Pi images (console 2.29.0): deploying one to boards with a Pi, and cancelling such a deployment.
+
+export function piDeployDialog(model) {
+  const { image } = model;
+  const chosen = model.boards.filter((device) => model.chosen.has(device.thing));
+  const boardChoice = (device) => {
+    const able = takesPiImage(device);
+    const estimate = model.estimates?.get(device.thing) ?? null;
+    let note;
+    if (!able) {
+      note = `Needs firmware 1.20.0 or later built with --pi; runs ${device.fw?.version ?? 'an unknown version'}.`;
+    } else if (model.estimateError) {
+      note = 'What it would download could not be worked out.';
+    } else if (model.estimates === null) {
+      note = 'Working out what it would download…';
+    } else {
+      note = estimate ? piEstimateWords(estimate) : 'Not in the estimate: it may have stopped reporting its Pi.';
+    }
+    return choice(
+      {
+        key: device.thing,
+        type: 'checkbox',
+        name: 'board',
+        checked: able && model.chosen.has(device.thing),
+        disabled: !able || model.sending,
+        onChange: () => model.toggle(device.thing),
+      },
+      [device.label ?? device.name ?? device.thing, ' · ', piCardWords(device.pi)],
+      h('span', { class: 'choice-note' }, note)
+    );
+  };
+  return dialogFrame({
+    title: ['Deploy the Pi image ', mono(image.version)],
+    busy: model.sending,
+    onClose: model.close,
+    onSubmit: model.submit,
+    body: [
+      h(
+        'p',
+        { class: 'dialog-lede', key: 'lede' },
+        'Each board downloads only the blocks its SD card does not hold, checks every block against the signed table ' +
+          'before it writes it, and its Pi takes the new image from the card. An update can take hours: the job’s time ' +
+          'limit is sized to the largest download, and a board that runs out of time keeps what it wrote.'
+      ),
+      model.boards.length === 0
+        ? h(
+            'p',
+            { class: 'quiet', key: 'none' },
+            'No board reports a Raspberry Pi. A board reports its Pi’s card from firmware 1.20.0 built with --pi.'
+          )
+        : h(
+            'fieldset',
+            { class: 'choices pi-estimates', key: 'boards' },
+            h('legend', null, 'Boards with a Raspberry Pi'),
+            model.boards.map(boardChoice)
+          ),
+      h(
+        'label',
+        { class: 'field', key: 'note' },
+        h('span', { class: 'field-label' }, 'Note (optional)'),
+        h('input', {
+          type: 'text',
+          class: 'input',
+          maxlength: '200',
+          value: model.note,
+          disabled: model.sending,
+          onInput: (event) => model.setNote(event.target.value),
+        })
+      ),
+    ],
+    error: model.error ? failure('The deployment did not start.', model.error, null, model.signIn) : null,
+    foot: [
+      dialogButton({ key: 'cancel', disabled: model.sending, onClick: model.close }, 'Cancel'),
+      SPACER(),
+      dialogButton(
+        { key: 'deploy', className: 'is-primary', submit: true, sending: model.sending, disabled: chosen.length === 0 },
+        icon('send'),
+        model.sending ? 'Starting…' : `Deploy to ${plural(chosen.length, 'board')}`
+      ),
+    ],
+  });
+}
+
+export function piCancelDialog(model) {
+  const { deployment } = model;
+  const count = (status) => deployment.executions.filter((row) => row.status === status).length;
+  const waiting = count('QUEUED');
+  const started = count('IN_PROGRESS');
+  const option = (value, title, text) =>
+    choice(
+      {
+        key: String(value),
+        type: 'radio',
+        name: 'force',
+        checked: model.force === value,
+        disabled: model.sending,
+        onChange: () => model.setForce(value),
+      },
+      title,
+      h('span', { class: 'choice-note' }, text)
+    );
+  return dialogFrame({
+    title: ['Cancel the Pi deployment of ', mono(deployment.version), '?'],
+    busy: model.sending,
+    onClose: model.close,
+    onSubmit: () => model.submit(model.force),
+    body: [
+      h(
+        'p',
+        { key: 'now' },
+        'Right now ',
+        h('strong', null, plural(waiting, 'board is', 'boards are'), ' waiting'),
+        ' and ',
+        h('strong', null, plural(started, 'board is', 'boards are'), ' downloading'),
+        '. Every card keeps what it wrote; the same image deployed again goes on from there.'
+      ),
+      h(
+        'fieldset',
+        { class: 'choices', key: 'choices' },
+        h('legend', null, 'How far should the cancellation go?'),
+        option(
+          false,
+          'Withdraw the offer',
+          'Boards that have not started are no longer offered it. A board at work carries on.'
+        ),
+        option(
+          true,
+          'Withdraw the offer and stop boards at work',
+          'Forced. A board at work stops at its next piece and reports nothing more; its Pi keeps its own image.'
+        )
+      ),
+    ],
+    error: model.error ? failure('The cancellation did not go through.', model.error, null, model.signIn) : null,
+    foot: [
+      dialogButton({ key: 'keep', disabled: model.sending, onClick: model.close }, 'Keep it'),
+      SPACER(),
+      dialogButton(
+        { key: 'cancel', className: 'is-danger', submit: true, sending: model.sending },
+        icon('stop'),
+        model.sending ? 'Cancelling…' : 'Cancel the deployment'
+      ),
+    ],
   });
 }
 

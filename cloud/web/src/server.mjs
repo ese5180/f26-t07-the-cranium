@@ -250,11 +250,21 @@ export const TILE_ORIGIN = 'https://tile.openstreetmap.org';
 /**
  * The page may talk to its own origin, to the managed login pages (the token and the
  * revocation of the refresh token), to Cognito's user pool API (the console's own
- * sign-in page) and, with live updates, to the live API (docs/live.md). Nowhere else. It may
- * show images from itself and from OpenStreetMap's tile server, for the map, and from nowhere else.
+ * sign-in page), with live updates to the live API (docs/live.md) and, from console 2.29.0, to the
+ * firmware bucket, where the Firmware page PUTs a Raspberry Pi image package with a presigned URL.
+ * Nowhere else. It may show images from itself and from OpenStreetMap's tile server, for the map,
+ * and from nowhere else.
  */
-function consolePolicy(loginOrigin, idpOrigin, liveOrigin = null) {
-  const connect = [...new Set(["'self'", loginOrigin, idpOrigin, ...(liveOrigin ? [liveOrigin] : [])])].join(' ');
+function consolePolicy(loginOrigin, idpOrigin, liveOrigin = null, uploadOrigin = null) {
+  const connect = [
+    ...new Set([
+      "'self'",
+      loginOrigin,
+      idpOrigin,
+      ...(liveOrigin ? [liveOrigin] : []),
+      ...(uploadOrigin ? [uploadOrigin] : []),
+    ]),
+  ].join(' ');
   return [
     "default-src 'none'",
     "script-src 'self'",
@@ -334,6 +344,7 @@ export function createWebHandler({
   homeHosts = [],
   customer = null,
   liveUrl,
+  uploadOrigin,
   log = writeLog,
 } = {}) {
   requireText('clientId', clientId);
@@ -362,7 +373,18 @@ export function createWebHandler({
   const live = liveOrigin === null ? {} : { liveUrl };
 
   const homeNames = new Set(homeHosts);
-  const consoleHeaders = securityHeaders(consolePolicy(loginOrigin, userPoolApi, liveOrigin), '(self)');
+  // The firmware bucket's origin, https://<bucket>.s3.<region>.amazonaws.com: the Pi image upload's only address.
+  if (
+    uploadOrigin !== undefined &&
+    uploadOrigin !== null &&
+    !(typeof uploadOrigin === 'string' && ORIGIN.test(uploadOrigin))
+  ) {
+    throw new TypeError('uploadOrigin must be an origin such as https://bucket.s3.example');
+  }
+  const consoleHeaders = securityHeaders(
+    consolePolicy(loginOrigin, userPoolApi, liveOrigin, uploadOrigin ?? null),
+    '(self)'
+  );
   const homeHeaders = securityHeaders(HOME_POLICY, '()');
 
   // The customer site. Its pool is in the Region of the staff pool, so both talk to one user pool API.
@@ -558,6 +580,8 @@ function settingsFromEnvironment(env) {
       : null,
     // Left out or empty, the pages do not keep a WebSocket, and only poll.
     liveUrl: env.LIVE_URL ? env.LIVE_URL : undefined,
+    // Left out or empty, the page may not send a Raspberry Pi image package anywhere.
+    uploadOrigin: env.UPLOAD_ORIGIN ? env.UPLOAD_ORIGIN : undefined,
   };
 }
 

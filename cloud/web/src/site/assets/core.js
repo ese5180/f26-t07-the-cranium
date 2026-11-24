@@ -910,6 +910,8 @@ function readDevice(raw) {
     location: readLocation(item.location),
     // Its golden image, from firmware 1.19.3: only where the board reports one.
     ...(item.golden ? { golden: readGolden(item.golden) } : {}),
+    // Its Raspberry Pi's SD card, from a firmware built with --pi (console 2.30.0): only where the board reports one.
+    ...(readPiCard(item.pi) ? { pi: readPiCard(item.pi) } : {}),
   };
 }
 
@@ -1215,6 +1217,270 @@ export function readGolden(raw) {
   const counter = whole(raw.counter, 0, 2 ** 32 - 1);
   if (counter === null || !GOLDEN_STATES.includes(raw.state)) return null;
   return { version: versionOrNull(raw.version), counter, state: raw.state };
+}
+
+// Raspberry Pi images, updated by blocks through the board (console 2.30.0; cloud/api/src/lib/pi-images.mjs,
+// docs/pi-delta-update.md). The Pi has no network: a board built with --pi, from firmware 1.20.0, keeps its image
+// on an SD card and downloads only the blocks that changed.
+
+// The first firmware that takes a Pi image, and only when built with --pi.
+export const PI_FIRST_FIRMWARE = '1.20.0+0';
+export const PI_HEADER_SIZE = 512;
+const PI_VERSION = /^[A-Za-z0-9._+-]{1,31}$/;
+// The one measured rate (docs/test-results.md): the download times are said at it.
+export const PI_RATE_BYTES_PER_SEC = 10_000;
+
+export function isPiVersion(text) {
+  return typeof text === 'string' && PI_VERSION.test(text);
+}
+
+/**
+ * The header of a Pi image package (its first 512 bytes), read as a preview so that a wrong file is noticed
+ * before anything is sent: { version, blockSize, blocks, imageSize, imageOffset, packageSize }. Throws an Error
+ * in words. The server checks it again as a board does, its signature included.
+ */
+export function readPiHeader(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < PI_HEADER_SIZE) {
+    throw new Error('This file is too short to be a Pi image package.');
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, PI_HEADER_SIZE);
+  const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+  if (magic !== 'CPDM' || view.getUint16(4, true) !== 1 || view.getUint16(6, true) !== PI_HEADER_SIZE) {
+    throw new Error('This is not a Pi image package: make one with tools/pi_image.py package.');
+  }
+  const blockSize = view.getUint32(8, true);
+  const blocks = view.getUint32(12, true);
+  const imageSize = Number(view.getBigUint64(16, true));
+  const imageOffset = Number(view.getBigUint64(32, true));
+  let version = '';
+  for (let index = 104; index < 136 && bytes[index] !== 0; index += 1) version += String.fromCharCode(bytes[index]);
+  if (!isPiVersion(version) || !Number.isSafeInteger(imageSize) || !Number.isSafeInteger(imageOffset)) {
+    throw new Error('The package header cannot be read.');
+  }
+  return { version, blockSize, blocks, imageSize, imageOffset, packageSize: imageOffset + imageSize };
+}
+
+/** Whether a board can take a Pi image: it reports its card (a Pi build) and runs 1.20.0 or later. */
+export function takesPiImage(device) {
+  const running = parseVersion(device?.fw?.version ?? '');
+  return Boolean(device?.pi) && running !== null && compareVersions(running, parseVersion(PI_FIRST_FIRMWARE)) >= 0;
+}
+
+export const PI_CARD_WORDS = Object.freeze({
+  empty: 'Card empty',
+  ready: 'Card ready',
+  updating: 'Card updating',
+  no_card: 'No card',
+});
+
+export const PI_STEP_WORDS = Object.freeze({
+  idle: 'Waiting',
+  manifest: 'Checking the signed header',
+  table: 'Downloading the block hashes',
+  compare: 'Finding the changed blocks',
+  blocks: 'Downloading changed blocks',
+  done: 'Done',
+});
+
+// Why a board's Pi job failed (docs/pi-delta-update.md, "The job"). A reason not listed is shown as it is.
+export const PI_REASON_WORDS = Object.freeze({
+  bad_manifest: 'the header is not one its firmware reads',
+  bad_signature: 'the signature did not hold',
+  manifest_mismatch: 'the job and the signed header disagree',
+  too_large: 'the image is larger than its card or its card layout',
+  sd_absent: 'no SD card',
+  sd_io: 'the SD card failed',
+  download_failed: 'ten downloads in a row brought nothing new',
+  digest_mismatch: 'a block came wrong three times running',
+  sd_readback_mismatch: 'a block read back wrong from the card three times running',
+  unsupported: 'its firmware takes no Pi image',
+});
+
+/** A board's card in a few words: "Card ready, 2026.11.24-1, generation 3". */
+export function piCardWords(pi) {
+  if (!pi) return '';
+  const parts = [PI_CARD_WORDS[pi.card] ?? pi.card];
+  if (pi.version) parts.push(pi.version);
+  if (pi.generation > 0) parts.push(`generation ${pi.generation}`);
+  if (pi.card === 'updating' && pi.total > 0) parts.push(`${pi.done} of ${plural(pi.total, 'block')}`);
+  return parts.join(', ');
+}
+
+/** A time to download `bytes` at the measured rate: "about 4 min". */
+export function piDownloadTime(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return 'nothing to download';
+  const minutes = Math.ceil(bytes / PI_RATE_BYTES_PER_SEC / 60);
+  if (minutes < 60) return `about ${minutes} min`;
+  const hours = Math.round((minutes / 60) * 10) / 10;
+  return hours < 48 ? `about ${hours} h` : `about ${Math.round(hours / 24)} days`;
+}
+
+/** What one board downloads for a Pi image, from GET /api/pi-images/{version}/estimate. */
+export function piEstimateWords(estimate) {
+  if (!estimate) return '';
+  if (estimate.changed === 0) return 'Already holds it: nothing to download';
+  const from =
+    estimate.from === null
+      ? 'from an empty card'
+      : estimate.fromKnown
+        ? `from ${estimate.from}`
+        : `from ${estimate.from}, which this console never stored: every block at most`;
+  return (
+    `${estimate.changed.toLocaleString('en-US')} of ${plural(estimate.blocks, 'block')} ${from}: ` +
+    `${fileSize(estimate.bytes)}, ${piDownloadTime(estimate.bytes)} at 10 KB/s`
+  );
+}
+
+/** Where one board is with a Pi deployment, in words. */
+export function piProgressWords(row) {
+  if (!row) return '';
+  if (row.status === 'SUCCEEDED') {
+    if (row.fetched === 0) return 'Done: its card already held it';
+    const bytes = row.bytes === null ? '' : `, ${fileSize(row.bytes)}`;
+    return `Done: ${row.fetched ?? '?'} of ${row.changed ?? '?'} changed blocks downloaded${bytes}`;
+  }
+  if (row.status === 'FAILED' || row.status === 'REJECTED') {
+    const why = row.reason ? (PI_REASON_WORDS[row.reason] ?? row.reason) : 'no reason given';
+    return `Failed${row.step ? ` while ${(PI_STEP_WORDS[row.step] ?? row.step).toLowerCase()}` : ''}: ${why}`;
+  }
+  if (row.status === 'IN_PROGRESS') {
+    const step = PI_STEP_WORDS[row.step] ?? 'Started';
+    if (row.step === 'blocks' && row.total !== null && row.total > 0) {
+      return `${step}: ${row.done ?? 0} of ${row.total} (${row.progress ?? 0} %)`;
+    }
+    return step;
+  }
+  if (row.status === 'QUEUED') return 'Waiting for the board';
+  if (row.status === 'TIMED_OUT') return 'Ran out of time: deploy it again and the card goes on from where it stopped';
+  if (row.status === 'CANCELED') return 'Cancelled: the card keeps what it had';
+  return row.status.toLowerCase().replaceAll('_', ' ');
+}
+
+/** A board's Pi card as it reports it (from firmware 1.20.0 built with --pi), or null. */
+export function readPiCard(raw) {
+  if (!raw || typeof raw !== 'object' || !Object.hasOwn(PI_CARD_WORDS, raw.card)) return null;
+  return {
+    card: raw.card,
+    version: isPiVersion(raw.version) ? raw.version : null,
+    generation: whole(raw.generation, 0, 2 ** 32) ?? 0,
+    step: Object.hasOwn(PI_STEP_WORDS, raw.step) ? raw.step : 'idle',
+    done: whole(raw.done, 0, 2 ** 32) ?? 0,
+    total: whole(raw.total, 0, 2 ** 32) ?? 0,
+  };
+}
+
+function readPiImage(raw) {
+  const item = record(raw);
+  if (!isPiVersion(item.version)) return null;
+  return {
+    kind: 'pi',
+    version: item.version,
+    status: ['uploading', 'active', 'refused'].includes(item.status) ? item.status : 'refused',
+    size: whole(item.size, 1, Number.MAX_SAFE_INTEGER),
+    imageSize: whole(item.imageSize, 1, Number.MAX_SAFE_INTEGER),
+    blockSize: whole(item.blockSize, 1, 2 ** 20),
+    blocks: whole(item.blocks, 1, 2 ** 32),
+    sha256: /^[0-9a-f]{64}$/.test(item.sha256 ?? '') ? item.sha256 : '',
+    notes: text(item.notes, 500),
+    uploadedBy: person(item.uploadedBy),
+    uploadedAt: instant(item.uploadedAt),
+    verifiedAt: instant(item.verifiedAt),
+    refusedReason: text(item.refusedReason, 300),
+  };
+}
+
+const PI_EXECUTION_STATUSES = Object.freeze([
+  'QUEUED',
+  'IN_PROGRESS',
+  'SUCCEEDED',
+  'FAILED',
+  'REJECTED',
+  'CANCELED',
+  'TIMED_OUT',
+  'REMOVED',
+]);
+
+function readPiExecution(raw) {
+  const item = record(raw);
+  if (!isThing(item.thing) || !PI_EXECUTION_STATUSES.includes(item.status)) return null;
+  const count = (value) => whole(value, 0, Number.MAX_SAFE_INTEGER);
+  return {
+    thing: item.thing,
+    status: item.status,
+    step: Object.hasOwn(PI_STEP_WORDS, item.step) ? item.step : null,
+    progress: whole(item.progress, 0, 100),
+    done: count(item.done),
+    total: count(item.total),
+    fetched: count(item.fetched),
+    changed: count(item.changed),
+    bytes: count(item.bytes),
+    piVersion: isPiVersion(item.piVersion) ? item.piVersion : null,
+    generation: count(item.generation),
+    reason: typeof item.reason === 'string' && /^[a-z][a-z0-9_]{0,31}$/.test(item.reason) ? item.reason : null,
+    running: versionOrNull(item.running),
+    lastUpdatedAt: instant(item.lastUpdatedAt),
+  };
+}
+
+export function readPiDeployment(raw) {
+  const item = record(raw);
+  const id = text(item.id, 64);
+  if (!/^pi-[A-Za-z0-9_-]{1,60}$/.test(id)) return null;
+  const counts = record(item.counts);
+  return {
+    id,
+    version: isPiVersion(item.version) ? item.version : '',
+    status: text(item.status, 24),
+    createdAt: instant(item.createdAt),
+    createdBy: item.createdBy ? person(item.createdBy) : null,
+    note: text(item.note, 200),
+    things: list(item.things).filter(isThing),
+    counts: Object.fromEntries(
+      ['queued', 'inProgress', 'succeeded', 'failed', 'rejected', 'canceled', 'timedOut', 'removed'].map((name) => [
+        name,
+        whole(counts[name], 0, 1000) ?? 0,
+      ])
+    ),
+    executions: list(item.executions)
+      .map(readPiExecution)
+      .filter((row) => row !== null),
+  };
+}
+
+function readPiImages(body) {
+  const reply = record(body);
+  return {
+    images: list(reply.images)
+      .map(readPiImage)
+      .filter((image) => image !== null),
+    deployments: list(reply.deployments)
+      .map(readPiDeployment)
+      .filter((deployment) => deployment !== null),
+    firstFirmware: versionOrNull(reply.firstFirmware) ?? '1.20.0',
+    maxPackageSize: whole(reply.maxPackageSize, 1, Number.MAX_SAFE_INTEGER),
+  };
+}
+
+function readPiEstimate(raw) {
+  const item = record(raw);
+  if (!isThing(item.thing)) return null;
+  const count = (value) => whole(value, 0, Number.MAX_SAFE_INTEGER) ?? 0;
+  return {
+    thing: item.thing,
+    from: isPiVersion(item.from) ? item.from : null,
+    fromSource: ['card', 'deployment', 'none'].includes(item.fromSource) ? item.fromSource : 'none',
+    fromKnown: item.fromKnown !== false,
+    blocks: count(item.blocks),
+    changed: count(item.changed),
+    bytes: count(item.bytes),
+    imageBytes: count(item.imageBytes),
+    runs: count(item.runs),
+  };
+}
+
+/** Whether a Pi deployment still has a board waiting or at work. */
+export function piUnderWay(deployment) {
+  return (deployment?.counts?.queued ?? 0) + (deployment?.counts?.inProgress ?? 0) > 0;
 }
 
 // Board types (cloud/api/src/lib/boards.mjs): what an image is for, and what a board is.
@@ -3081,6 +3347,87 @@ export function createApi({
         }),
       };
     },
+    // Raspberry Pi images (console 2.29.0, cloud/api/src/handlers/pi-images.mjs).
+    /** The Pi images and the latest Pi deployments with each board's progress. */
+    piImages: async () => readPiImages(await get('/api/pi-images')),
+    /**
+     * Describe a package by its 512-byte header, which the server checks as a board does before it hands out
+     * the URL to PUT the package to: { image, upload: { url, headers, size, expiresAt } }.
+     */
+    async describePiImage({ header, notes = '' }) {
+      if (!(header instanceof Uint8Array) || header.length !== PI_HEADER_SIZE) {
+        throw new ApiError(0, 'bad_request', 'A package header is 512 bytes.');
+      }
+      const hex = Array.from(header, (byte) => byte.toString(16).padStart(2, '0')).join('');
+      const reply = record(await post('/api/pi-images', { header: hex, notes }));
+      const upload = record(reply.upload);
+      const url = typeof upload.url === 'string' && upload.url.startsWith('https://') ? upload.url : null;
+      if (url === null) throw new ApiError(0, 'bad_response', 'The server gave no address to send the package to.');
+      const headers = {};
+      for (const [name, value] of Object.entries(record(upload.headers))) {
+        if (/^[a-z0-9-]{1,64}$/.test(name) && typeof value === 'string') headers[name] = value;
+      }
+      return {
+        image: readPiImage(reply.image),
+        upload: {
+          url,
+          headers,
+          size: whole(upload.size, 1, Number.MAX_SAFE_INTEGER),
+          expiresAt: instant(upload.expiresAt),
+        },
+      };
+    },
+    /**
+     * Send the package straight to S3 with the URL describePiImage gave, reporting how much has gone. A 412 means
+     * the package is there already (an earlier upload finished): that is no error, the check that follows says.
+     */
+    sendPiPackage(upload, file, onProgress = () => {}) {
+      return new Promise((resolve, reject) => {
+        if (typeof XMLHttpRequest !== 'function') {
+          reject(new ApiError(0, 'unsupported', 'This browser cannot send a file with progress.'));
+          return;
+        }
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', upload.url);
+        for (const [name, value] of Object.entries(upload.headers)) xhr.setRequestHeader(name, value);
+        xhr.setRequestHeader('content-type', 'application/octet-stream');
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total);
+        };
+        xhr.onload = () => {
+          if ((xhr.status >= 200 && xhr.status < 300) || xhr.status === 412) resolve({ already: xhr.status === 412 });
+          else if (xhr.status === 403) {
+            reject(
+              new ApiError(403, 'upload_refused', 'S3 refused the package: its address may have expired. Try again.')
+            );
+          } else reject(new ApiError(xhr.status, 'upload_failed', `S3 answered ${xhr.status} to the package.`));
+        };
+        xhr.onerror = () => reject(new ApiError(0, 'network', 'The package could not reach S3. Check the connection.'));
+        xhr.send(file);
+      });
+    },
+    /** Check what arrived in S3; the image can be deployed once this says "active". */
+    async verifyPiImage(version) {
+      const path = `/api/pi-images/${encodeURIComponent(checked(isPiVersion, version))}/verify`;
+      return readPiImage(record(await post(path, {})).image);
+    },
+    /** What each board with a Pi would download for an image, against what it holds. */
+    async piEstimate(version) {
+      const reply = record(await get(`/api/pi-images/${encodeURIComponent(checked(isPiVersion, version))}/estimate`));
+      return list(reply.boards)
+        .map(readPiEstimate)
+        .filter((item) => item !== null);
+    },
+    /** A pi_delta job to these boards. */
+    async deployPiImage({ version, things, note = '' }) {
+      const path = `/api/pi-images/${encodeURIComponent(checked(isPiVersion, version))}/deploy`;
+      const body = { things: things.map((thing) => checked(isThing, thing)), note };
+      return readPiDeployment(record(await post(path, body)).deployment);
+    },
+    async cancelPiDeployment(id, force = false) {
+      const path = `/api/pi-deployments/${checked((value) => /^pi-[A-Za-z0-9_-]{1,60}$/.test(value), id)}/cancel`;
+      return readPiDeployment(record(await post(path, { force: force === true })).deployment);
+    },
     /** A release's note, changed after its upload: the whole note, '' for none. */
     async setNotes(version, notes) {
       const path = `/api/firmware/${encodeURIComponent(checked(isVersion, version))}/notes`;
@@ -4587,6 +4934,32 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to start a golden promotion',
     icon: 'shield',
   },
+  // Raspberry Pi images (console 2.29.0): the package described, what arrived checked, a deployment and its end.
+  'firmware.pi_upload': {
+    done: 'uploaded the Pi image',
+    tried: 'tried to upload the Pi image',
+    triedAlone: 'tried to upload a Pi image',
+    icon: 'upload',
+  },
+  'firmware.pi_verify': {
+    done: 'checked the Pi image',
+    tried: 'tried to check the Pi image',
+    triedAlone: 'tried to check a Pi image',
+    icon: 'shield',
+  },
+  'deployment.pi_create': {
+    done: 'deployed the Pi image',
+    doneAlone: 'started a Pi deployment',
+    tried: 'tried to deploy the Pi image',
+    triedAlone: 'tried to start a Pi deployment',
+    icon: 'send',
+  },
+  'deployment.pi_cancel': {
+    done: 'cancelled the Pi deployment',
+    tried: 'tried to cancel the Pi deployment',
+    triedAlone: 'tried to cancel a Pi deployment',
+    icon: 'stop',
+  },
   'firmware.notes': {
     done: 'changed the note of',
     tried: 'tried to change the note of',
@@ -4883,6 +5256,15 @@ export const REFUSAL_WORDS = {
   golden_unsupported: 'A chosen board’s firmware cannot take a golden promotion: it needs 1.19.3',
   golden_not_running: 'A chosen board does not run that release',
   golden_release_too_old: 'Only firmware 1.19.3 and later can become golden',
+  // Raspberry Pi images (handlers/pi-images.mjs).
+  invalid_header: 'The package header was not 512 bytes in hex',
+  bad_manifest: 'That is not a Pi image package a board reads',
+  pi_too_large: 'The Pi image package is larger than one upload or a board’s card takes',
+  unknown_pi_image: 'There is no such Raspberry Pi image',
+  pi_not_uploaded: 'The Pi image’s package had not arrived in S3',
+  pi_package_mismatch: 'What arrived in S3 was not the package that was checked',
+  pi_image_refused: 'That Pi image was refused when its package was checked',
+  pi_unsupported: 'A chosen board does not report a Pi image card: it needs firmware 1.20.0 built with --pi',
   internal_error: 'Something went wrong on the server',
   invalid_body: 'The request could not be read',
   invalid_deployment: 'Not a valid deployment ID',
@@ -5246,6 +5628,10 @@ export const CHANGE_ACTIONS = Object.freeze([
   'firmware.notes',
   'firmware.golden_record',
   'golden.promote',
+  'firmware.pi_upload',
+  'firmware.pi_verify',
+  'deployment.pi_create',
+  'deployment.pi_cancel',
   'deployment.create',
   'deployment.cancel',
   'token.create',
