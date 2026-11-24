@@ -101,6 +101,7 @@ enum pi_err pi_card_open(struct pi_card *card, uint32_t default_max_blocks)
 	}
 	/* Open now, for the reads below; closed again if anything fails. */
 	card->open = true;
+	card->opens++;
 
 	for (int i = 0; i < 2; i++) {
 		enum pi_err read = pi_card_read(card, PI_CARD_BASE_LBA + (uint64_t)i, card->sector, 1);

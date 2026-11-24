@@ -604,9 +604,10 @@ In this order, each only after the one before passes:
 6. **A delta job:** a second image with a few blocks changed, uploaded to the bucket by hand and
    deployed to the one board, with a long timeout. Watch `IN_PROGRESS` reports; expect `fetched`
    equal to the changed blocks. Then the Pi takes CHANGED and READs, and checks the digest.
-7. **Faults:** cut the board's power in the middle of the blocks, then let the job go on; take the
-   card out in the middle; switch Wi-Fi off for a few minutes; let the URL expire (a job with
-   `expiresInSec` of 300 and a slow link). Each must end `SUCCEEDED` with the right image.
+7. **Faults:** cut the board's power in the middle of the blocks, then let the job go on; switch
+   Wi-Fi off for a few minutes; let the URL expire (a job with `expiresInSec` of 300 and a slow
+   link). Each must end `SUCCEEDED` with the right image. Take the card out in the middle: that job
+   ends `FAILED` with `sd_absent`, and the same image deployed again goes on from the card.
 8. **Size:** an image over 4 GiB on a 16 GB card, a delta of a few blocks past the 4 GiB mark.
 9. **Measure** the stack of `pi_delta` and `pi_link` with the thread analyser, and the heap during a
    TLS range download, on Wi-Fi with AWS IoT connected.

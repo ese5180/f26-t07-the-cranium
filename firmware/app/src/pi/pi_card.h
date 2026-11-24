@@ -49,6 +49,8 @@ struct pi_card {
 	struct pi_manifest neu;
 	/* For the state and the slot headers. */
 	uint8_t sector[PI_SECTOR_SIZE];
+	/* Goes up with each open: a copy of the card's sectors made under another count is stale. */
+	uint32_t opens;
 };
 
 void pi_card_init(struct pi_card *card, const struct pi_disk_ops *ops, void *ctx);

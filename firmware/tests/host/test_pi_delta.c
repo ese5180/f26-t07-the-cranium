@@ -976,6 +976,7 @@ static void test_link(void)
 	struct pi_card card;
 	struct pi_dlink link;
 	struct pi_frame a;
+	uint64_t reads;
 	uint8_t tx[PI_FRAME_SIZE];
 	uint8_t rx[PI_FRAME_SIZE];
 	uint8_t args[16];
@@ -1162,6 +1163,20 @@ static void test_link(void)
 	CHECK(ask(&link, PI_DLINK_READ, args, 12, &a, tx) && error_code(&a) == PI_DLINK_CARD);
 	w.disk.fail_reads = false;
 	CHECK(link.answered > 20 && link.errors > 15);
+
+	/*
+	 * A card taken out and one put in may say the same generation (two cards seeded alike): the
+	 * sector cached from the card before is not served, the new card is read.
+	 */
+	read_args(args, 33, 100, 50);
+	CHECK(ask(&link, PI_DLINK_READ, args, 12, &a, tx) && a.type == (PI_DLINK_READ | 0x80));
+	reads = w.disk.reads;
+	CHECK(ask(&link, PI_DLINK_READ, args, 12, &a, tx) && w.disk.reads == reads);
+	pi_card_close(&card);
+	CHECK(pi_card_open(&card, MAX_BLOCKS) == PI_OK);
+	reads = w.disk.reads;
+	CHECK(ask(&link, PI_DLINK_READ, args, 12, &a, tx) && w.disk.reads > reads);
+	CHECK(memcmp(a.payload + 16, v2 + 33 * BS + 100, 50) == 0);
 
 	world_free(&w);
 	free(v1);

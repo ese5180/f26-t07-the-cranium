@@ -199,7 +199,9 @@ config APP_PI_DELTA_LINK_STACK_SIZE
 	help
 	  With Pi delta updates the Pi's link runs on a work queue of its own instead of the system
 	  work queue, so that a READ waiting for the SD card holds up nothing else. It also prints the
-	  Pi's messages on the console, as the system work queue did: hence that queue's 2048 bytes.
+	  Pi's messages on the console, as the system work queue did. That queue has 4096 bytes on the
+	  nRF7002 DK (boards/nrf7002dk_nrf5340_cpuapp_ns.conf); 2048 is not measured yet
+	  (docs/pi-delta-update.md, hardware test plan, step 9).
 
 config APP_PI_DELTA_LINK_PRIORITY
 	int "Priority of the Pi link's work queue: above the update, to answer the Pi at once"

@@ -98,6 +98,8 @@ struct pi_dlink {
 	uint8_t cache[PI_SECTOR_SIZE];
 	uint64_t cache_lba;
 	uint32_t cache_generation;
+	/* The card's open count when the sector was read: another card may have the same generation. */
+	uint32_t cache_opens;
 	bool cache_valid;
 	/* Counts, for STATUS|pi and the tests: requests answered, and refused with ERROR. */
 	uint32_t answered;

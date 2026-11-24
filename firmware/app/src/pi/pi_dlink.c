@@ -236,7 +236,8 @@ static uint8_t read_mirror(struct pi_dlink *link, const uint8_t *req, uint8_t *p
 	    (uint64_t)offset + count > pi_manifest_block_len(&card->cur, block)) {
 		return PI_DLINK_OUT_OF_RANGE;
 	}
-	if (!link->cache_valid || link->cache_generation != card->st.generation) {
+	if (!link->cache_valid || link->cache_generation != card->st.generation ||
+	    link->cache_opens != card->opens) {
 		link->cache_valid = false;
 	}
 
@@ -259,6 +260,7 @@ static uint8_t read_mirror(struct pi_dlink *link, const uint8_t *req, uint8_t *p
 			}
 			link->cache_lba = lba;
 			link->cache_generation = card->st.generation;
+			link->cache_opens = card->opens;
 			link->cache_valid = true;
 		}
 		if (take > count - done) {
