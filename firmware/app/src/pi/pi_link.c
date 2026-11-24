@@ -110,14 +110,9 @@ static void handle_transfer(size_t received)
 	}
 	if (result == PI_RX_DELIVER) {
 		/* From the Pi, so untrusted: a control character could forge a console line. */
-		uint8_t *text = (uint8_t *)frame.payload;
 		char *into;
 
-		for (size_t i = 0; i < frame.length; i++) {
-			if (text[i] < 0x20 || text[i] == 0x7f) {
-				text[i] = '?';
-			}
-		}
+		pi_rx_clean_text((uint8_t *)frame.payload, frame.length);
 		into = kept_for(frame.payload, frame.length);
 		if (into != NULL) {
 			size_t n = MIN((size_t)frame.length, (size_t)PI_LINK_KEPT_MAX);

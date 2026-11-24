@@ -51,4 +51,11 @@ enum pi_rx_result pi_rx_handle(struct pi_rx *rx, const uint8_t *buf, size_t rece
 /* The STATUS frame for the next transfer, at the start of buf. Returns its length, or 0. */
 size_t pi_rx_status(const struct pi_rx *rx, uint8_t *buf, size_t size);
 
+/*
+ * Makes a message from the Pi safe to print, in place: a control character (C0, DEL, or a C1 such
+ * as U+009B, the 8-bit CSI) and each byte that is not part of valid UTF-8 become '?'. Valid UTF-8
+ * text is left as it is.
+ */
+void pi_rx_clean_text(uint8_t *text, size_t length);
+
 #endif /* PI_RX_H_ */
