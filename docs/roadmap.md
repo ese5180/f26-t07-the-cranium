@@ -44,8 +44,8 @@ Draft pull requests.
 - **Raspberry Pi updates through the board, only the changed blocks** (#275, firmware 1.20.0, draft): the nRF7002 DK
   keeps the Pi's image on an SD card and downloads only the blocks that changed; the Pi takes them over SPI
   ([pi-delta-update.md](pi-delta-update.md)). It replaces #196's firmware side. Waits on a board test, the Pi's side
-  (a teammate's) and the console's side. A teammate's Pi link over SPI (#58), whose pins and frames it uses, is open
-  for review.
+  (a teammate's) and the console's side. It runs on top of a teammate's Pi link over SPI (#58), as one link, so #58
+  merges first.
 - **Adam's CRANIUM Mix app import** (#272) is under review and not on main.
 
 ## Planned next, in this order

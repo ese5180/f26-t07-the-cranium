@@ -9,7 +9,7 @@ A version without an entry here still gets a note: the subjects of the firmware 
 
 ## 1.20.0
 
-Raspberry Pi delta updates, a build for boards wired to a Pi only (build.sh --pi, no Bluetooth), not yet tried on hardware: the board keeps the Pi's image on an SD card and brings it up to date by downloading only the blocks that changed, each checked against a signed manifest before it is written; the Pi takes them over SPI. Other builds are unchanged.
+Raspberry Pi delta updates, a build for boards wired to a Pi only (build.sh --pi, no Bluetooth), not yet tried on hardware: the board keeps the Pi's image on an SD card and brings it up to date by downloading only the blocks that changed, each checked against a signed manifest before it is written; the Pi takes them over its message link. Other builds are unchanged.
 
 Design and protocol: `docs/pi-delta-update.md`. A `"op": "pi_delta"` job names one package (`tools/pi_image.py
 package`): a 512-byte manifest header signed with the firmware signing key, a SHA-256 per 64 KiB block, then the
@@ -22,16 +22,20 @@ two manifest slots, the list of changed blocks, staging and the mirror. While th
 "updating" and the Pi gets nothing from it. A power cut, a lost connection, an expired URL or a card taken out costs at
 most one block: the next attempt goes on from the card's state, asking the cloud for a fresh URL.
 
-The Pi's link: the Pi is the SPI controller, the board the target on SPIS3 (D10 to D13) with READY on D9, the pins and
-512-byte CRC-32 frames of the Pi's message link (#58), whose `pi_frame.c` and `pi_frame.h` this uses byte for byte.
-Requests INFO, MANIFEST, CHANGED and READ; each answer carries the card's generation. `tools/pi_delta_sim.py` is the
-protocol's executable contract for the Pi's side. The Pi's own program is not part of this.
+The Pi's link: the requests share the Pi's message link (#58) as one link, its `pi_link.c` taking every transfer on
+SPIS3 (D10 to D13, READY on D9) and its `pi_rx.c` handing the delta requests (`0x10` to `0x13`) to `pi_dlink.c`. One
+rule for every frame: the board answers it in the next transfer, a delta request with its answer and anything else,
+POLL included, with STATUS. Requests INFO, MANIFEST, CHANGED and READ; each answer carries the card's generation, the
+message link's session and ack, and the request's seq. In a Pi build the link's transmit buffer is a whole frame and its
+work runs on a queue of its own, as a READ waits for the SD card. `tools/pi_delta_sim.py` is the protocol's executable
+contract for the Pi's side. The Pi's own program is not part of this.
 
 Tests: `firmware/tests/host/test_pi_delta.c` (the formats, the card, the update with a power cut at every write in
 turn, a card pulled out, lost connections, wrong blocks, every link request including malformed ones, the job document,
 the HTTP head) and `firmware/tests/hil/test_pi_delta.py` (the tool, and the board's C code on the host with real
-ECDSA against packages the tool signed, with the stand-in Pi taking only the changed blocks). Memory (local builds): the default build is unchanged, 38,154 bytes of flash and 932 of RAM free; a `--pi` build has 100,210 of flash
-and 19,808 of RAM free, its floors in `tools/memory_budgets.json` (`Pi delta updates`).
+ECDSA against packages the tool signed, with the stand-in Pi taking only the changed blocks, messages between its
+requests, and `pi/cranium_link.py` beside them), and `test_pi_rx.c` (the message link's receiver with and without this). Memory (local builds): the default build is #58's to the byte, 33,226 bytes of flash and 1,860 of RAM free; a `--pi` build has
+98,474 of flash and 18,960 of RAM free, its floors in `tools/memory_budgets.json` (`Pi delta updates`).
 
 ## 1.19.3
 

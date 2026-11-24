@@ -24,8 +24,9 @@ the console. Everything reaches it through the nRF7002 DK, which downloads onto 
   anything from it. When it is done, the card says **ready** and keeps the list of changed blocks.
 - The Pi, as SPI controller, asks the board **INFO**, **MANIFEST** (block hashes), **CHANGED** (the
   list) and **READ** (bytes of a block), and takes only what differs from its own image.
-- The SPI link uses the pins and the frames of the Pi's message link (PR #58): SPIS3 on D10 to D13,
-  READY on D9, 512-byte frames with a CRC-32.
+- The requests share the Pi's message link (PR #58) as one link: its SPI peripheral (SPIS3 on D10 to
+  D13), READY on D9, its 512-byte frames with a CRC-32, and its rule that the board answers each frame
+  in the next transfer. A build without this is #58's.
 - A build with this has no Bluetooth (the RAM), and is built with `scripts/firmware/build.sh --pi`.
 - **None of this has run on hardware** ([Untested on hardware](#untested-on-hardware)).
 
@@ -45,7 +46,7 @@ the board as SPI controller.
 - [Wiring](#wiring)
 - [The SPI protocol](#the-spi-protocol)
 - [What the Pi does](#what-the-pi-does)
-- [Next to the message link](#next-to-the-message-link)
+- [Sharing the message link](#sharing-the-message-link)
 - [Memory](#memory)
 - [Tests](#tests)
 - [What the console needs](#what-the-console-needs)
@@ -54,19 +55,21 @@ the board as SPI controller.
 
 ## The parts
 
-All in `firmware/app/src/pi/`, built only with `CONFIG_APP_PI_DELTA`.
+All in `firmware/app/src/pi/`, built only with `CONFIG_APP_PI_DELTA`, except the message link's own
+files (`pi_link.c`, `pi_rx.c`, `pi_frame.c`), which every build with `CONFIG_APP_PI_LINK` has.
 
 | File | What it does | Tested on the host |
 | --- | --- | --- |
 | `pi_delta_fmt.c` | The manifest header, the card's state header, the card's layout, the reasons | `test_pi_delta.c` |
 | `pi_card.c` | The card in raw sectors: the two copies of the state, the slots, the list, the mirror | `test_pi_delta.c`, a card in memory |
 | `pi_delta.c` | The update: manifest, comparison, blocks, resume | `test_pi_delta.c`, and `test_pi_delta.py` through `pi_delta_harness.c` |
-| `pi_dlink.c` | The board's end of the SPI protocol | `test_pi_delta.c`, and `tools/pi_delta_sim.py` through the harness |
+| `pi_dlink.c` | The delta requests' answers, and STATUS for anything else | `test_pi_delta.c`, and `tools/pi_delta_sim.py` through the harness |
 | `pi_http.c` | Range requests and the head of their answers | `test_pi_delta.c` |
 | `pi_sha256.c` | SHA-256 in plain C | Every test above |
-| `pi_frame.c` | The frames of the Pi's link, byte for byte the file of PR #58 | Every link test |
+| `pi_frame.c` | The frames of the Pi's link, #58's file unchanged | Every link test |
+| `pi_rx.c` | #58's receiver: sorts each frame by type, DATA and POLL as the message link, delta requests to `pi_dlink.c` | `test_pi_rx.c` (with and without delta updates), `test_pi_delta.c`, the harness |
+| `pi_link.c` | #58's link: SPIS3, READY, the work queue. With delta updates, a queue of its own and room for a whole frame | Built only |
 | `pi_card_disk.c` | The card through Zephyr's disk access, the card-detect pin, the lock | Built only |
-| `pi_dlink_spis.c` | SPIS3 and READY, on a work queue of its own | Built only |
 | `pi_delta_ota.c` | The job, the thread, the TLS connection, PSA's signature check, the reports | Built only |
 | `src/ota/ota_job.c`, `ota.c` | The `pi_delta` document, and handing such jobs over | `test_pi_delta.c` |
 | `tools/pi_image.py` | Builds, signs and checks a package; writes a card | `test_pi_delta.py` |
@@ -319,46 +322,71 @@ breakout, 3.3 V only).
 | Card detect | P1.05 | D3 | CD |
 | 3.3 V, ground | VDD, GND | 3.3V, GND | VCC, GND |
 
-All in `boards/pi_delta.overlay`, which only a Pi build has. The SD card starts at 400 kHz and then
+The Pi's link is in the board's overlay (`boards/nrf7002dk_nrf5340_cpuapp_ns.overlay`, #58's), which
+every build has. The SD card is in `boards/pi_delta.overlay`, which only a Pi build has. It starts at 400 kHz and then
 runs at 8 MHz (`spi-max-frequency`). Card detect is read as closed to ground with a card in; if the
 breakout reads the other way, change `cd-gpios`.
 
 ## The SPI protocol
 
 **This is the contract for the Pi's side.** `tools/pi_delta_sim.py` is its executable version, and the
-tests run it against the board's real C code.
+tests run it against the board's real C code, taken through the same two calls the board's link makes.
+
+**One link.** The delta requests share the Pi's message link ([`docs/pi-link.md`](pi-link.md), PR #58):
+its SPI peripheral (SPIS3), its pins, its READY pin and its 512-byte frames. `pi_link.c` takes every
+transfer and `pi_rx.c` sorts each frame by type: DATA (`0x01`) and POLL (`0x02`) as the message link
+always has them, the delta requests (`0x10` to `0x13`) to `pi_dlink.c`, and any other type as one the
+board does not take. A build without `--pi` counts the delta requests as such too.
 
 **Transfers.** The Pi is the controller: SPI mode 0, MSB first, 8-bit words, CE0 low for the whole
-transfer. Every transfer is **512 bytes each way**. The board is the target and **answers a request
-in the next transfer**: in transfer *n* the Pi sends request *n* and receives the answer to request
-*n − 1*. Numbers are little-endian.
+transfer. Every transfer is **512 bytes each way**. Numbers are little-endian.
 
-**READY** (board to Pi, GPIO25) is high while the board is armed with its next answer. After each
-transfer the board takes it low at once, handles what came in, and raises it again. The Pi waits for
-READY before every transfer (as in #58: at most about 0.5 s for an ordinary request; a READ that
-waits behind the card can take longer). While the board is not armed it clocks out `0xff`.
+**One rule for every answer: the board answers each frame in the next transfer.** In transfer *n* the
+Pi sends frame *n* and receives the answer to frame *n − 1*.
 
-**Frames** are #58's, unchanged (`pi_frame.h`); the rest of the 512 bytes is padding (the Pi pads
-with zeros, the board with `0xff`):
+| Frame from the Pi | What the board sends in the next transfer |
+| --- | --- |
+| A delta request (`0x10` to `0x13`) | Its answer (`0x90` to `0x93`), or ERROR (`0xff`) |
+| DATA, POLL | STATUS (`0x81`), as on the message link |
+| A damaged frame (CRC, magic, version, length), a type the board does not take, nothing (all `0x00` or `0xff`) | STATUS |
+
+So **POLL's answer is always STATUS**: a POLL does not bring the last answer again. To take the answer
+to a request, the Pi sends its next request, or a POLL when it has none, in the next transfer. If that
+answer is not the one to its request (damaged, STATUS, another seq), the Pi sends the request again:
+every delta request only reads, so sending one again is always safe.
+
+**READY** (board to Pi, GPIO25) works as on the message link: high while the board is armed with its
+next answer; after each transfer the board takes it low at once, takes the frame, prepares the answer
+and raises it again. The Pi waits for READY before every transfer. A READ waits for the SD card, which
+the update may be writing, so READY can stay low for longer than the 0.5 s that `cranium-link` waits:
+a delta client should wait longer (the stand-in assumes nothing about it). While the board is not armed
+it clocks out `0xff`, and after its answer the rest of the 512 bytes is `0xff` too, as after STATUS.
+
+**Frames** are #58's, unchanged (`pi_frame.h`):
 
 | Offset | Size | Field |
 | --- | --- | --- |
 | 0 | 2 | `CL` |
 | 2 | 1 | Version, 1 |
 | 3 | 1 | Type |
-| 4 | 2 | Session: from the Pi, a number it picks, not 0; the board's answer echoes it |
-| 6 | 2 | Seq: from the Pi, the request's number; 0 from the board |
-| 8 | 2 | Ack: from the board, the seq of the request this answers |
+| 4 | 2 | Session: from the Pi, a number it picks, not 0. From the board, in STATUS and in delta answers alike, the session of the last DATA frame it accepted (0 for none) |
+| 6 | 2 | Seq: from the Pi, the frame's number. From the board, in a delta answer, the request's seq; 0 in STATUS |
+| 8 | 2 | Ack: from the board, in STATUS and in delta answers alike, the seq of the last DATA frame it accepted |
 | 10 | 2 | Payload length, at most 496 |
 | 12 | n | Payload |
 | 12 + n | 4 | CRC-32 (zlib's) of everything before it |
+
+A delta answer carries the message link's session and ack, as STATUS would, so a sender of messages
+that read one would learn nothing new from it. **The Pi matches an answer to its request by type and
+seq:** the answer's type is the request's with `0x80` set (or ERROR, whose payload names the request's
+type), and its seq is the request's. A delta client never uses seq 0, which STATUS carries.
 
 **Requests (Pi to board) and answers (board to Pi).** An answer's type is the request's with `0x80`
 set; a refusal is `ERROR` (`0xff`).
 
 | Request | Type | Payload | Answer payload |
 | --- | --- | --- | --- |
-| POLL (#58's) | `0x02` | none | Nothing new: the board keeps its last answer, and sends it again next transfer |
+| POLL (#58's) | `0x02` | none | STATUS (`0x81`), the message link's: no payload |
 | INFO | `0x10` | none | `0x90`: 196 bytes, below |
 | MANIFEST | `0x11` | first block u32, count u16 (1 to 15), 0 u16 | `0x91`: generation u32, first u32, count u16, 0 u16, 0 u32, then *count* hashes of 32 bytes |
 | CHANGED | `0x12` | first index u32, count u16 (1 to 120), 0 u16 | `0x92`: generation u32, total u32, first u32, count u16, 0 u16, then *count* block numbers u32 |
@@ -389,15 +417,15 @@ block in order costs about one card sector per transfer.
 | 192 | 4 | Blocks to do (state 2) |
 
 When ready, the image fields describe the mirror. While updating, they describe the image being
-written, with the progress.
+written, with the progress. Until the board has read its card after starting, INFO says no card.
 
 **ERROR** payload: code u8, state u8, 0 u16, generation u32, the request's type u8, 0 × 3.
 
 | Code | Name | What the Pi does |
 | --- | --- | --- |
-| 1 | `bad_frame` | The request arrived damaged (CRC, magic, version, length). Its ack is 0. Send it again. |
+| 1 | `bad_frame` | Not sent any more: on the shared link a damaged frame gets STATUS. Send the request again. |
 | 2 | `bad_request` | Wrong payload length, a count out of range, a reserved field not 0 |
-| 3 | `unknown_type` | |
+| 3 | `unknown_type` | Not sent: a type that is not a delta request goes to the message link, which answers STATUS |
 | 4 | `no_image` | The card is empty |
 | 5 | `updating` | The mirror is being written. Ask INFO every few seconds until it says ready. |
 | 6 | `out_of_range` | A block, an offset or an index past the end |
@@ -407,10 +435,36 @@ written, with the progress.
 **The generation.** Every answer carries it. If it changes while the Pi is taking an image, the image
 changed under it: start again from INFO.
 
-**Retries.** All requests only read, so the Pi may send any of them again. An answer whose CRC fails,
-whose ack is not the request's seq, or whose session is not the Pi's: send the request again (the
-stand-in tries 5 times). An answer lost because the next transfer's request was damaged costs that
-request and the next one.
+**Retries.** An answer whose CRC fails, STATUS where an answer was due, or an answer with another seq
+or type: send the request again (the stand-in tries 5 times). An answer lost because the next
+transfer's request was damaged costs that request and the next one.
+
+### What the Pi's side needs for the shared link
+
+`pi/` is the Pi's owner's; nothing in it changes here. What a delta receiver on the Pi, and the
+programs beside it, need:
+
+1. **One process at a time on the spidev, or a lock.** An answer comes in the transfer after its
+   request, so a transfer by another process in between takes it: that process gets the answer, and
+   the requester gets something else. `cranium-link` (`pi/cranium_link.py`) sends each message as
+   DATA and then a POLL, and takes no lock today. Either the delta receiver and `cranium-link` take
+   one lock (for example `flock` on one file under `/run/lock`) around each request and the transfer
+   that brings its answer (for `cranium-link`, each DATA and its POLL), or one process does both, or
+   `cranium-link` stops while an image is taken.
+2. **Ignoring answers that are not its own.** The delta receiver takes only the answer whose type and
+   seq are its request's, and sends the request again on anything else. `cranium-link` already does
+   its part: `Link.transfer()` returns no frame for anything that is not STATUS and counts it as a bad
+   reply, and `send()` sends the DATA again (up to 5 times a round), which the board acknowledges
+   without delivering twice. So a delta answer that reaches it costs it a transfer and nothing more
+   (`test_the_pis_sender_beside_delta_requests` in `firmware/tests/hil/test_pi_delta.py` runs
+   `cranium_link.py` itself against the board's code).
+3. **`cranium-link --status` is a single POLL**, so it reads the answer to the frame before it. After
+   a delta request whose answer nobody took (a receiver stopped half way), that is a delta answer,
+   and `--status` reports no status frame. The POLL after it always gets STATUS: a health check that
+   uses `--status` (as `docs/pi-tryboot.md` on `feature/tryboot` does) should try it twice before it
+   calls the board away. A receiver that ends each request with the transfer that takes its answer,
+   as the stand-in does, leaves STATUS next.
+4. **A longer wait for READY** on delta requests than `cranium-link`'s 0.5 s (see READY above).
 
 ## What the Pi does
 
@@ -436,25 +490,32 @@ None of it measured.
 `pi/cranium_link.py` already drives it). The board is the target; nothing on the Pi needs SPI target
 mode.
 
-## Next to the message link
+## Sharing the message link
 
-PR #58 brings the message link: the Pi sends its `np` and `hb` messages to the board on the
-same pins and frames. This work shares them:
+PR #58 brings the message link: the Pi sends its `np` and `hb` messages to the board over SPI. This work
+runs on top of it, as one link:
 
-- **The frames are #58's own:** `src/pi/pi_frame.c` and `pi_frame.h` are byte for byte the files in
-  #58, so #58 rebases onto this with no change to them. The delta requests use new types (`0x10` to
-  `0x13`, answers `0x90` to `0x93`, `0xff`), which #58's code does not use. POLL (`0x02`) means the
-  same in both.
-- **One SPIS3:** both links own SPIS3, D9 to D13 and the READY pin, and both declare them in the
-  devicetree (#58 in the nRF7002 DK's overlay, this in `boards/pi_delta.overlay`). Until they are one
-  link, a build has one or the other: when #58 merges, `APP_PI_DELTA` gets `depends on !APP_PI_LINK`
-  (it cannot name that symbol before it exists), or better, one dispatcher answers DATA (`0x01`) as
-  #58 does and the delta requests as here.
-- **What differs from #58:** #58's board answers with a 16-byte STATUS frame and `0xff` after it;
-  here the answer is a whole frame of up to 512 bytes, so the board's transmit buffer is 512 bytes.
-  #58 handles transfers on the system work queue; here a work queue of its own, because a READ waits
-  for the SD card. Neither changes #58's frame format, pins or timing.
-- **Nothing on the Pi's side is written here.** `pi/` is the Pi's owner's.
+- **One SPI driver, #58's `pi_link.c`.** It takes every transfer; `pi_rx.c` sorts each frame by type
+  and hands the delta requests to `pi_dlink.c`. This page's first version (PR #276) had a driver of
+  its own (`pi_dlink_spis.c`), its own `&spi3` and READY pin in `boards/pi_delta.overlay`, and
+  Kconfig selects of its own: all gone. `APP_PI_DELTA` depends on `APP_PI_LINK`, and
+  `boards/pi_delta.overlay` holds only the SD card.
+- **A build without `--pi` is #58's**, byte for byte in behaviour: the same 16-byte STATUS buffer,
+  the system work queue, and the delta types counted as unknown (`pi_rx_tests`). Its memory is #58's
+  to the byte ([Memory](#memory)).
+- **A `--pi` build** grows the transmit buffer to a whole frame (a delta answer is up to 512 bytes),
+  arms each answer with its own length so that `0xff` follows it as it follows STATUS, and runs the
+  link's work on a queue of its own (`APP_PI_DELTA_LINK_STACK_SIZE`, 2048 bytes, and
+  `APP_PI_DELTA_LINK_PRIORITY`, 5), since a READ waits for the SD card. That queue also prints the
+  Pi's messages, as the system work queue did. `STATUS|pi` gains a line, `pi delta  <n> answered,
+  <n> refused`. The link answers delta requests as with no card until the update's side has set the
+  card up at start.
+- **What changed from #276's own link:** POLL's answer is STATUS, not the last answer again; a
+  damaged frame gets STATUS, not ERROR `bad_frame`; a delta answer's session and ack are the
+  message link's, and its seq is the request's (it echoed the request's session and seq before).
+  The frames, the pins, the requests and their payloads are as they were.
+- **Nothing on the Pi's side is written here.** `pi/` is the Pi's owner's; what it needs is in
+  [What the Pi's side needs for the shared link](#what-the-pis-side-needs-for-the-shared-link).
 
 ## Memory
 
@@ -463,37 +524,44 @@ and without `--pi`), read with `tools/memory_budget.py`.
 
 | Build | App flash free (of 794,474) | App RAM free (of 405,504) | MCUboot flash free | TF-M flash / RAM free |
 | --- | --- | --- | --- | --- |
-| Default (Bluetooth, no Pi), this branch | 38,154 | 932 | 12,484 | 552 / 12,532 |
-| `--pi` (Pi delta updates, no Bluetooth), this branch | 100,210 | 19,808 | 12,484 | 552 / 12,532 |
+| Default (Bluetooth, the message link, no delta updates), this branch | 33,226 | 1,860 | 12,484 | 552 / 12,532 |
+| Default, #58 alone, for comparison | 33,226 | 1,860 | 12,484 | 552 / 12,532 |
+| `--pi` (the message link with delta updates, no Bluetooth), this branch | 98,474 | 18,960 | 12,484 | 552 / 12,532 |
+| `--pi` with a link of its own (#276), for comparison | 100,210 | 19,808 | 12,484 | 552 / 12,532 |
 | No Bluetooth, 1.18.0, for comparison (`tools/memory_budgets.json`) | 128,410 | 36,104 | 15,212 | 552 / 12,532 |
 
-**The default build pays nothing:** 38,154 bytes of flash and 932 of RAM free, the same as 1.19.3. Everything
-of this is behind `CONFIG_APP_PI_DELTA`, and the job record's Pi fields are only in a Pi build.
+**The default build pays nothing:** 33,226 bytes of flash and 1,860 of RAM free, #58's own figures to the
+byte. Everything of this is behind `CONFIG_APP_PI_DELTA`, and the job record's Pi fields are only in a Pi
+build.
 
-**A Pi build** takes about 16 KiB of the RAM that turning Bluetooth off frees, roughly:
+**A Pi build** takes about 17 KiB of the RAM that turning Bluetooth off frees, roughly:
 
 | Item | Size |
 | --- | --- |
 | The update's thread stack (it runs TLS) | 5 KiB |
 | The job's URL (host and path) | 2.3 KiB |
 | The update's buffers (three sectors, the target manifest, a SHA-256) | about 2 KiB |
+| The link's work queue stack (it also prints the Pi's messages) | 2 KiB |
 | The link: a frame each way and a cached sector | 1.5 KiB |
-| The link's work queue stack | 1.5 KiB |
 | The card: two manifest headers and a sector | about 1 KiB |
 | The HTTP buffer | 1 KiB |
-| The SD host, disk access and SPI target drivers | the rest |
+| The message link's own: the start of the last `np` and `hb`, its counts | about 0.3 KiB |
+| The SD host, disk access and SPI peripheral drivers | the rest |
 
-That leaves 19,808 bytes free. `tools/memory_budgets.json` holds the `Pi delta updates` configuration's floors
-(19 KiB of RAM and 96 KiB of flash for the application), and `.github/workflows/ci.yml` builds it when CI runs
-again. None of the stacks has been measured on a board ([Hardware test plan](#hardware-test-plan), step 9).
+That leaves 18,960 bytes free, 848 fewer than with a link of its own: the larger queue stack (512) and
+the message link's own state. `tools/memory_budgets.json` holds the `Pi delta updates` configuration's
+floors (18 KiB of RAM and 96 KiB of flash for the application), and `.github/workflows/ci.yml` builds it
+when CI runs again. None of the stacks has been measured on a board
+([Hardware test plan](#hardware-test-plan), step 9).
 
 ## Tests
 
 | Where | What | Count |
 | --- | --- | --- |
-| `make -C firmware/tests/host`: `pi_delta_tests` | The formats and every refusal; the card's two state copies, a save cut in half, a card too small; the first image onto an empty card; deltas, larger and smaller images; a bad signature, a changed header, a job that names another image, a table that is not the signed one, too many blocks (the card untouched); a block from the server wrong once and always (never written); a card that writes wrong; **the power cut at each of 215 writes of an update in turn**, each resuming to the new image with at most one block downloaded twice; lost connections in the blocks and in the table; the card pulled out and put back; a withdrawn job; another image half way; every link request, the malformed ones, POLL, a READ while updating, a cached sector after an update; the job document; the HTTP head | 959 checks |
+| `make -C firmware/tests/host`: `pi_delta_tests` | The formats and every refusal; the card's two state copies, a save cut in half, a card too small; the first image onto an empty card; deltas, larger and smaller images; a bad signature, a changed header, a job that names another image, a table that is not the signed one, too many blocks (the card untouched); a block from the server wrong once and always (never written); a card that writes wrong; **the power cut at each of 215 writes of an update in turn**, each resuming to the new image with at most one block downloaded twice; lost connections in the blocks and in the table; the card pulled out and put back; a withdrawn job; another image half way; every link request, the malformed ones, a READ while updating, a cached sector after an update; **the shared link, a mixed sequence as `pi_link.c` takes it** (DATA, delta requests, POLL, a repeated DATA, unknown types, a bad CRC, nothing, a refusal, no card yet), each frame answered in the next transfer with its answer or STATUS; the job document; the HTTP head | 1009 checks |
+| `make -C firmware/tests/host`: `pi_rx_tests`, `pi_rx_delta_tests` | The message link's receiver (`pi_rx.c`) built as every other build has it, where `0x10` to `0x13` are unknown types, and as a Pi build has it, where they are delta requests; DATA, repeats, POLL, a bad CRC and nothing the same in both | 32 checks each |
 | `make -C firmware/tests/host`: `ota_pi_tests` | `ota.c` in a Pi build, against a fake of the Pi side: a Pi job goes to it, again for a fresh URL; a firmware job named while it runs, or no job at all, withdraws it; a Pi job waits while a firmware update runs; a bad Pi document is refused | 511 checks (21 of them new) |
-| `firmware/tests/hil/test_pi_delta.py` | `tools/pi_image.py` (the package, its checks, the comparison, the records, the built-in key, the card's layout); the board's C code on the host with real ECDSA (tinycrypt, MCUboot's own) against packages the tool signed; `tools/pi_delta_sim.py` as the Pi taking only the changed blocks and ending with the new image's SHA-256: from the list, by comparison two versions behind, from an empty card, with power cuts, a lost connection, a wrong block, a noisy wire, 64 KiB blocks, and malformed requests | 17 tests |
+| `firmware/tests/hil/test_pi_delta.py` | `tools/pi_image.py` (the package, its checks, the comparison, the records, the built-in key, the card's layout); the board's C code on the host with real ECDSA (tinycrypt, MCUboot's own) against packages the tool signed; `tools/pi_delta_sim.py` as the Pi taking only the changed blocks and ending with the new image's SHA-256: from the list, by comparison two versions behind, from an empty card, with power cuts, a lost connection, a wrong block, a noisy wire, 64 KiB blocks, and malformed requests; messages between the requests on the same link, each delivered once, on a clean and a noisy wire; and `pi/cranium_link.py` itself beside delta requests (a delta answer costs it a transfer; `--status` right after an untaken delta answer finds none, the next one finds STATUS) | 19 tests |
 
 **CI is off** (GitHub Actions is paused for billing). All of the above was run locally.
 
@@ -527,8 +595,11 @@ In this order, each only after the one before passes:
    out and put it back; check card detect's polarity.
 3. **Seed a card:** `tools/pi_image.py card` with a small test image (a few MB), written with `dd`.
    The log says ready, generation 1.
-4. **The Pi's link, INFO:** wire the Pi as in [Wiring](#wiring), and from the Pi send INFO with a
-   few lines of `spidev` (or the Pi's owner's first code). Expect state 1 and the version.
+4. **The Pi's link, INFO:** wire the Pi as in [Wiring](#wiring). First `cranium-link --status` and a
+   message, as in `docs/pi-link.md`: the message link must work as before. Then, with `cranium-link`
+   stopped, send INFO from the Pi with a few lines of `spidev` (or the Pi's owner's first code), and
+   a POLL to take its answer. Expect state 1 and the version, and `STATUS|pi` on the board's console
+   to count it under `pi delta`.
 5. **READ a whole small image** from the Pi and compare its SHA-256. Then time 10 MB of READs.
 6. **A delta job:** a second image with a few blocks changed, uploaded to the bucket by hand and
    deployed to the one board, with a long timeout. Watch `IN_PROGRESS` reports; expect `fetched`
@@ -546,7 +617,8 @@ None of this has run on a board, a card or a Pi:
 
 - The SD card through Zephyr's SD host on SPIM2: its start at 400 kHz, 8 MHz, sizes over 32 GB, and
   taking it out and in again (`DISK_IOCTL_CTRL_DEINIT` then `INIT`).
-- SPIS3 with 512-byte answers, READY's timing, and the link's work queue under load.
+- The shared link with 512-byte answers: READY's timing while a READ waits for the card, the link's
+  own work queue under load, and messages and delta requests on one link from the Pi.
 - The TLS client: S3's answers to range requests, keep-alive between them, a range past 4 GiB, an
   expired URL's 403, and the heap and stack it takes beside AWS IoT.
 - PSA's ECDSA check with the built-in key (the host tests check the same bytes with MCUboot's
