@@ -1034,6 +1034,41 @@ function readTimeline(body) {
   };
 }
 
+// What a board played (GET /api/devices/{thing}/plays, firmware 1.20.1, plays.js): each track Mixxx reported
+// playing on the board's Raspberry Pi, oldest first, with how long it played.
+
+/** How many of a board's plays its page shows: the newest, in the order played. */
+export const PLAYS_SHOWN = 200;
+
+/** One play. A text that is not one reads as empty, a number that is not one as not known. */
+export function readPlay(raw) {
+  const item = record(raw);
+  const bpm = typeof item.bpm === 'number' && item.bpm > 0 && item.bpm < 1000 ? Math.round(item.bpm * 10) / 10 : null;
+  return {
+    title: text(item.title, 120),
+    artist: text(item.artist, 120),
+    genre: text(item.genre, 120),
+    bpm,
+    key: optionalText(item.key, 12),
+    lengthS: whole(item.lengthS, 1, 86_400),
+    playedAt: instant(item.playedAt),
+    playedS: whole(item.playedS, 0, 86_400),
+    playing: item.playing === true,
+  };
+}
+
+function readPlays(body) {
+  const reply = record(body);
+  return {
+    thing: isThing(reply.thing) ? reply.thing : '',
+    plays: list(reply.plays)
+      .map(readPlay)
+      .filter((play) => play.playedAt !== null),
+    more: reply.more === true,
+    generatedAt: instant(reply.generatedAt),
+  };
+}
+
 function readUpdates(body) {
   const reply = record(body);
   return {
@@ -2925,6 +2960,13 @@ export function createApi({
       const asked = form(query);
       const path = `/api/devices/${checked(isThing, thing)}/timeline`;
       return readTimeline(await get(asked === '' ? path : `${path}?${asked}`));
+    },
+    /** What a board played, the newest `limit`, oldest first: { thing, plays, more, generatedAt } (plays.js). */
+    async plays(thing, { limit = null } = {}) {
+      const path = `/api/devices/${checked(isThing, thing)}/plays`;
+      if (limit === null) return readPlays(await get(path));
+      const count = checked((value) => Number.isInteger(value) && value >= 1 && value <= 500, limit);
+      return readPlays(await get(`${path}?${form({ limit: String(count) })}`));
     },
     deployment: async (id) =>
       readDeployment(record(record(await get(`/api/deployments/${checked(isDeploymentId, id)}`)).deployment)),

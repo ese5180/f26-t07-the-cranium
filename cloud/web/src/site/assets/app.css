@@ -12182,6 +12182,37 @@ span.glance-item:hover {
 }
 
 /*
+ * Plays (plays.js): what a board played, from its Raspberry Pi, as a table the width of the page. On a narrow
+ * screen it scrolls sideways inside its card, never the page. The track on the decks now is on the well colour,
+ * and says "Playing" in words.
+ */
+
+.plays-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.plays-table {
+  min-width: 40rem;
+}
+
+.plays-order,
+.plays-number,
+.plays-key,
+.plays-when {
+  white-space: nowrap;
+}
+
+.plays-order {
+  width: 2.5rem;
+  color: var(--ink-3);
+}
+
+.plays-table tr.is-playing > * {
+  background: var(--well);
+}
+
+/*
  * Compare and the version timeline (compare.js, docs/compare.md). The Devices page's tick boxes and the bar of
  * what is ticked; a board's versions as a vertical timeline, newest at the top; and the Compare page, its boards
  * side by side from 48rem wide and stacked, one card each, on a phone. Colours are the tokens, so dark mode is

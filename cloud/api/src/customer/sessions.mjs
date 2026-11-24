@@ -8,6 +8,10 @@
  * board's thing name, its ownership and the session ids the board chose never leave: a board is its
  * `ref`, and a session's id is a hash of the two. A board that sent nothing adds nothing, and a
  * board whose items cannot be read is left out with a line in the log, not an error for the page.
+ *
+ * From firmware 1.20.1 a board sends plays, each track as Mixxx reports it on the board's Pi, and no
+ * sessions: its plays are grouped into sets (lib/sessions.mjs playSets: a pause of more than half an hour
+ * begins the next), and each set is a session here, with each track's BPM and key and how long it played.
  */
 
 import { createHash } from 'node:crypto';
@@ -15,8 +19,13 @@ import { createHash } from 'node:crypto';
 import {
   NOW_RANGE,
   PARTITION,
+  PLAY_RANGE,
   SESSION_RANGE,
+  UNTITLED,
   nowPlayingFromItem,
+  playFromItem,
+  playSets,
+  playsInOrder,
   sessionFromItem,
   trackFromItem,
   trackRange,
@@ -24,6 +33,7 @@ import {
 
 export const SESSIONS_PER_BOARD = 100;
 export const TRACKS_PER_BOARD = 2000;
+export const PLAYS_PER_BOARD = 2000;
 
 /** The id the site uses (customer-core.js SESSION_ID): "s" and 8 hex digits, per board and session. */
 export function siteSessionId(ref, id, startedAt) {
@@ -65,6 +75,40 @@ function shown(ref, session, tracks) {
 }
 
 /**
+ * A set of a board's plays (lib/sessions.mjs playSets) as a session in the same shape. The board chose no id, so
+ * the set's start names it. A track that is playing has played until now; one whose end is not known has no end.
+ */
+function shownSet(ref, set, nowMs) {
+  const began = Date.parse(set.startedAt);
+  const tracks = set.plays.map((play) => {
+    const startedMs = Date.parse(play.playedAt);
+    const start = seconds(startedMs - began);
+    const playedS = play.playing ? Math.max(0, Math.round((nowMs - startedMs) / 1000)) : play.playedS;
+    return {
+      title: play.title || UNTITLED,
+      artist: play.artist,
+      deck: null,
+      start,
+      end: playedS === null ? null : Math.round((start + playedS) * 10) / 10,
+      bpm: play.bpm,
+      key: play.key,
+      playedAt: play.playedAt,
+      durationS: playedS,
+    };
+  });
+  const out = {
+    id: siteSessionId(ref, 'plays', set.startedAt),
+    title: 'A session',
+    startedAt: set.startedAt,
+    source: 'board',
+    board: ref,
+    tracks,
+  };
+  if (set.endedAt !== null) out.endedAt = set.endedAt;
+  return out;
+}
+
+/**
  * @param {object} options
  * @param {{ queryEvents: Function }} options.aws
  * @param {{ thing: string, ref: string, assignedAt?: string }[]} options.boards  the customer's own, from the
@@ -92,11 +136,19 @@ export async function boardSessions({ aws, boards, nowMs, log = () => {} }) {
               .filter(live)
               .map(trackFromItem)
               .filter((track) => track !== null && theirs(track.playedAt));
+      const plays = (await aws.queryEvents({ thing: pk, ...PLAY_RANGE, limit: PLAYS_PER_BOARD }))
+        .filter(live)
+        .map(playFromItem)
+        .filter((play) => play !== null && theirs(play.playedAt));
+      const sets = playSets(playsInOrder(plays, nowMs)).map((set) => shownSet(ref, set, nowMs));
       const [now] = await aws.queryEvents({ thing: pk, ...NOW_RANGE, limit: 1 });
       const found = live(now) ? nowPlayingFromItem(now, nowMs) : null;
       const playing = found !== null && theirs(found.playedAt) ? found : null;
       return {
-        sessions: sessions.map((session) => shown(ref, session, tracks)).filter((session) => session.tracks.length > 0),
+        sessions: [
+          ...sessions.map((session) => shown(ref, session, tracks)).filter((session) => session.tracks.length > 0),
+          ...sets,
+        ],
         nowPlaying: playing === null ? [] : [{ board: ref, ...playing }],
       };
     })

@@ -78,6 +78,13 @@
       "script": "compare.js",
       "draw": "timelineSection",
       "api": ["GET /api/devices/{thing}/timeline"]
+    },
+    {
+      "page": "#/devices/{thing}",
+      "title": "Plays",
+      "script": "plays.js",
+      "draw": "playsSection",
+      "api": ["GET /api/devices/{thing}/plays"]
     }
   ],
   "outside": ["https://app.memfault.com/organizations/example/projects/cranium/devices/cranium-0123456789abcdef"]
