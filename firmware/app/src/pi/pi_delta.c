@@ -690,10 +690,10 @@ enum pi_err pi_delta_run(struct pi_delta *d, const struct pi_delta_job *job, boo
 	if (!resume) {
 		uint8_t slot = (st->flags & PI_FLAG_HAS_CUR) ? (uint8_t)(st->cur_slot ^ 1u) : 0u;
 
-		err = pi_card_write_slot_header(card, slot, d->io);
-		if (err != PI_OK) {
-			return err;
-		}
+		/*
+		 * The state first: from here a restart fetches the table again from its start, so the
+		 * header written next never meets another update's table, list and progress.
+		 */
 		pi_card_lock(card);
 		if (st->state == PI_STATE_UPDATING) {
 			/* Half way to another image: what the mirror holds is a mix. */
@@ -706,6 +706,9 @@ enum pi_err pi_delta_run(struct pi_delta *d, const struct pi_delta_job *job, boo
 		card->neu = d->target;
 		err = save(d);
 		pi_card_unlock(card);
+		if (err == PI_OK) {
+			err = pi_card_write_slot_header(card, slot, d->io);
+		}
 		if (err != PI_OK) {
 			return err;
 		}

@@ -796,6 +796,12 @@ static void test_other_image_half_way(void)
 	st = state_on_card(&w);
 	CHECK(st.state == PI_STATE_UPDATING && st.next == 8);
 
+	/* t2's job: the power goes at its second write, between the slot header and the state. */
+	serve(&w, t2, size, "t2");
+	w.disk.writes_left = 1;
+	CHECK(run(&w, NULL) == PI_ERR_SD_IO);
+	fake_disk_power_on(&w.disk);
+
 	/* t2 differs from v1 in block 30 only, but blocks 0 to 7 are t1's now. */
 	serve(&w, t2, size, "t2");
 	CHECK(run(&w, NULL) == PI_OK);
