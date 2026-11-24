@@ -61,6 +61,7 @@ The cloud is one AWS SAM stack (`cloud/infra/template.yaml`): an HTTP API, AWS I
 | Fleet health score | One number 0 to 100 with its trend | 2.x | Overview, `docs/fleet-health.md` | Summarises the fleet at a glance |
 | Search and filters | The same search and filter bar on every long list | 2.12.0 | `docs/search-filters.md` | One shared component |
 | Compare two boards | Why one board behaves differently from another | 2.16.0 | `compare`, `docs/compare.md` | Side-by-side config and history |
+| Plays | What each board played on its Raspberry Pi, a table in play order on its page: title, artist, BPM, key, time played (until the next track, at most its length) and when, the track playing now marked | 2.29.0 | `plays.js`, `cloud/api/src/handlers/plays.mjs`, `docs/customer-data.md` "Plays" | Forward a co-processor's event whole and date it in the cloud when the device has no clock; derive durations from consecutive events |
 | Weekly reports | One page per week: how the fleet did, what was sent, what changed | 2.19.0 | `reports`, `docs/reports.md` | Generated, not hand-written |
 | Map | Boards placed by the Wi-Fi they hear | 2.x | `map` | Needs no GPS on the board |
 | Memfault page | Crashes and metrics from Memfault inside the console | 2.x | `memfault`, `docs/memfault.md` | Nav label: Crashes |
@@ -106,7 +107,7 @@ craniumiot.com is where device owners sign in and see their own boards and nothi
 | Admin mode | Team members open the console from the customer site | One domain for customers, one for the team |
 | Customer accounts | Release managers hand out accounts and boards from the console's Customers page | A customer sees only their boards |
 | My boards | Each board with a health dot, its week in a sentence, restarts by day, firmware and last report | Health in plain words, not raw metrics |
-| Product pages | Mixes, Now playing, play times and Your listening, from the board's sessions | Swap in your own product's telemetry |
+| Product pages | Mixes, Now playing, play times and Your listening, from the board's sessions or, from console 2.29.0, its plays (with BPM and key) | Swap in your own product's telemetry |
 | Public front page | What the product is and how updates work, readable without JavaScript | Plain HTML |
 | Shared design | The console's tokens, with the site's own dark sidebar | One design system, two products |
 
@@ -179,6 +180,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-24 | Plays: what each board played from its Pi, in order with BPM, key and time played, on its page and the customer's Mixes | console 2.29.0 | #281 |
 | 2026-11-16 | Golden image promotion over the air: signed record, counter floor, the bootloader seals it (board runs it; the promotion itself not yet tried on hardware) | firmware 1.19.3 | v1.19.3 |
 | 2026-11-15 | Closed-loop HIL bench (Adam's): UART to Bluetooth telemetry app, Saleae and PPK2 acceptance, MCP bench tools, host tests in CI (not yet on hardware) | — | #261 |
 | 2026-11-12 | Console navigation in groups, a floating tab bar shaped for the iPhone 17 Pro's corners, Fleet folded into Devices and Deployments, Memfault named Crashes | console 2.28.0 | #258 |

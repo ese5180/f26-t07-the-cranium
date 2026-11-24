@@ -100,6 +100,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createApp } from '../api/src/app.mjs';
 import { loadConfig } from '../api/src/config.mjs';
+import { createRecorder } from '../api/src/recorder.mjs';
 import { createRolloutTick } from '../api/src/tick.mjs';
 import { createCustomerApp } from '../api/src/customer/app.mjs';
 import { issuerOf } from '../api/src/customer/config.mjs';
@@ -1031,6 +1032,7 @@ function duration(text) {
  */
 function createStage({ fake, clock, boards, callApi, tick, say, customers = null }) {
   const begun = clock.now();
+  const playRecorder = createRecorder({ store: fake.eventStore(), now: () => clock.now(), log: () => {} });
   // Up to when the boards that are on have reported while the scenario's time went by.
   let passed = null;
   // When the release manager of the scenario signed in, in epoch seconds, once they have.
@@ -1075,6 +1077,15 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
     /** Go to the moment that lay this long before the preview started, e.g. "2h50m". */
     ago(text) {
       passTo(begun - duration(text));
+    },
+
+    /**
+     * A track the board's Raspberry Pi reported playing (firmware 1.20.1): the board's play message, through the
+     * recorder as the session rule hands it over. `np` is the Pi's message without its "t".
+     */
+    async play(board, np, ageS = 1) {
+      const message = { v: 1, type: 'play', ageS, np: { t: 'np', ...np } };
+      await playRecorder({ ...message, thing: board.thing, channel: 'session', received: clock.now() });
     },
 
     /** Let the time go by up to when the preview started. */
@@ -1443,6 +1454,20 @@ async function fleet(stage) {
   stage.ago('1h40m');
   await stage.group('Lab bench', [first, fourth]);
   const demo = await stage.group('Demo', [second, third, fifth]);
+  // A set on the first board's Raspberry Pi (firmware 1.20.1), for its Plays card: one track a few minutes,
+  // the key only on the tracks the Pi had one for.
+  for (const [ago, np] of [
+    ['1h36m', { ti: 'Strobe', ar: 'deadmau5', ge: 'Progressive House', bpm10: 1280, dur: 637, ky: '8A' }],
+    ['1h30m', { ti: 'Opus', ar: 'Eric Prydz', ge: 'Progressive House', bpm10: 1260, dur: 543 }],
+    ['1h25m', { ti: 'Pjanoo', ar: 'Eric Prydz', ge: 'House', bpm10: 1255, dur: 418, ky: '11A' }],
+    ['1h19m', { ti: 'Ghosts n Stuff', ar: 'deadmau5', ge: 'Electro House', bpm10: 1280, dur: 301 }],
+    ['1h15m', { ti: 'Language', ar: 'Porter Robinson', ge: 'Progressive House', bpm10: 1280, dur: 362 }],
+    // A file with no tags: no title, artist or BPM.
+    ['1h9m', { ti: '', ar: '', ge: '', bpm10: 0, dur: 280 }],
+  ]) {
+    stage.ago(ago);
+    await stage.play(first, np);
+  }
   stage.ago('1h');
   second.disconnect('CONNECTION_LOST');
 
@@ -1464,6 +1489,16 @@ async function fleet(stage) {
 
   await campusMap(stage, third);
   await androidReleases(stage);
+  // After a pause, the track on its decks now: a set of its own. Before the customers' scenario goes on.
+  stage.ago('1m55s');
+  await stage.play(first, {
+    ti: 'Cola',
+    ar: 'CamelPhat, Elderbrook',
+    ge: 'Tech House',
+    bpm10: 1240,
+    dur: 420,
+    ky: '6A',
+  });
   return [first, second, third];
 }
 

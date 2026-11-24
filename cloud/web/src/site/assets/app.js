@@ -270,6 +270,7 @@ function paint() {
   // `memfault` is memfault-page.js once it is here: a board's reboots, events and issues in Memfault.
   // `labels` is labels.js once a board's page has asked for its QR code and label.
   // `compare` is compare.js once it is here: a board's version timeline, and the Compare page.
+  // `plays` is plays.js once it is here: what a board played, from its Raspberry Pi.
   const ctx = {
     state,
     actions,
@@ -277,6 +278,7 @@ function paint() {
     memfault: memfaultScript,
     labels: labelsScript,
     compare: compareScript,
+    plays: playsScript,
   };
   nav.hidden = false;
   account.hidden = false;
@@ -588,6 +590,8 @@ const pages = {
         memfaultReady().then((script) => script?.refreshBoard(thing, full)),
         // Every version it ran (compare.js): read a minute apart at most.
         compareReady().then((script) => script?.refreshTimeline(thing, full)),
+        // What it played, from its Pi (plays.js): read a minute apart at most.
+        playsReady().then((script) => script?.refreshPlays(thing, full)),
       ]);
       // The board's own page says its last update: when that is not the list's newest, the list is behind.
       const last = state.deviceDetails.get(thing)?.value?.lastUpdate ?? null;
@@ -1186,6 +1190,7 @@ let dbScript = null;
 let memfaultScript = null;
 let labelsScript = null;
 let compareScript = null;
+let playsScript = null;
 let reportsScript = null;
 
 /** reports.js, fetched once, when the Reports page or a week's report is first opened. */
@@ -1215,6 +1220,15 @@ async function compareReady() {
     compareScript?.connect({ state, api, load, draw, now: () => clock.now(), memfault: memfaultReady });
   }
   return compareScript;
+}
+
+/** plays.js, fetched once, when a board's page is first opened. */
+async function playsReady() {
+  if (!playsScript) {
+    playsScript = await pageScript(() => import('./plays.js'));
+    playsScript?.connect({ state, api, load, now: () => clock.now() });
+  }
+  return playsScript;
 }
 
 /** A board ticked or unticked on the Devices page. */

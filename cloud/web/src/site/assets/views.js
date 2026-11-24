@@ -4494,6 +4494,8 @@ export function deviceView(ctx) {
         )
       )
     ),
+    // What it played, from its Raspberry Pi, in order, the width of the page (plays.js).
+    ctx.plays?.playsSection(thing, ctx) ?? null,
     // Its Memfault heartbeat metrics as charts over 24 h or 7 d, the width of the page (memfault-page.js).
     ctx.memfault?.metricsSection(thing, ctx) ?? null
   );

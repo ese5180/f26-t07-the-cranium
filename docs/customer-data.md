@@ -16,9 +16,9 @@ fields in `boards.mjs`); the pages are `cloud/web/src/customer/assets/`; the mix
 | Each board's status, firmware, last seen | Board, already | — |
 | Firmware versions across their boards | Board, already | — |
 | Recent activity: online/offline, updates, restarts, Bluetooth | Board, already (events) | — |
-| Latest session, and a moment to revisit | **The board's sessions once it has sent one (console 2.23.0), else demo data or a file the customer imports** | **Sessions and tracks** (see Mixes) |
-| Hours on the decks, sessions, plays, unique tracks, overlaps | **Worked out from the board's sessions, else from demo or imported ones** | Worked out from the sessions the board sends |
-| Now playing | **The board's now playing message (console 2.23.0)** | A now playing message (see below) |
+| Latest session, and a moment to revisit | **The board's sessions or plays once it has sent one (console 2.23.0, plays 2.29.0), else demo data or a file the customer imports** | Plays, from firmware 1.20.1 (see [Plays](#plays-firmware-1201-and-console-2290)) |
+| Hours on the decks, sessions, plays, unique tracks, overlaps | **Worked out from the board's sessions or plays, else from demo or imported ones** | Worked out from what the board sends |
+| Now playing | **The board's now playing message (console 2.23.0), or its latest play (2.29.0)** | Plays (see below) |
 
 ## Devices, and each device's page
 
@@ -42,6 +42,11 @@ fields in `boards.mjs`); the pages are `cloud/web/src/customer/assets/`; the mix
 The mixes come from the sessions the board sends, as soon as it has sent one (`GET /api/c/sessions`, see "The messages"
 below). Until then they come from a made-up demo, or from session files the customer imports, kept only in their
 browser, and the page says which.
+
+From firmware 1.20.1 and console 2.29.0 a board sends **plays** instead (see [Plays](#plays-firmware-1201-and-console-2290)):
+each track as Mixxx reports it on the board's Pi. The customer API makes them into sessions in the same shape: a pause of
+more than half an hour between one track's end and the next track's start begins a new one. Those sessions have each
+track's BPM, and its key once the Pi sends one; they have no deck and no title of their own ("A session").
 
 ### What the board must send for each session
 
@@ -111,9 +116,47 @@ With `durationS`, the site shows it until the track has ended; without, for 15 m
 (optional) names the session id it belongs to.
 
 Stored in the events table under `pk = SES#<thing>`: `S#<startedAt>#<id>` a session, `T#<playedAt>#<id>` a track,
-`NOW` the now playing (kept a day; sessions and tracks 400 days). The customer API serves them for the caller's own
-boards only, as sessions in the site's shape (`source: "board"`, a hashed id, no deck, BPM or key yet) and the now
-playing, and the site uses them when there are any.
+`NOW` the now playing (kept a day; sessions and tracks 400 days), and from console 2.29.0 `P#<playedAt>` a play (400
+days). The customer API serves them for the caller's own boards only, as sessions in the site's shape (`source:
+"board"`, a hashed id, no deck; BPM and key only in sessions made from plays) and the now playing, and the site uses
+them when there are any.
+
+## Plays (firmware 1.20.1 and console 2.29.0)
+
+A play is one track the Pi's collector reported playing (its `np` message, `pi/cranium_collect.py`), which the board
+forwards whole on the same topic, at most one every 5 seconds (newest first when tracks change faster):
+
+```json
+{ "v": 1, "type": "play", "ageS": 3,
+  "np": { "t": "np", "ti": "Strobe", "ar": "deadmau5", "ge": "House", "bpm10": 1280, "dur": 600, "ky": "8A" } }
+```
+
+| Field | Meaning | Kept as |
+| --- | --- | --- |
+| `ageS` | Seconds since the `np` reached the board, 0 to 604800 (it waits while the board is offline) | The play's time: when AWS IoT took the message, less this. The board has no clock |
+| `np.ti`, `np.ar`, `np.ge` | Title, artist, genre | Texts of at most 120 characters; a control character becomes a space. An empty title is shown as "Untitled" |
+| `np.bpm10` | BPM × 10, 0 to 9999; 0 is not known | `bpm10`; served as `bpm` = `bpm10` / 10 |
+| `np.dur` | The track's length in seconds; 0, or more than a day, is not known | `lengthS` |
+| `np.ky` | The key, at most 12 characters (not sent by the Pi yet) | `key`; "—" until there is one |
+
+The message itself may hold only `v`, `type`, `ageS` and `np`, and `np` must say `"t": "np"`; a value of the wrong type
+or out of range drops the whole play (`bad_age`, `bad_np`). A field of `np` the cloud does not know yet is left out,
+not refused, so the Pi can add one before the cloud reads it. A play less than 15 minutes old also replaces `NOW`.
+
+**How long each track played** is worked out when the plays are read (`playsInOrder` in `cloud/api/src/lib/sessions.mjs`):
+until the next play began, at most the track's length (an hour when its length is not known). The newest is playing
+while its length has not run out (15 minutes with no length), and after that it played its length as far as is known.
+A track skipped on the board (two within 5 seconds) counts toward the one before it.
+
+**The console** shows them on each board's page, in the Plays card (`plays.js`): a table in the order played with the
+title, artist, BPM, key, time played and when, the track playing now marked "Playing". It reads
+`GET /api/devices/{thing}/plays?limit=<1-500>` (`handlers/plays.mjs`): `{ thing, plays, more, generatedAt }`, the
+newest `limit` plays (200 unless asked) oldest first, each `{ title, artist, genre, bpm, key, lengthS, playedAt,
+playedS, playing }`.
+
+**What the Pi does not send yet:** the key (`ky`), and a time of its own. An `np` has no time, so one that waited on the
+Pi while the board did not answer (the Pi's sender keeps up to 500) is dated when it reached the board; most of such a
+backlog is skipped by the board's rate limit.
 
 ## What a customer can change (console 2.18.0)
 
@@ -164,7 +207,7 @@ can, is for the console.
 
 ## Worth sending as well (not shown today)
 
-- **Now playing:** the track on each deck as it plays, for a live view.
+- **Now playing:** the track on each deck as it plays, for a live view (plays give the main track since 2.29.0).
 - The crossfader and volume through a transition, for a fuller transition view.
 - Each track's length, and the play count from Mixxx's own library.
 

@@ -108,6 +108,7 @@ import { createSerialHandlers } from './handlers/serial.mjs';
 import { createSidestoreHandlers } from './handlers/sidestore.mjs';
 import { createTeamHandlers } from './handlers/team.mjs';
 import { createTimelineHandlers } from './handlers/timeline.mjs';
+import { createPlaysHandlers } from './handlers/plays.mjs';
 import { createTokenHandlers } from './handlers/tokens.mjs';
 import { createUpdateHandlers } from './handlers/updates.mjs';
 import {
@@ -339,6 +340,8 @@ export function createApp({
   const events = createEventHandlers(context, { devices });
   // Each board's version timeline (handlers/timeline.mjs), made from the update history.
   const timeline = createTimelineHandlers(context, { devices, updates });
+  // What each board played, from its Pi (handlers/plays.mjs, firmware 1.20.1).
+  const plays = createPlaysHandlers(context, { devices });
   const firmware = createFirmwareHandlers(context, { deployments, fleet });
   // Golden image promotion (console 2.27.7, firmware 1.19.3): a release's signed record, and its jobs.
   const golden = createGoldenHandlers(context, { devices, fleet });
@@ -424,6 +427,7 @@ export function createApp({
     // What the boards did, and a board's readings: written by the recorder (recorder.mjs).
     route('GET', '/api/devices/{thing}/samples', events.samples),
     route('GET', '/api/devices/{thing}/timeline', timeline.board),
+    route('GET', '/api/devices/{thing}/plays', plays.board),
     route('GET', '/api/devices/{thing}/memfault', memfault.board),
     route('GET', '/api/memfault/fleet', memfault.fleet),
     route('GET', '/api/memfault/issues', memfault.issues),

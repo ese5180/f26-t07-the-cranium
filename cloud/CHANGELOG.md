@@ -7,6 +7,33 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.29.0
+
+What each board played. A board's page has a Plays card: every track Mixxx played on the board's Raspberry Pi, in order, with its title, artist, BPM, key, how long it played and when, and the track on the decks now marked Playing. The customer site's Mixes show the same for the customer's own boards, as sessions with each track's BPM and key. It needs firmware 1.20.1 on the board; the key shows once the Pi sends it.
+
+- Plays (#281): a board on firmware 1.20.1 forwards each `np` message of its Pi on `cranium/<thing>/session` as
+  `{"v":1,"type":"play","ageS":<s>,"np":{...}}`, through the existing `BoardSessionRule` and recorder: no new topic,
+  rule, policy or table, and nothing in `cloud/infra` changes. `lib/sessions.mjs` checks it (`bad_age`, `bad_np`; the
+  Pi's texts cleaned rather than refused, a field it adds later left out rather than refused), dates it from AWS IoT's
+  `received` less `ageS`, as the board has no clock, and stores `P#<playedAt>` in the board's `SES#` partition for 400
+  days, with `title`, `artist`, `genre`, `bpm10`, `key` (the Pi's `ky`) and `lengthS`. A play less than 15 minutes old
+  is also what is on the decks now (`NOW`). `playsInOrder` works out how long each played: until the next began, at
+  most its length; `playSets` makes sets of them, a pause of more than 30 minutes beginning the next.
+- `GET /api/devices/{thing}/plays?limit=<1-500>` (`handlers/plays.mjs`): the newest plays, oldest first, with `bpm`,
+  `key`, `lengthS`, `playedS` and `playing`, and `more`. A read for viewers and release managers, from the website, the
+  apps or an API token, like a board's timeline; on no record.
+- The Plays card (`plays.js`, fetched when a board's page first opens, read again at most once a minute): a table the
+  width of the page, which scrolls sideways inside its card on a phone; "—" for what the Pi did not say, "Untitled"
+  for a track with no title. The apps show it with this bundle: `apps/shared/pages.json` lists the card and its route
+  for the iPhone, Android and desktop parity tests.
+- The customer site: `GET /api/c/sessions` (`customer/sessions.mjs`) also makes each board's plays since it became the
+  customer's into sessions in the site's shape, each track with its BPM, key, start and end; the thing name never leaves.
+- The local preview's `fleet` scenario has a set of plays on its first board, through the recorder
+  (`cloud/dev/preview.mjs`, `stage.play`).
+- Tests: `cloud/api/test/plays.test.mjs` (simulated plays through the recorder: what is stored, every refusal, time
+  played, sets, the route, the customer's sessions), `cloud/web/test/plays.test.mjs` (the client, the card, its words,
+  its refresh, the phone layout); `mobile.test.mjs` and `site.test.mjs` know the new route and script.
+
 ## 2.28.0
 
 A new navigation, and a phone layout designed around the iPhone 17 Pro's rounded corners. The sidebar shows the sections in groups: Overview, Devices and Map; Releases; Monitoring; Admin. On a phone the tabs are Overview, Devices, Deploy, Alerts and More, in a floating bar whose rounded ends follow the screen's corners. The Fleet page is gone: board types and groups are on Devices, and staged rollouts, Update everything and Roll back to last good are on Deployments. Old Fleet links lead to Deployments. Memfault is called Crashes in the navigation.

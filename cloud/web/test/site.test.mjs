@@ -56,6 +56,7 @@ const scripts = assets.filter((name) => name.endsWith('.js'));
 // labels.js: a board's QR code and label, fetched when its page first shows them; Board setup imports it too.
 // offline.js: offline mode, a board's status over Bluetooth in the apps that offer it (docs/mobile-apps.md).
 // compare.js: a board's version timeline and the Compare page, fetched when either is first opened (docs/compare.md).
+// plays.js: what a board played, from its Raspberry Pi, fetched when a board's page is first opened.
 const ON_DEMAND = [
   'account.js',
   'apps.js',
@@ -71,6 +72,7 @@ const ON_DEMAND = [
   'map.js',
   'memfault-page.js',
   'offline.js',
+  'plays.js',
   'release-notes.js',
   'reports.js',
   'serial.js',
