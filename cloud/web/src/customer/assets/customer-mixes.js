@@ -431,8 +431,8 @@ export function boardSession(raw) {
       deck: null,
       start,
       end: end !== null && end > start ? end : null,
-      bpm: null,
-      key: null,
+      bpm: bpmOf(item.bpm),
+      key: text(item.key, LIMITS.key) || null,
       playedAt,
     });
   }

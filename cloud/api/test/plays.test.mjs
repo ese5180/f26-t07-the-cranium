@@ -101,6 +101,16 @@ test("the Pi's texts are cleaned rather than refused, and what it did not say is
   assert.equal(made({ np: np({ dur: 90_000 }) }).items[0].lengthS, undefined);
   // An age of nothing is no age.
   assert.equal(made({ ageS: undefined }).items[0].playedAt, iso(NOW - 500));
+  // A title cut where the read side counts too (UTF-16), never in the middle of an emoji, is read back.
+  for (const title of [
+    'x'.repeat(MAX_TEXT - 1) + '\u{1F3B5}',
+    'x'.repeat(MAX_TEXT - 2) + '\u{1F3B5}y',
+    '\u{1F3B5}'.repeat(MAX_TEXT),
+  ]) {
+    const [stored] = made({ np: np({ ti: title }) }).items;
+    assert.ok(stored.title.length <= MAX_TEXT && !/[\uD800-\uDBFF]$/.test(stored.title));
+    assert.equal(playFromItem(stored)?.title, stored.title);
+  }
 });
 
 test('a play that is not one is dropped whole, by a reason that never quotes it', () => {

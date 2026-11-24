@@ -165,7 +165,16 @@ test('sessions from the board: the time the board sent for a track is its play t
     startedAt: '2026-11-10T01:00:00Z',
     source: 'journal',
     tracks: [
-      { title: 'Strobe', artist: 'deadmau5', start: 60, end: 360, playedAt: '2026-11-10T01:05:00Z', durationS: 300 },
+      {
+        title: 'Strobe',
+        artist: 'deadmau5',
+        start: 60,
+        end: 360,
+        playedAt: '2026-11-10T01:05:00Z',
+        durationS: 300,
+        bpm: 128,
+        key: '8A',
+      },
       { title: '', artist: 'x', start: 0, playedAt: '2026-11-10T01:00:00Z' },
       { title: 'No time', artist: 'x', start: 0 },
     ],
@@ -174,6 +183,13 @@ test('sessions from the board: the time the board sent for a track is its play t
   assert.equal(board.source, 'board');
   assert.equal(board.id, 's0123abcd');
   assert.equal(board.tracks.length, 1);
+  // The BPM and key the board's plays carry reach the Mixes.
+  assert.equal(board.tracks[0].bpm, 128);
+  assert.equal(board.tracks[0].key, '8A');
+  assert.equal(
+    boardSession({ ...raw, tracks: [{ ...raw.tracks[0], bpm: undefined, key: undefined }] }).tracks[0].bpm,
+    null
+  );
   // The board's time, not the session start plus 60 s.
   assert.equal(playedAt(board, board.tracks[0]), Date.parse('2026-11-10T01:05:00Z'));
   assert.equal(sourceOf([board]), 'board');

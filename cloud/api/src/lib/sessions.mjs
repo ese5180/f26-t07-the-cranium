@@ -148,11 +148,19 @@ export function recordsFromSession(message, { nowMs }) {
   return { ignored: 'unknown_type' };
 }
 
-/** A text of the Pi's: a control character becomes a space, then at most `max` characters, trimmed; or null if not a text. */
+/**
+ * A text of the Pi's: a control character becomes a space, then at most `max` UTF-16 units, as the
+ * read side counts them, never splitting a character; trimmed; or null if not a text.
+ */
 function cleanedOf(value, max) {
   if (value === undefined) return '';
   if (typeof value !== 'string') return null;
-  return [...value.replace(CONTROLS, ' ').trim()].slice(0, max).join('').trim();
+  let cut = '';
+  for (const point of value.replace(CONTROLS, ' ').trim()) {
+    if (cut.length + point.length > max) break;
+    cut += point;
+  }
+  return cut.trim();
 }
 
 /** A whole number of the Pi's from 0 to `max`, 0 when it is not there; or null. */
