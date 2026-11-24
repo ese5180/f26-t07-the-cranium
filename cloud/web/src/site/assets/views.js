@@ -7912,7 +7912,10 @@ export function piDeployDialog(model) {
     const estimate = model.estimates?.get(device.thing) ?? null;
     let note;
     if (!able) {
-      note = `Needs firmware 1.20.0 or later built with --pi; runs ${device.fw?.version ?? 'an unknown version'}.`;
+      note =
+        device.pi?.card === 'no_card'
+          ? 'Has no card in it to write the image to.'
+          : `Needs firmware 1.20.0 or later built with --pi; runs ${device.fw?.version ?? 'an unknown version'}.`;
     } else if (model.estimateError) {
       note = 'What it would download could not be worked out.';
     } else if (model.estimates === null) {

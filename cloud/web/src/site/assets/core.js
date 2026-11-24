@@ -1228,7 +1228,12 @@ export function readPiHeader(bytes) {
 /** Whether a board can take a Pi image: it reports its card (a Pi build) and runs 1.20.0 or later. */
 export function takesPiImage(device) {
   const running = parseVersion(device?.fw?.version ?? '');
-  return Boolean(device?.pi) && running !== null && compareVersions(running, parseVersion(PI_FIRST_FIRMWARE)) >= 0;
+  return (
+    Boolean(device?.pi) &&
+    device.pi.card !== 'no_card' &&
+    running !== null &&
+    compareVersions(running, parseVersion(PI_FIRST_FIRMWARE)) >= 0
+  );
 }
 
 export const PI_CARD_WORDS = Object.freeze({
