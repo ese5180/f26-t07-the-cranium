@@ -7,6 +7,32 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.20.0
+
+Raspberry Pi delta updates, a build for boards wired to a Pi only (build.sh --pi, no Bluetooth), not yet tried on hardware: the board keeps the Pi's image on an SD card and brings it up to date by downloading only the blocks that changed, each checked against a signed manifest before it is written; the Pi takes them over SPI. Other builds are unchanged.
+
+Design and protocol: `docs/pi-delta-update.md`. A `"op": "pi_delta"` job names one package (`tools/pi_image.py
+package`): a 512-byte manifest header signed with the firmware signing key, a SHA-256 per 64 KiB block, then the
+image. The board checks the header's signature (PSA), downloads the table into the card slot the current image does
+not use, compares the two tables a sector at a time, and fetches only the blocks whose hash differs, with HTTP range
+requests on one kept-alive TLS connection (its own small client: the firmware's downloader keeps offsets in 32 bits,
+and a Pi image can pass 4 GiB). Each block goes to a staging block, is hashed, and only then copied into the mirror,
+read back and hashed again. The SD card is used in raw sectors (no FAT32 file limit): two copies of a state header,
+two manifest slots, the list of changed blocks, staging and the mirror. While the mirror is written the card says
+"updating" and the Pi gets nothing from it. A power cut, a lost connection, an expired URL or a card taken out costs at
+most one block: the next attempt goes on from the card's state, asking the cloud for a fresh URL.
+
+The Pi's link: the Pi is the SPI controller, the board the target on SPIS3 (D10 to D13) with READY on D9, the pins and
+512-byte CRC-32 frames of the Pi's message link (#58), whose `pi_frame.c` and `pi_frame.h` this uses byte for byte.
+Requests INFO, MANIFEST, CHANGED and READ; each answer carries the card's generation. `tools/pi_delta_sim.py` is the
+protocol's executable contract for the Pi's side. The Pi's own program is not part of this.
+
+Tests: `firmware/tests/host/test_pi_delta.c` (the formats, the card, the update with a power cut at every write in
+turn, a card pulled out, lost connections, wrong blocks, every link request including malformed ones, the job document,
+the HTTP head) and `firmware/tests/hil/test_pi_delta.py` (the tool, and the board's C code on the host with real
+ECDSA against packages the tool signed, with the stand-in Pi taking only the changed blocks). Memory (local builds): the default build is unchanged, 38,154 bytes of flash and 932 of RAM free; a `--pi` build has 100,210 of flash
+and 19,808 of RAM free, its floors in `tools/memory_budgets.json` (`Pi delta updates`).
+
 ## 1.19.3
 
 Golden image promotion, not yet tried on a board: the golden image can be replaced over the air with a record signed by the offline golden key, from the console's Make golden. The board seals only a release it runs and has confirmed, and never an older golden image. Needs this version's bootloader, which takes one debug-port flash; the gesture works as before.

@@ -25,6 +25,7 @@ The firmware is one Zephyr application (`firmware/app`) behind MCUboot, document
 | Stuck detection | Restarts a board whose Wi-Fi chip or update hangs, and reports why | 1.7.0 | `src/policy/stuck_policy.h` | Watch progress, not just liveness |
 | Golden image | One sealed image in external flash that only the bootloader restores, from a button held at boot | 1.x | README "Golden image", `sysbuild/mcuboot/golden` | The last way back with no laptop, Wi-Fi or cloud |
 | Golden image promotion | Replaces the golden image over the air with a record signed by an offline golden key; the bootloader checks it, keeps a counter that only goes up, and seals only the confirmed image that runs | 1.19.3 | README "Golden image", `golden/src/golden_record.h`, `src/ota/golden_promote.c`, `tools/golden_promote.py` | A second key for the way back, so a stolen image key cannot change it; needs one debug-port flash of the bootloader per board |
+| Pi delta updates | Keeps the Raspberry Pi's image on an SD card and brings it up to date by downloading only the blocks whose hash changed (signed block manifest, HTTP ranges, each block checked before it is written, resume after a power cut); the Pi takes the changed blocks over SPI (INFO, MANIFEST, CHANGED, READ) | 1.20.0 (draft, not yet on hardware) | `docs/pi-delta-update.md`, `src/pi/`, `tools/pi_image.py`, `tools/pi_delta_sim.py` | Any device that must update a large image over a slow link; the manifest, card layout and protocol are plain C with host tests |
 | Serial recovery | MCUboot takes an image over UART | 1.x | README "Serial recovery" | Needs neither Wi-Fi nor a debugger |
 | Factory mode | A board with no valid ID boots into setup, off the network | 1.x | README "Factory mode" | Clean provisioning path |
 | Serial console | Line commands: `STATUS`, `WIFI`, `CLOUD`, `KEYGEN`, `REBOOT`, `FACTORY_RESET`, `BT_PASSKEY` and more | 1.x | `src/console_cmd.c` | One command table, help text built in |
@@ -179,6 +180,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-24 | Pi delta updates: only the changed blocks of the Pi's image travel, onto the board's SD card and from it to the Pi over SPI (draft, not yet on hardware) | firmware 1.20.0 | #PR_NUMBER |
 | 2026-11-16 | Golden image promotion over the air: signed record, counter floor, the bootloader seals it (board runs it; the promotion itself not yet tried on hardware) | firmware 1.19.3 | v1.19.3 |
 | 2026-11-15 | Closed-loop HIL bench (Adam's): UART to Bluetooth telemetry app, Saleae and PPK2 acceptance, MCP bench tools, host tests in CI (not yet on hardware) | — | #261 |
 | 2026-11-12 | Console navigation in groups, a floating tab bar shaped for the iPhone 17 Pro's corners, Fleet folded into Devices and Deployments, Memfault named Crashes | console 2.28.0 | #258 |

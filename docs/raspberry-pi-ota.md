@@ -9,7 +9,8 @@ the nRF board (option 7, see [Decision](#decision)). Nothing of it is built yet,
 time still has to be measured (see [Open questions](#open-questions)).
 
 > **The Pi update path is not on main yet.** The Pi has no Wi-Fi and never talks to the console. The plan now in
-> progress is draft pull request #196, which sends the Pi its updates through the nRF board (firmware 1.20.0), not over
+> progress sends the Pi its updates through the nRF board, and only the blocks that changed:
+> [pi-delta-update.md](pi-delta-update.md) (firmware 1.20.0, draft; it replaces the firmware side of #196), not over
 > the Pi's own Wi-Fi. It is not tested on hardware and not merged. Where this page below says the Pi follows AWS IoT jobs
 > itself, over Wi-Fi, with its own identity, that is the earlier plan (P9, option 7 and the update agent). It is kept as the
 > record of the choice.

@@ -23,6 +23,7 @@ the firmware is described in [`firmware/README.md`](../firmware/README.md) and t
 | [`audit-diff.md`](audit-diff.md) | What each activity entry changed, before and after, and what is never recorded |
 | [`memfault.md`](memfault.md) | Memfault: crashes, reboots and fleet metrics, sent over the AWS IoT connection |
 | [`raspberry-pi-ota.md`](raspberry-pi-ota.md) | The Raspberry Pi's operating system and its over-the-air updates |
+| [`pi-delta-update.md`](pi-delta-update.md) | Pi updates through the board: only the changed blocks, the SD card, and the SPI protocol the Pi's side implements (firmware 1.20.0, draft) |
 
 ## Boards
 
