@@ -11,6 +11,7 @@ The application's sources. Every folder here is on the include path (`firmware/a
 | `cloud/` | AWS IoT: the connection, jobs and shadow (`cloud.c`), commands, events and location |
 | `ota/` | Firmware update over the air: the job, the download, the outcome after a restart, image compatibility and versions |
 | `mflt/` | Memfault: its hooks, and its chunks over AWS IoT |
+| `pi/` | From 1.20.0, Raspberry Pi delta updates (`docs/pi-delta-update.md`), only in a build for a board wired to a Pi: the signed block manifest, the SD card in raw sectors, the update that downloads only changed blocks, and the Pi's SPI link |
 | `policy/` | Decisions kept apart from the hardware, so the host tests can run them: when to join Wi-Fi, when a board is stuck, what an update over Bluetooth may do, which passkey is allowed |
 
 The console, `net.c`, `device.c` and `identity.c` stay at the top because the cloud tests read their

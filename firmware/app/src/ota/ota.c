@@ -20,6 +20,9 @@
 #if defined(CONFIG_APP_GOLDEN_PROMOTE)
 #include "golden_promote.h"
 #endif
+#if defined(CONFIG_APP_PI_DELTA)
+#include "pi_delta_ota.h"
+#endif
 #include "identity.h"
 #include "health.h"
 #include "image_compat.h"
@@ -725,6 +728,23 @@ static void on_job(const struct ota_job *incoming)
 		return;
 	}
 
+#if defined(CONFIG_APP_PI_DELTA)
+	/*
+	 * From 1.20.0, a Raspberry Pi delta update (pi_delta_ota.h) runs beside the board's firmware
+	 * jobs, which wait for it: AWS IoT names the job in progress first, so while it runs, any
+	 * other job named means it was withdrawn.
+	 */
+	if (pi_delta_ota_busy() && !incoming->pi_delta) {
+		pi_delta_ota_withdrawn();
+	}
+	if (incoming->pi_delta) {
+		if (ota.state == OTA_IDLE) {
+			pi_delta_ota_on_job(incoming);
+		}
+		return;
+	}
+#endif
+
 	/*
 	 * A golden image promotion (golden_promote.h) is not an update, and needs an idle board: one
 	 * that waits for its restart starts nothing else.
@@ -864,6 +884,9 @@ int ota_init(void)
 		LOG_ERR("PSA crypto is not available");
 		return -EIO;
 	}
+#if defined(CONFIG_APP_PI_DELTA)
+	(void)pi_delta_ota_init();
+#endif
 
 	err = fota_download_init(download_callback);
 	if (err) {
@@ -1028,6 +1051,9 @@ void ota_on_job_message(enum cloud_job_message kind, enum ota_job_result result,
 		if (ota.state != OTA_STARTING) {
 			on_job_withdrawn();
 		}
+#if defined(CONFIG_APP_PI_DELTA)
+		pi_delta_ota_withdrawn();
+#endif
 		break;
 	case OTA_JOB_MALFORMED:
 		LOG_WRN("Ignoring a jobs message that could not be parsed");
@@ -1201,6 +1227,9 @@ void ota_on_tick(void)
 #if defined(CONFIG_APP_GOLDEN_PROMOTE)
 	/* Idle: no update and no Bluetooth session, which is a state of its own here. */
 	golden_promote_on_tick(ota.state == OTA_IDLE);
+#endif
+#if defined(CONFIG_APP_PI_DELTA)
+	pi_delta_ota_on_tick();
 #endif
 }
 

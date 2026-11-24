@@ -46,4 +46,12 @@ config APP_BT_OTA
 	  network core has to run the Bluetooth controller, so sysbuild.conf selects that too, and
 	  it has to be flashed over the debug port.
 
+# From 1.20.0, a board wired to a Raspberry Pi (docs/pi-delta-update.md). pi_delta_sysbuild.conf turns it on.
+config APP_PI_DELTA
+	bool "Raspberry Pi delta updates"
+	help
+	  Adds pi_delta.conf and boards/pi_delta.overlay to the application: the SD card and the Pi's
+	  SPI link. The nRF7002 DK's RAM does not hold this and Bluetooth together, so
+	  pi_delta_sysbuild.conf turns Bluetooth off.
+
 source "share/sysbuild/Kconfig"
