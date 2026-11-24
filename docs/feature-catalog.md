@@ -180,7 +180,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
-| 2026-11-24 | Plays: what each board played from its Pi, in order with BPM, key and time played, on its page and the customer's Mixes | console 2.29.0 | #281 |
+| 2026-11-24 | Plays: what each board played from its Pi, in order with BPM, key and time played, on its page and the customer's Mixes | console 2.29.0 | #283 |
 | 2026-11-16 | Golden image promotion over the air: signed record, counter floor, the bootloader seals it (board runs it; the promotion itself not yet tried on hardware) | firmware 1.19.3 | v1.19.3 |
 | 2026-11-15 | Closed-loop HIL bench (Adam's): UART to Bluetooth telemetry app, Saleae and PPK2 acceptance, MCP bench tools, host tests in CI (not yet on hardware) | — | #261 |
 | 2026-11-12 | Console navigation in groups, a floating tab bar shaped for the iPhone 17 Pro's corners, Fleet folded into Devices and Deployments, Memfault named Crashes | console 2.28.0 | #258 |
