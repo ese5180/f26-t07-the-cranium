@@ -13,7 +13,7 @@
 | Christian Durante  | cgd2@engineering.upenn.edu     |
 | Vihaan Ravishankar | vihaan1@engineering.upenn.edu  |
 
-**GitHub Repository URL: [https://github.com/ese5180/f26-t07-the-cranium](https://github.com/ese5180/f26-t07-the-cranium)**
+**[GitHub Repository URL](https://github.com/ese5180/f26-t07-the-cranium)**
 
 ## 3.2 Concept Development
 
