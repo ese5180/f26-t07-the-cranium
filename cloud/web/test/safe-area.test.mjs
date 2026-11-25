@@ -51,10 +51,10 @@ test('the bars are clear of the island, the home indicator and the sides', () =>
   // The customer site: its top bar under the island, its tab bar, its sidebar and the landing page's bar.
   assert.ok(rules(CUSTOMER, '.cs-top').some((body) => /padding: calc\(10px \+ var\(--safe-top\)\)/.test(body)));
   // Its tab bar floats a gap in from the sides past the safe areas, and the page runs on under it (#122).
-  const bar = rules(CUSTOMER, '.cs-tabbar').find((body) => /position: fixed/.test(body));
-  assert.match(bar, /right: calc\(var\(--edge-gap\) \+ var\(--safe-right\)\)/);
-  assert.match(bar, /left: calc\(var\(--edge-gap\) \+ var\(--safe-left\)\)/);
-  assert.match(bar, /bottom: var\(--edge-gap\)/);
+  const tabbar = rules(CUSTOMER, '.cs-tabbar').find((body) => /position: fixed/.test(body));
+  assert.match(tabbar, /right: calc\(var\(--edge-gap\) \+ var\(--safe-right\)\)/);
+  assert.match(tabbar, /left: calc\(var\(--edge-gap\) \+ var\(--safe-left\)\)/);
+  assert.match(tabbar, /bottom: var\(--edge-gap\)/);
   assert.ok(
     rules(CUSTOMER, '.cs-body').some((body) =>
       /padding-bottom: calc\(var\(--tabbar\) \+ var\(--edge-gap\) \+ var\(--space-4\)\)/.test(body)
@@ -141,14 +141,22 @@ test("on a phone nothing stands on the tab bar's old line: what clears the bar c
 // The iPhone 17 Pro (#122, as the console's 2.28.0, #212): the customer site is designed with the screen's rounded
 // corners. What floats near a corner is concentric with it: a gap in from the edge, its radius the screen's less that.
 test("the customer site's tab bar and sheets are concentric with the screen's 55px corners", () => {
-  assert.match(CUSTOMER, /--radius-screen: min\(calc\(var\(--safe-bottom\) \* 100\), 55px\);/);
-  assert.match(CUSTOMER, /--radius-tabbar: calc\(var\(--tabbar\) \/ 2\);/);
-  assert.match(CUSTOMER, /--radius-tab: calc\(var\(--radius-tabbar\) - 4px\);/);
-  assert.match(CUSTOMER, /--edge-gap: max\(12px, calc\(var\(--radius-screen\) - var\(--radius-tabbar\)\)\);/);
-  assert.match(
-    CUSTOMER,
-    /--radius-sheet: max\(var\(--radius-card\), calc\(var\(--radius-screen\) - var\(--sheet-gap\)\)\);/
-  );
+  // The corner's tokens are app.css's (console 2.28.0), loaded first; customer.css has no second copy of them.
+  const tokens = [
+    'radius-screen',
+    'radius-tabbar',
+    'radius-tab',
+    'edge-gap',
+    'sheet-gap',
+    'radius-sheet',
+    'radius-inset',
+    'bar-glass',
+    'bar-lift',
+  ];
+  for (const token of tokens) {
+    assert.match(APP, new RegExp(`--${token}: `), `app.css defines --${token}`);
+    assert.doesNotMatch(CUSTOMER, new RegExp(`--${token}: `), `customer.css uses app.css's --${token}`);
+  }
   // The bar is a pill, the current tab a pill inside it; its glass is a layer of its own, the bar has no filter.
   const bar = rules(CUSTOMER, '.cs-tabbar').find((body) => /position: fixed/.test(body));
   assert.match(bar, /border-radius: var\(--radius-tabbar\)/);

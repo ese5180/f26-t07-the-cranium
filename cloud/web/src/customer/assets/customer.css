@@ -33,25 +33,6 @@
   --side-current-mark: #b7410e;
   --side-current-line: #d1c6b6;
   --side-current-ink-2: #574e45;
-  /* The floating tab bar of a phone: glass over the page, as the console's (2.28.0). */
-  --bar-glass: rgb(253 251 247 / 0.78);
-  --bar-lift: 0 12px 32px -14px rgb(28 24 20 / 0.42), 0 1px 3px rgb(28 24 20 / 0.08);
-}
-
-/*
- * The screen's own corner, and what floats near it (#122, as the console's 2.28.0, #212): about 55 pt on an iPhone
- * 17 Pro, read from the bottom safe area (a screen with one has rounded corners), 0 in a browser. What floats near a
- * corner is concentric with it: a gap in from the edge, its radius the screen's less that gap. The same names and
- * values as app.css's from console 2.28.0; once app.css has them, this block can go.
- */
-:root {
-  --radius-screen: min(calc(var(--safe-bottom) * 100), 55px);
-  --radius-tabbar: calc(var(--tabbar) / 2);
-  --radius-tab: calc(var(--radius-tabbar) - 4px);
-  --edge-gap: max(12px, calc(var(--radius-screen) - var(--radius-tabbar)));
-  --sheet-gap: max(0px, min(8px, var(--radius-screen)));
-  --radius-sheet: max(var(--radius-card), calc(var(--radius-screen) - var(--sheet-gap)));
-  --radius-inset: max(var(--radius-card), calc(var(--radius-sheet) - var(--space-4)));
 }
 
 @media (prefers-color-scheme: dark) {
@@ -68,8 +49,6 @@
     --deck-a-ink: #f8cfb4;
     --deck-b: #352e28;
     --deck-b-ink: #e9e0d4;
-    --bar-glass: rgb(38 34 30 / 0.78);
-    --bar-lift: 0 12px 32px -12px rgb(0 0 0 / 0.75), 0 1px 3px rgb(0 0 0 / 0.4);
   }
 }
 
