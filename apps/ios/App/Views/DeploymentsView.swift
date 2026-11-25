@@ -678,7 +678,10 @@ struct DeployWizard: View {
             try await api.deploy(version: version, things: things, note: note)
         }) {
             app.deploymentDetails[made.id] = Loadable(value: made, loadedAt: Date())
-            app.say("Deployment of \(version) started on \(Words.plural(things.count, "board")).")
+            // More than one board (console 2.30.1): the server sends it to one canary first, as a staged rollout.
+            app.say(things.count > 1
+                ? "Deployment of \(version) started: one board first, the rest once it has confirmed."
+                : "Deployment of \(version) started on \(Words.plural(things.count, "board")).")
             app.deployingThings = []
             dismiss()
             await app.loadDeployments()

@@ -1765,14 +1765,16 @@ export const SCENARIOS = Object.freeze({
       stage.ago('1d2h');
       await stage.upload('valid-1.2.3+4.signed.bin', 'The build the boards were flashed with over USB.');
 
-      // Someone picks the wrong file, then the right one, and rolls it out. One
-      // board installs it; on the other, Button 2 is pressed.
+      // Someone picks the wrong file, then the right one, and deploys it to each board on its own (two
+      // boards in one deployment would go to a canary first, as a staged rollout: the fleet scenario has
+      // one). One board installs it; on the other, Button 2 is pressed.
       stage.ago('5h');
       await stage.refusedUpload('signed-with-other-key.signed.bin', 'wrong_key');
       stage.ago('4h58m');
       await stage.upload('valid-1.2.3+5.signed.bin', 'Reconnects faster after the Wi-Fi drops out.');
       stage.ago('4h50m');
-      await stage.deploy('1.2.3+5', [first, second], 'First update over the air.');
+      await stage.deploy('1.2.3+5', [first], 'First update over the air.');
+      await stage.deploy('1.2.3+5', [second], 'First update over the air.');
       stage.ago('4h49m');
       first.lookForJob();
       second.lookForJob();
@@ -1789,7 +1791,8 @@ export const SCENARIOS = Object.freeze({
       stage.ago('40m');
       await stage.upload('valid-padded-signature.signed.bin', 'New pad layout.');
       stage.ago('36m');
-      await stage.deploy('2.0.0+0', [first, second], 'Roll out 2.0.0 to both boards.');
+      await stage.deploy('2.0.0+0', [first], 'Roll out 2.0.0 to both boards.');
+      await stage.deploy('2.0.0+0', [second], 'Roll out 2.0.0 to both boards.');
       stage.ago('35m30s');
       first.lookForJob();
       second.lookForJob();

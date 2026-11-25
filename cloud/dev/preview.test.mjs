@@ -1127,18 +1127,21 @@ test('each scenario is in the state its name promises', async (t) => {
 
   state = await look('revoked');
   assert.deepEqual(state.releases, ['2.0.0+0 revoked', '1.2.3+5 active', '1.2.3+4 active']);
+  // One deployment per board for each version: two boards in one would go to a canary first.
   assert.deepEqual(
     state.deployments.map((deployment) => `${deployment.version} ${deployment.status}`),
-    ['2.0.0+0 CANCELED', '1.2.3+5 COMPLETED']
+    ['2.0.0+0 CANCELED', '2.0.0+0 CANCELED', '1.2.3+5 COMPLETED', '1.2.3+5 COMPLETED']
   );
-  assert.deepEqual(pick(state.deployments[0].counts, 'canceled', 'queued', 'inProgress'), {
-    canceled: 2,
-    queued: 0,
-    inProgress: 0,
-  });
-  const phases = (detail) => detail.executions.map((execution) => execution.phase).sort();
-  assert.deepEqual(phases(state.details[0]), ['cancelled', 'cancelled']);
-  assert.deepEqual(phases(state.details[1]), ['declined', 'succeeded']);
+  for (const deployment of state.deployments.slice(0, 2)) {
+    assert.deepEqual(pick(deployment.counts, 'canceled', 'queued', 'inProgress'), {
+      canceled: 1,
+      queued: 0,
+      inProgress: 0,
+    });
+  }
+  const phases = (details) => details.flatMap((detail) => detail.executions.map((execution) => execution.phase)).sort();
+  assert.deepEqual(phases(state.details.slice(0, 2)), ['cancelled', 'cancelled']);
+  assert.deepEqual(phases(state.details.slice(2, 4)), ['declined', 'succeeded']);
   // One board online, one switched off half an hour ago, one that never reported.
   const [first, second, third] = state.preview.boards.map((board) =>
     state.devices.find((device) => device.thing === board.thing)
@@ -1146,7 +1149,7 @@ test('each scenario is in the state its name promises', async (t) => {
   assert.deepEqual([first.online, second.online, third.online], [true, false, false]);
   assert.deepEqual([first.fw.version, second.fw.version, third.fw], ['1.2.3+5', '1.2.3+4', null]);
   assert.deepEqual([first.ota.last, second.ota.last, third.lastSeen], ['cancelled', 'cancelled', null]);
-  assert.equal(state.audit.length, 7);
+  assert.equal(state.audit.length, 9);
   assert.deepEqual(pick(state.audit[0], 'action', 'target', 'outcome'), {
     action: 'firmware.revoke',
     target: '2.0.0+0',

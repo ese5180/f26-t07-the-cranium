@@ -860,6 +860,16 @@ test("the canary's clock: within its limit it waits; past it, only a board visib
   assert.deepEqual(run([downloading(40), done], 9, first.watch).stuck, [
     { thing: A, phase: 'downloading', progress: 40 },
   ]);
+  // A retried download starts again from 0% (firmware ota.c start_download): a fall is a new attempt,
+  // watched afresh rather than read as a stall.
+  const retried = run([downloading(0), done], 8.5, first.watch);
+  assert.deepEqual([retried.state, retried.watch], ['moving', [{ thing: A, percent: 0, at: iso(8.5) }]]);
+  assert.equal(run([downloading(0), done], 11.4, retried.watch).state, 'moving');
+  assert.equal(run([downloading(0), done], 11.5, retried.watch).state, 'over');
+  // A report without a percent is no new attempt: the watch goes on from the last one.
+  assert.deepEqual(run([downloading(null), done], 9, first.watch).stuck, [
+    { thing: A, phase: 'downloading', progress: null },
+  ]);
   // A board with no percent at all (its report lost) is watched the same way, from -1.
   const blind = run([downloading(null), done], 6);
   assert.deepEqual(blind.watch, [{ thing: A, percent: -1, at: iso(6) }]);
@@ -1168,6 +1178,31 @@ test('a deployment to several boards whose canary hangs halts the rest too', asy
     { jobId: deployment.id, force: false, reasonCode: 'CANARY_TIMEOUT', comment: rollout.id },
   ]);
   assert.equal(createJobs(world).length, 1);
+});
+
+test('a canary halted at its limit whose stop was lost still stops for its limit, with an alert', async () => {
+  const world = await fiveBoards();
+  const { deployment, rollout } = (
+    await world.call('POST', '/api/deployments', { version: '1.13.0+0', things: [A, B] })
+  ).body;
+  // The cancel went through and the stop after it did not: the next run finds the job cancelled for the limit.
+  await world.fake.cancelJob({ jobId: deployment.id, force: false, reasonCode: 'CANARY_TIMEOUT', comment: rollout.id });
+  world.advance(MINUTE);
+  assert.equal((await world.tick()).stopped, 1);
+  assert.equal((await detailOf(world, rollout.id)).stopped.code, 'canary_timeout');
+  assert.equal(world.raised.length, 1);
+  assert.equal(createJobs(world).length, 1);
+});
+
+test('a deployment to several boards answers with its canary even if the job cannot be read back yet', async () => {
+  const world = await fiveBoards();
+  world.fake.failNext('describeJob', { times: 20 });
+  const response = await world.call('POST', '/api/deployments', { version: '1.13.0+0', things: [A, B] });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  const { deployment, rollout } = response.body;
+  assert.equal(deployment.id, rollout.canary.job);
+  assert.deepEqual(deployment.things, rollout.canary.things);
+  assert.equal(rollout.canaryJob.id, deployment.id);
 });
 
 test('a deployment to one board is one job, as before: no canary, no rollout', async () => {

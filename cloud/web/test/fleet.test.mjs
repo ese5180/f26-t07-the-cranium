@@ -1434,7 +1434,7 @@ test("a rollout's page says its canary's time limit, how long is left, and when 
   );
   assert.match(
     textOf(draw(fleet.canaryLimitLine(rollout('canary', '2026-11-24T11:59:00.000Z'), now))),
-    /^Past its time limit of 6 minutes, but still downloading or restarting/
+    /^Past its time limit of 6 minutes: the rest is sent only if it confirms, and it gets longer only while/
   );
   assert.equal(
     textOf(draw(fleet.canaryLimitLine(rollout('stages', '2026-11-24T11:59:00.000Z'), now))),

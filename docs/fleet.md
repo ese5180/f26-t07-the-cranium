@@ -84,7 +84,9 @@ image on a board checks it. The board's own check is the last word.
 - **Staged rollout.** A deployment of more than one board starts with a canary: the first board (or the number asked
   for), online and with a clean update history first. That holds for every way of starting one, `POST /api/deployments`
   with two or more boards included (from console 2.30.1: one canary, then the rest in one stage, no soak time, no health
-  gate; the answer is the canary's deployment with its rollout). A deployment to one board is one job. The rest follow only once the canary has confirmed the update,
+  gate; boards that already run that release or a newer one are left out, as a rollout leaves them out, and
+  `422 nothing_to_deploy` answers when none is left; the answer is the canary's deployment with its rollout). A
+  deployment to one board is one job, which a board already on that release or a newer one turns down (`not_newer`). The rest follow only once the canary has confirmed the update,
   in 1 to 10 **stages** (from console 2.8.0). Each stage is one AWS IoT job on all its boards at once, offered as fast as
   AWS IoT allows (1000 boards a minute), so its boards update side by side rather than one after another.
   - **Gating.** The next stage starts only once the job of the one before has completed with its failures under the
@@ -114,9 +116,11 @@ image on a board checks it. The board's own check is the last word.
     download and 81 s of swap; [`test-results.md`](test-results.md)) and the schedule looks once a minute: the slowest
     with two minutes to spare. **A slow canary is not a hung one.** Past the limit, a canary board that is visibly at
     work gets longer: while its download, which the board reports in its shadow at every 10%, has gone up within the
-    last 3 minutes, and for 9 minutes after it announced its restart (the 240 s restart window, then the firmware's 300 s
-    trial, after which it has confirmed or rolled back by itself). A download that stops is halted at most 3 minutes
-    after the limit. A FAILED canary stops the rollout as before. A board at work is never stopped by force; its job's
+    last 3 minutes (a retried download starts again from 0%, and a fall in the percent starts the 3 minutes afresh), and
+    for 9 minutes after it announced its restart (the 81 s swap and first boot, the firmware's 300 s trial, and for an
+    image that does not confirm the swap back and reconnect before it reports rolled_back). A download that stops is
+    halted 3 to 4 minutes after the limit. If the schedule's stop is lost after the canary's job was cancelled, the
+    next run still stops the rollout with `canary_timeout`. A FAILED canary stops the rollout as before. A board at work is never stopped by force; its job's
     30-minute timeout still applies. Rollouts from before 2.30.1 have no limit, nor has a rollout whose canary is all of
     it, which holds nothing back.
   - **Choices.** The create form (Roll out to a group; New deployment for boards picked by hand; Update everything)
