@@ -7,7 +7,24 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
-## 1.20.0
+## 1.20.2
+
+Raspberry Pi OS updates, Demetrius's A/B slots with tryboot, in the Pi build only (build.sh --pi), not yet tried on hardware: a "pi_os" job downloads the Pi's update file onto the board's SD card, resuming after a power cut, checks its SHA-256 as read back from the card, and offers it to the Pi, which reads it over its link and says whether it applied, kept or rolled back the update. Other builds are unchanged.
+
+Design and contract for the Pi's `cranium-update fetch`: `docs/pi-os-update.md`. Next to 1.20.0's delta updates on the
+same card, thread, range downloader and link. The job, `{"op":"pi_os","v":1,"pi":{"version","from","size","sha256",
+"url"}}`, names the tar that `cranium_ota.py make` writes; the board never looks inside it. It goes into a new file
+area at the end of the card (header copies in sectors 2050 and 2051, which no earlier layout uses; cards that 1.20.0
+laid out keep everything), past the mirror's images. The header counts the file every 64 sectors, so a power cut costs
+at most 32 KiB; the file is offered only once it hashes right off the card, and only while its job waits for the Pi.
+Four requests on the Pi's link, answered in the next transfer like every other: FILE_INFO (`0x20`), FILE_READ
+(`0x21`, 480 bytes a frame), RESULT (`0x22`: applied, confirmed, rolled back, refused, with a reason, kept on the card
+so a restart loses nothing) and OS_STATUS (`0x23`: what the Pi runs). The job reports the download, "offered",
+"fetched" (bytes the Pi has read) and "applied", and ends SUCCEEDED when the Pi confirms the update (or says it runs
+that version off trial), FAILED when it refuses or rolls it back, with its reason. The heartbeat's `pi` gains `os`:
+the Pi's version, slot and last result, and the file's state, result and progress. `tools/pi_os_sim.py` is a stand-in
+for the Pi's side, run against the board's code by `firmware/tests/hil/test_pi_os.py`.
+
 
 Raspberry Pi delta updates, a build for boards wired to a Pi only (build.sh --pi, no Bluetooth), not yet tried on hardware: the board keeps the Pi's image on an SD card and brings it up to date by downloading only the blocks that changed, each checked against a signed manifest before it is written; the Pi takes them over its message link. Other builds are unchanged.
 
