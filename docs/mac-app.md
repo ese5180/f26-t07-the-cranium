@@ -1,6 +1,6 @@
 # The Mac app
 
-A macOS 13 or later app (`apps/macos`, version 0.4.0, changelog in `apps/macos/CHANGELOG.md`) that shows the console's own pages and the customer site's, not redrawn screens. It hosts the same web bundle the iPhone and desktop apps do (`cloud/web/build-bundle.mjs`) in a WKWebView, kept on the Mac and refreshed from the console with every file checked, exactly as the iPhone app does (`BundleStore`, `ShellPolicy`, the bridge, all in CraniumKit). The page that opens first (the customer site, or the console for a build without customers) and the admin or customer switch are the pages' own, so they behave as in the iPhone and desktop apps.
+A macOS 13 or later app (`apps/macos`, version 0.4.1, changelog in `apps/macos/CHANGELOG.md`) that shows the console's own pages and the customer site's, not redrawn screens. It hosts the same web bundle the iPhone and desktop apps do (`cloud/web/build-bundle.mjs`) in a WKWebView, kept on the Mac and refreshed from the console with every file checked, exactly as the iPhone app does (`BundleStore`, `ShellPolicy`, the bridge, all in CraniumKit). The page that opens first (the customer site, or the console for a build without customers) and the admin or customer switch are the pages' own, so they behave as in the iPhone and desktop apps.
 
 ## Build and run
 
@@ -42,7 +42,7 @@ WebKit has no Web Serial, so the app gives the pages one through the bridge, the
 - **The port.** Opened with POSIX termios at the baud the page asks (115200 for the console), raw 8N1, no flow control, DTR raised, exclusive (`TIOCEXCL`). Reads reach the page in order as `usb.data` (base64, up to 4 KiB each). Writes (up to 12 KiB per call) are written whole and in order; a board that takes nothing for 5 seconds fails the write.
 - **Unplug.** A read that ends or fails, or a device path that vanishes (checked twice a second), closes the port and sends `usb.closed` with `unplugged` (`failed` for another read error); `usb.close` sends nothing.
 - **Sandbox.** The `com.apple.security.device.serial` entitlement, nothing more of the Mac (no USB entitlement, no files beyond the save panel).
-- **Tests.** `Tests/SerialTests.swift` covers the port listing parse, grouping and ordering, the chunking, raw bytes, long writes, close and unplug against a pseudo-terminal pair (`openpty`), and the bridge calls end to end on ptys. No real device is opened.
+- **Tests.** `Tests/SerialTests.swift` covers the port listing parse, grouping and ordering, the chunking, raw bytes, long writes, close and unplug against a pseudo-terminal pair (`openpty`), and the bridge calls end to end on ptys, with a close (Disconnect) checked to close the port's descriptor right after open, during a write and while the board talks. No board is opened. One test needs a real serial device, because a pty does not enforce a port's exclusive use for a user who is not root: it opens and closes the Mac's own `/dev/cu.Bluetooth-Incoming-Port` (nothing is written) to check that Disconnect ends exclusive use while another program has the port open, and is skipped on a Mac without that port.
 
 What the Mac app still lacks next to the Android and desktop apps:
 

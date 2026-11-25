@@ -17,7 +17,8 @@ final class SerialLine {
     static let readChunk = 4096
     private static let writeTimeout: TimeInterval = 5
 
-    private let fd: Int32
+    /// The open port's descriptor; the tests check that a close lets go of it.
+    let fd: Int32
     private let path: String
     private let readQueue = DispatchQueue(label: "cranium.serial.read")
     private let writeQueue = DispatchQueue(label: "cranium.serial.write")
@@ -31,11 +32,11 @@ final class SerialLine {
     init(path: String, baudRate: Int, onData: @escaping (Data) -> Void, onEnd: @escaping (Ending) -> Void) throws {
         let fd = Darwin.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
         guard fd >= 0 else { throw PortError(errno: errno) }
-        // Another program holds it: refuse rather than share the bytes (best effort).
+        // Other programs' opens are refused while the app has it, rather than share the bytes (best effort).
         _ = ioctl(fd, UInt(TIOCEXCL))
         guard Self.configure(fd, baudRate: baudRate) else {
             let code = errno
-            Darwin.close(fd)
+            Self.release(fd)
             throw PortError(errno: code)
         }
         var dtr = TIOCM_DTR
@@ -68,6 +69,14 @@ final class SerialLine {
         return ioctl(fd, 0x8008_5402, &speed) == 0
     }
 
+    /// Gives the port back. Exclusive use ends first: the kernel keeps it on the port itself, not on this
+    /// descriptor, until the last descriptor on the port closes, so with another program's still open the port
+    /// would refuse every later open, the app's own too.
+    private static func release(_ fd: Int32) {
+        _ = ioctl(fd, UInt(TIOCNXCL))
+        Darwin.close(fd)
+    }
+
     private func start() {
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: readQueue)
         source.setEventHandler { [weak self] in self?.readAvailable() }
@@ -75,7 +84,7 @@ final class SerialLine {
         // is never read or written after it was reused.
         let fd = fd
         let writes = writeQueue
-        source.setCancelHandler { writes.async { Darwin.close(fd) } }
+        source.setCancelHandler { writes.async { Self.release(fd) } }
         // A port that went away may not wake the reader: look for its path now and then.
         let watcher = DispatchSource.makeTimerSource(queue: readQueue)
         watcher.schedule(deadline: .now() + .milliseconds(500), repeating: .milliseconds(500))

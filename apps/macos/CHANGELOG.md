@@ -1,5 +1,9 @@
 # Mac app changelog
 
+## 0.4.1
+
+- Disconnect on the Serial console frees the board's serial port again, for other programs and the app itself. The app takes a port for its own use (TIOCEXCL), and macOS kept that until every program with the port open closed it, so with another program also holding it (a serial monitor, the bench's pyserial) later opens failed as busy. A close now ends exclusive use (TIOCNXCL) first. #289; not yet tried with a board.
+
 ## 0.4.0
 
 - Offline mode: the console's Offline page (console 2.27.0) talks to a board over Bluetooth with no network. The app offers the bridge feature `bleOffline` and answers `ble.offline.connect`, `ble.offline.status`, `ble.offline.accept` and `ble.offline.disconnect` with the iPhone's `ShellRadio` and CraniumKit's `OfflineLink`; macOS asks for the board's passkey in its own pairing box. The radio is held by one window as for an update (MacRadioHub): an offline link keeps it until it goes, and a window's page leaving lets it go. Needs firmware 1.19.0. A middle number: the bridge gained methods.

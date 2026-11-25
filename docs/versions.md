@@ -11,7 +11,7 @@ first; see [Which number goes up](#which-number-goes-up). Each version is a git 
 | iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.9.3; the newest tag is `ios-v0.9.1` | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
 | Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.9.3; the newest tag is `android-v0.9.1` | More, Help, About in the app; the console's Apps page, each version as it was published |
 | Desktop app, Windows and Linux (one each) | `extraMetadata.version` in `apps/desktop/electron-builder.<platform>.yml`, `windows` or `linux`; a checkout of `apps/desktop/` alone runs as 0.0.0 | `apps/desktop/CHANGELOG.<platform>.md` | 0.1.17 for each; the newest tags are `desktop-windows-v0.1.0` and `desktop-linux-v0.1.0` (the installers kept in `apps/dist/` are 0.1.0) | The app's Settings and About; the pages' foot names the app's version ([docs/desktop-app.md](desktop-app.md)) |
-| Mac app | `MARKETING_VERSION` in `apps/macos/project.yml` | [`apps/macos/CHANGELOG.md`](../apps/macos/CHANGELOG.md) | 0.4.0; no tag yet | The app's Settings and About ([docs/mac-app.md](mac-app.md)) |
+| Mac app | `MARKETING_VERSION` in `apps/macos/project.yml` | [`apps/macos/CHANGELOG.md`](../apps/macos/CHANGELOG.md) | 0.4.1; no tag yet | The app's Settings and About ([docs/mac-app.md](mac-app.md)) |
 
 ## Which number goes up
 
@@ -57,6 +57,7 @@ what the apps show without a new app version, and the app's settings say which c
 | 2026-11-24 | 2.29.0 | | | Plays: what each board played from its Pi (firmware 1.20.1, #283) |
 | 2026-11-24 | 2.30.0 | 0.9.2 | 0.1.16 | Raspberry Pi images on the Firmware page (boards need firmware 1.20.0 built with `--pi`, #279) |
 | 2026-11-25 | 2.30.1 | 0.9.3 | 0.1.17 | A canary's time limit; a deployment to several boards goes to a canary first |
+| 2026-11-25 | | | | Mac app 0.4.1: Disconnect frees the board's serial port for other programs and the app (#289) |
 
 The console's 2.18.0 to 2.28.0 are tagged `console-v<version>`, except 2.25.7 and 2.27.4, which have no tag (2.27.1 to 2.27.3 have no entry). The apps' 0.8.17 to 0.8.20 and
 the desktop app's 0.1.1 to 0.1.15 have no tags (the app tags are `ios-v0.8.21`, `ios-v0.9.0`, `ios-v0.9.1` and the same for
