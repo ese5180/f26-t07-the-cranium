@@ -2,7 +2,8 @@
  * Host-side tests of src/cloud/sessions.c (from 1.18.0): the JSON of a listening session and of what is
  * on the decks now, the dates they carry, what is refused (the cloud drops what the contract does not
  * keep, cloud/api/src/lib/sessions.mjs), that a text with a quote or a control character is made safe,
- * and that nothing is ever written past the buffer it is given.
+ * and that nothing is ever written past the buffer it is given. From 1.20.1, a play: the Pi's np as it
+ * came, wrapped in place.
  */
 
 #include <errno.h>
@@ -242,6 +243,55 @@ static void test_sending_goes_through_the_cloud(void)
 	CHECK(fake.sent == 1);
 }
 
+/* A play (1.20.1): the Pi's np as it came, in place or not, and nothing that is not an np. */
+static void test_a_play_wraps_the_np_as_it_came(void)
+{
+	static const char np[] = "{\"t\":\"np\",\"ti\":\"Can I \\\"Live\\\"\",\"ar\":\"Ja\xc3\xbf\",\"ge\":\"\","
+				 "\"bpm10\":1520,\"dur\":250}";
+	static const char expected[] = "{\"v\":1,\"type\":\"play\",\"ageS\":12,\"np\":{\"t\":\"np\",\"ti\":"
+				       "\"Can I \\\"Live\\\"\",\"ar\":\"Ja\xc3\xbf\",\"ge\":\"\",\"bpm10\":1520,"
+				       "\"dur\":250}}";
+	const size_t np_length = sizeof(np) - 1;
+	const int length = (int)(sizeof(expected) - 1);
+	char buf[SESSION_PLAY_HEAD_MAX + 256 + 2];
+	char guarded[sizeof(expected) + 2];
+
+	/* From a buffer of its own. */
+	CHECK(session_format_play(buf, sizeof(buf), 12, np, np_length) == length);
+	CHECK_TEXT(buf, expected);
+
+	/* In place, as pi_link.c does it: the np after the head's room, and at the very start. */
+	memcpy(buf + SESSION_PLAY_HEAD_MAX, np, np_length);
+	CHECK(session_format_play(buf, sizeof(buf), 12, buf + SESSION_PLAY_HEAD_MAX, np_length) == length);
+	CHECK_TEXT(buf, expected);
+	memcpy(buf, np, np_length);
+	CHECK(session_format_play(buf, sizeof(buf), 12, buf, np_length) == length);
+	CHECK_TEXT(buf, expected);
+
+	/* The largest age fits the head's room. */
+	CHECK(session_format_play(buf, sizeof(buf), 4294967295u, "{\"t\":\"np\"}", 10) > 0);
+	CHECK_TEXT(buf, "{\"v\":1,\"type\":\"play\",\"ageS\":4294967295,\"np\":{\"t\":\"np\"}}");
+	CHECK(strlen("{\"v\":1,\"type\":\"play\",\"ageS\":4294967295,\"np\":") < SESSION_PLAY_HEAD_MAX);
+
+	/* Not an np, cut short, or nothing: refused, and nothing written. */
+	memset(buf, 'x', sizeof(buf));
+	CHECK(session_format_play(buf, sizeof(buf), 0, "{\"t\":\"hb\",\"up\":5}", 17) == -EINVAL);
+	CHECK(session_format_play(buf, sizeof(buf), 0, np, np_length - 1) == -EINVAL);
+	CHECK(session_format_play(buf, sizeof(buf), 0, "{\"t\":\"np\"", 9) == -EINVAL);
+	CHECK(session_format_play(buf, sizeof(buf), 0, NULL, 0) == -EINVAL);
+	CHECK(buf[0] == 'x');
+
+	/* Exactly room for it and its NUL, and one byte less: never past the end. */
+	memset(guarded, '#', sizeof(guarded));
+	CHECK(session_format_play(guarded, (size_t)length + 1, 12, np, np_length) == length);
+	CHECK_TEXT(guarded, expected);
+	CHECK(guarded[length + 1] == '#');
+	memset(guarded, '#', sizeof(guarded));
+	CHECK(session_format_play(guarded, (size_t)length, 12, np, np_length) == -ENOSPC);
+	CHECK(guarded[0] == '#' && guarded[length] == '#');
+	CHECK(session_format_play(NULL, 0, 12, np, np_length) == -ENOSPC);
+}
+
 int main(void)
 {
 	test_times_round_trip_and_bad_ones_are_refused();
@@ -251,6 +301,7 @@ int main(void)
 	test_texts_are_made_safe_and_cut();
 	test_nothing_is_written_past_the_buffer();
 	test_sending_goes_through_the_cloud();
+	test_a_play_wraps_the_np_as_it_came();
 
 	printf("%d session checks, %d failed\n", checks, failures);
 	return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

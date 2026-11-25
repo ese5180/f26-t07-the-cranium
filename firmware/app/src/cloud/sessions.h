@@ -62,6 +62,22 @@ int session_format_session(char *buf, size_t size, const char *id, int64_t start
 /* The message of what is on the decks now; NULL track is "nothing". */
 int session_format_now(char *buf, size_t size, const struct session_track *track);
 
+/* The most the head of a play takes, before its np: {"v":1,"type":"play","ageS":4294967295,"np": */
+#define SESSION_PLAY_HEAD_MAX 48
+
+/*
+ * A play, from 1.20.1 (CONFIG_APP_PI_PLAYS): one np message of the Pi (src/pi/pi_link.c) as it came, in
+ *
+ *   {"v":1,"type":"play","ageS":12,"np":{"t":"np","ti":"Strobe","ar":"deadmau5","ge":"","bpm10":1280,"dur":600}}
+ *
+ * age_s is how long ago the np came in: the board has no clock, and the cloud dates the play from when AWS
+ * IoT took it. The np is the Pi's JSON object of np_length bytes, made safe by pi_rx_clean_text(); here it
+ * is only checked to start as an np and end with a brace, and the cloud checks every field
+ * (cloud/api/src/lib/sessions.mjs). np may be in buf itself, anywhere: it is moved before the head is
+ * written, so one buffer is enough. Returns the length, -EINVAL for what is not an np, or -ENOSPC.
+ */
+int session_format_play(char *buf, size_t size, uint32_t age_s, const char *np, size_t np_length);
+
 /*
  * Format and publish, with the caller's scratch buffer of at least SESSION_JSON_MAX bytes. Returns what
  * the formatter or cloud_session_publish() returns.

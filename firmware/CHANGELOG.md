@@ -7,6 +7,26 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.20.1
+
+Plays, not yet tried on hardware: each track Mixxx plays, as the Pi reports it (its `np` message: title, artist, genre, BPM, length), goes to the cloud, for the console's Plays card on each board's page and the customer site's Mixes. At most one every 5 seconds; when tracks change faster, the newest goes. Needs console 2.29.0.
+
+`CONFIG_APP_PI_PLAYS` (on where the Pi link is): `src/pi/pi_link.c` keeps the last `np` whole up to 255 bytes (128
+before) and marks it waiting; `pi_link_plays_on_tick()`, on the main loop once a second, sends it while the cloud is
+connected, as `{"v":1,"type":"play","ageS":<s>,"np":<the np as it came>}` on `cranium/<thing>/session` at QoS 0
+(`session_format_play()` in `src/cloud/sessions.c`, wrapping it in place in one 305-byte buffer on the main loop's
+stack). The board does not parse the `np`: the cloud checks every field, and a field the Pi adds later (the key)
+needs no new firmware. The board has no clock, so `ageS` says how long ago the `np` came in and the cloud dates the
+play from when AWS IoT took it. An `np` replaced before it went, or longer than 255 bytes, counts as skipped;
+`STATUS|pi` says `pi plays  <n> sent, <n> skipped, <n> failed`. While the board is offline the last `np` waits, with
+its age. The interval is `CONFIG_APP_PI_PLAYS_INTERVAL_SECONDS` (5).
+
+Tests: `tests/host/test_sessions.c` (the play's JSON from its own buffer and in place, the largest age, what is not an
+`np`, an `np` cut short, the exact size, no byte written past the end). Memory (local builds): the default build has
+32,674 bytes of flash and 1,708 of RAM free (552 and 152 more used than 1.20.0), a `--pi` build 97,906 and 18,800
+(536 and 144 more); both flash floors are one 512-byte step lower in `tools/memory_budgets.json`, as each had less
+than the feature takes (458 and 138 bytes to spare).
+
 ## 1.20.0
 
 Raspberry Pi delta updates, a build for boards wired to a Pi only (build.sh --pi, no Bluetooth), not yet tried on hardware: the board keeps the Pi's image on an SD card and brings it up to date by downloading only the blocks that changed, each checked against a signed manifest before it is written; the Pi takes them over its message link. Other builds are unchanged.
