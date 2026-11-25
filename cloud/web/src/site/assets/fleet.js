@@ -329,7 +329,12 @@ function readRollout(raw) {
       job: words(canary.job, 64) || null,
       doneAt: iso(canary.doneAt),
       gatePassedAt: iso(canary.gatePassedAt),
+      // From console 2.30.1: when its job was made, and when its time limit is up (null: none).
+      startedAt: iso(canary.startedAt),
+      deadline: iso(canary.deadline),
     },
+    // The canary's time limit in minutes (console 2.30.1); null for a rollout from before, which has none.
+    canaryMinutes: canaryMinutesOf(item.canaryMinutes),
     stages: array(item.stages).map(readStage),
     current: Number.isInteger(item.current) ? item.current : -1,
     soakMinutes: count(item.soakMinutes),
@@ -423,6 +428,7 @@ function readSuggestion(raw) {
       minutes: Number.isInteger(gate.minutes) ? Math.min(Math.max(gate.minutes, 0), 120) : 10,
     },
     abortPercent: Math.min(Math.max(count(item.abortPercent), 1), 100) || 20,
+    canaryMinutes: canaryMinutesOf(item.canaryMinutes) ?? DEFAULT_CANARY_MINUTES,
     reasons: ['canary', 'stages', 'batch', 'soak', 'health', 'offline']
       .map((key) => words(reasons[key], 300))
       .filter((line) => line !== ''),
@@ -1488,6 +1494,7 @@ export function rolloutView(ctx) {
         `The first to get it. ${staged ? 'The first stage starts' : 'The waves start'} only once every one of them has installed it, ` +
           'restarted, reached AWS IoT and confirmed it; the console looks every minute.'
       ),
+      canaryLimitLine(rollout, state.now),
       boardStatusList(ctx, rollout.canary.things, rollout.canaryJob)
     ),
     staged ? h('p', { class: 'card-lede rollout-stages-lede', key: 'stages-lede' }, stageLede) : null,
@@ -1752,6 +1759,42 @@ const MAX_SOAK = 60;
 const MAX_GATE = 120;
 const DEFAULT_GATE = 10;
 const MIN_USEFUL_STAGE = 2;
+// The canary's time limit (console 2.30.1, cloud/api/src/lib/fleet.mjs): minutes from its job to its
+// confirmation, after which the rest is not sent unless the canary is visibly still at work.
+const DEFAULT_CANARY_MINUTES = 6;
+const MIN_CANARY_MINUTES = 3;
+const MAX_CANARY_MINUTES = 30;
+
+/** A canary time limit in minutes as the server keeps it, or null. */
+function canaryMinutesOf(value) {
+  return Number.isInteger(value) && value >= MIN_CANARY_MINUTES && value <= MAX_CANARY_MINUTES ? value : null;
+}
+
+/** What the canary's time limit does, in one sentence, for "What happens". */
+export function canaryLimitWords(minutes) {
+  return (
+    `If the canary has not confirmed within ${plural(minutes, 'minute')}, and is not visibly still downloading ` +
+    'or restarting, the rest is not sent and the rollout stops.'
+  );
+}
+
+/** A rollout's canary time limit, and while the canary works how long it has left: null for none. */
+export function canaryLimitLine(rollout, now) {
+  // None for a rollout from before 2.30.1, nor for one whose canary is all of it (no rest to hold back).
+  if (rollout.canaryMinutes === null || !rollout.canary.deadline) return null;
+  const limit = plural(rollout.canaryMinutes, 'minute');
+  const deadline = Date.parse(rollout.canary.deadline ?? '');
+  let text = `Time limit: ${limit} to confirm, or the rest is not sent.`;
+  if (rollout.stage === 'canary' && Number.isFinite(deadline)) {
+    text =
+      now < deadline
+        ? `Time limit: ${limit}, up in ${plural(Math.ceil((deadline - now) / 60_000), 'minute')}. If it has not ` +
+          'confirmed by then, and is not visibly still downloading or restarting, the rest is not sent.'
+        : `Past its time limit of ${limit}, but still downloading or restarting: it gets longer while its ` +
+          'download goes up or its restart and trial run, and the rest is not sent once it stops.';
+  }
+  return h('p', { class: 'quiet canary-limit', key: 'canary-limit' }, text);
+}
 const BATCH_UNITS = Object.freeze([
   { unit: 'even', label: 'Split evenly' },
   { unit: 'percent', label: 'Percent of the boards' },
@@ -1767,17 +1810,20 @@ function stageModel() {
     soakMinutes: 0,
     healthGate: true,
     gateMinutes: DEFAULT_GATE,
+    canaryMinutes: DEFAULT_CANARY_MINUTES,
     suggestion: null,
     suggesting: false,
   };
 }
 
 /**
- * The body fields of the stage choices: { stages, soakMinutes, batch?, healthGate? }. The health gate
- * is sent when the model has the choice (every dialog of this console has it, on by default).
+ * The body fields of the stage choices: { stages, soakMinutes, batch?, healthGate?, canaryMinutes? }. The
+ * health gate is sent when the model has the choice (every dialog of this console has it, on by default),
+ * and so is the canary's time limit (console 2.30.1, 6 minutes unless changed).
  */
 export function stageBody(model) {
   const body = { stages: model.stages, soakMinutes: model.soakMinutes };
+  if (canaryMinutesOf(model.canaryMinutes) !== null) body.canaryMinutes = model.canaryMinutes;
   if (typeof model.healthGate === 'boolean') {
     body.healthGate = { on: model.healthGate, minutes: model.gateMinutes ?? DEFAULT_GATE };
   }
@@ -1838,6 +1884,7 @@ function applySuggestion(model, suggestion) {
   model.abortPercent = suggestion.abortPercent;
   model.healthGate = suggestion.healthGate.on;
   model.gateMinutes = suggestion.healthGate.minutes;
+  model.canaryMinutes = suggestion.canaryMinutes;
 }
 
 function numberField(key, label, value, min, max, apply, unit) {
@@ -1902,6 +1949,17 @@ function rolloutOptions(model, most, rest = null, redraw = () => {}) {
           model.canary = value;
         }),
         null
+      ),
+      numberField(
+        'canary-minutes',
+        'Canary time limit',
+        model.canaryMinutes ?? DEFAULT_CANARY_MINUTES,
+        MIN_CANARY_MINUTES,
+        MAX_CANARY_MINUTES,
+        set((value) => {
+          model.canaryMinutes = value;
+        }),
+        'min'
       ),
       numberField(
         'stages',
@@ -2088,10 +2146,11 @@ function stageWords(model) {
       ? ''
       : ` Before each next stage the boards so far run it for ${plural(model.gateMinutes ?? DEFAULT_GATE, 'minute')} ` +
         'with no new Memfault issue and no unexpected reboot, or the rollout stops.';
+  const limit = ` ${canaryLimitWords(model.canaryMinutes ?? DEFAULT_CANARY_MINUTES)}`;
   return model.stages === 1
-    ? `Once it has confirmed, every other board gets it at once.${gate}`
+    ? `Once it has confirmed, every other board gets it at once.${gate}${limit}`
     : `Once it has confirmed, the rest follow in ${model.stages} stages, each to all its boards at once; ` +
-        `a stage starts only once the one before has ended${model.soakMinutes > 0 ? ` and ${plural(model.soakMinutes, 'minute')} have passed` : ''}.${gate}`;
+        `a stage starts only once the one before has ended${model.soakMinutes > 0 ? ` and ${plural(model.soakMinutes, 'minute')} have passed` : ''}.${gate}${limit}`;
 }
 
 /** A release to one group: of the group's types, the boards of the release's type take it. */

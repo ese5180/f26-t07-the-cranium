@@ -8,6 +8,9 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 
 Newest first. The ordered work list is the pinned issue #128.
 
+- **A time limit for a canary** (console 2.30.1, apps 0.9.3, desktop 0.1.17; not deployed yet): a canary that has not
+  confirmed within 6 minutes (3 to 30, chosen per rollout) halts the rest, unless it is visibly still downloading or
+  restarting, and a deployment of several boards from the API goes to a canary first ([`fleet.md`](fleet.md)).
 - **Golden image promotion over the air** (firmware 1.19.3, console 2.27.7): the golden image in external flash can be
   replaced with a record signed by an offline key, from Make golden on the Firmware page. It needs 1.19.3's bootloader,
   which takes one flash through the debug port. **Not tried on a board yet**; the golden image in external flash is still
@@ -51,11 +54,8 @@ Draft pull requests.
 2. Board setup detection for both boards (console 2.28.4).
 3. More page redesign on top of 2.28.0's, which closed #116 to #121 (console 2.28.5).
 4. Our own Memfault, stage 2: metrics, vitals and a device timeline (console 2.28.6).
-5. **A time limit for a canary.** If a rollout's canary has not confirmed within a few minutes, the rest is halted. Today a
-   canary that hangs fails only at the 30-minute job timeout, and a plain deployment has no canary ([`fleet.md`](fleet.md),
-   [`mass-updates.md`](mass-updates.md)).
-6. Push notifications for board events, then home-screen widgets and Live Activities (needs the Apple and Firebase keys).
-7. Sessions and tracks sent from the board, so that Now playing and the play times are real, replacing the customer site's
+5. Push notifications for board events, then home-screen widgets and Live Activities (needs the Apple and Firebase keys).
+6. Sessions and tracks sent from the board, so that Now playing and the play times are real, replacing the customer site's
    demo and its import journal ([`customer-data.md`](customer-data.md)).
 
 These console versions are plans; the numbers may change when branches merge.

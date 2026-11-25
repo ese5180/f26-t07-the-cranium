@@ -4,6 +4,12 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.9.3
+
+A canary's time limit (console 2.30.1 and later): the rollout dialogs and New deployment have a Canary time limit, and a rollout whose canary has not confirmed in time stops and says why. The console's refusal of a limit out of its bounds reads in the same words. (versionCode 39)
+
+`core/Audit.kt`: `invalid_canaryMinutes`. The pages are the console's.
+
 ## 0.9.2
 
 Raspberry Pi images from the console (2.30.0 and later): the Firmware page lists them, deploys one to the boards wired to a Pi with what each would download, and follows each board's progress; the Devices list marks the boards with a Pi. A package is uploaded from the console's website. The activity log names the four new actions, and the console's refusals read in the same words. (versionCode 39)

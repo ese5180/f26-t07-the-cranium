@@ -923,6 +923,8 @@ test('Roll out to a group pre-fills the suggestion with its reasons, and sends t
       soakMinutes: 5,
       healthGate: { on: true, minutes: 15 },
       abortPercent: 20,
+      // The canary's time limit (console 2.30.1): taken into the dialog like the rest.
+      canaryMinutes: 8,
       reasons: {
         canary: 'One board, online, with a clean update history: it goes first.',
         health: 'Health gate on, 15 minutes: the next stage waits for no new Memfault issue.',
@@ -987,6 +989,15 @@ test('Roll out to a group pre-fills the suggestion with its reasons, and sends t
     value((el) => el.getAttribute('max') === '60' && String(el.value) === '5'),
     'soak: 5'
   );
+  // The canary's time limit (console 2.30.1): the suggested minutes, 3 to 30, and said in "What happens".
+  assert.ok(
+    value((el) => el.getAttribute('min') === '3' && el.getAttribute('max') === '30' && String(el.value) === '8'),
+    'canary time limit: 8'
+  );
+  assert.match(
+    textOf(dialog),
+    /If the canary has not confirmed within 8 minutes, and is not visibly still downloading or restarting, the rest is not sent/
+  );
 
   // The person changes the number of stages; what is sent is what the dialog shows.
   value((el) => el.getAttribute('max') === '10').dispatchEvent({ type: 'input', target: { value: '3' } });
@@ -1008,6 +1019,7 @@ test('Roll out to a group pre-fills the suggestion with its reasons, and sends t
       canary: 1,
       stages: 3,
       soakMinutes: 5,
+      canaryMinutes: 8,
       batch: { unit: 'count', sizes: [2, 2] },
       healthGate: { on: true, minutes: 15 },
       abortPercent: 20,
@@ -1203,6 +1215,7 @@ test('the dialog starts one staged rollout per release with the health gate on, 
         canary: 1,
         stages: 1,
         soakMinutes: 0,
+        canaryMinutes: 6,
         healthGate: { on: true, minutes: 10 },
         abortPercent: 20,
       },
@@ -1407,4 +1420,29 @@ test('the score card says when the score went down, when nothing can be counted,
     'bad',
     'idle',
   ]);
+});
+
+test("a rollout's page says its canary's time limit, how long is left, and when the canary is past it", () => {
+  const now = Date.parse('2026-11-24T12:00:00Z');
+  const rollout = (stage, deadline, canaryMinutes = 6) => ({ stage, canaryMinutes, canary: { deadline } });
+  // A rollout from before console 2.30.1 has none, and one whose canary is all of it has no deadline: nothing said.
+  assert.equal(fleet.canaryLimitLine(rollout('canary', null, null), now), null);
+  assert.equal(fleet.canaryLimitLine(rollout('canary', null), now), null);
+  assert.match(
+    textOf(draw(fleet.canaryLimitLine(rollout('canary', '2026-11-24T12:04:00.000Z'), now))),
+    /^Time limit: 6 minutes, up in 4 minutes\. If it has not confirmed by then/
+  );
+  assert.match(
+    textOf(draw(fleet.canaryLimitLine(rollout('canary', '2026-11-24T11:59:00.000Z'), now))),
+    /^Past its time limit of 6 minutes, but still downloading or restarting/
+  );
+  assert.equal(
+    textOf(draw(fleet.canaryLimitLine(rollout('stages', '2026-11-24T11:59:00.000Z'), now))),
+    'Time limit: 6 minutes to confirm, or the rest is not sent.'
+  );
+  assert.equal(
+    fleet.canaryLimitWords(6),
+    'If the canary has not confirmed within 6 minutes, and is not visibly still downloading or restarting, ' +
+      'the rest is not sent and the rollout stops.'
+  );
 });

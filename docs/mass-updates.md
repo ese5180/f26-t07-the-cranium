@@ -12,8 +12,9 @@ The console already updates many boards at once ([`fleet.md`](fleet.md), "Groups
   version.
 - **A staged rollout.** One release goes to a canary board first, then to the rest in stages (1 to 10, from console
   2.8.0). Each stage updates all its boards at once, and the next starts only once it has ended within its failure
-  limit, after an optional soak time. It stops by itself when the canary does not confirm, or too many boards of a
-  stage fail.
+  limit, after an optional soak time. It stops by itself when the canary does not confirm, or has not confirmed within
+  its time limit (6 minutes unless changed, longer while it is visibly still downloading or restarting; from console
+  2.30.1), or too many boards of a stage fail. A deployment of several boards from the API gets a canary too.
 - **A health gate** (from console 2.13.0, on by default for 10 minutes). Before each next stage, the boards updated so
   far must run the release that long with no new Memfault issue and no unexpected reboot (Assert, fault, watchdog).
   Otherwise the rollout stops, naming the board and the issue with a link, and raises an alert. If Memfault cannot be

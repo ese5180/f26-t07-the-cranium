@@ -2016,6 +2016,8 @@ function openDeploy(version) {
     stages: 1,
     soakMinutes: 0,
     abortPercent: 20,
+    // The canary's time limit (console 2.30.1): 6 minutes unless the person changes it.
+    canaryMinutes: 6,
     // The health gate (docs/fleet.md): on, for 10 minutes, unless the person changes it.
     healthGate: true,
     gateMinutes: 10,
@@ -2030,6 +2032,9 @@ function openDeploy(version) {
     }),
     setCanary: change((value) => {
       model.canary = value;
+    }),
+    setCanaryMinutes: change((value) => {
+      model.canaryMinutes = value;
     }),
     setStages: change((value) => {
       model.stages = value;
@@ -2132,6 +2137,7 @@ function openDeploy(version) {
                   things,
                   note: singleLine(model.note),
                   canary: model.canary,
+                  canaryMinutes: model.canaryMinutes,
                   stages: model.stages,
                   soakMinutes: model.soakMinutes,
                   abortPercent: model.abortPercent,
@@ -2152,6 +2158,7 @@ function openDeploy(version) {
               things: [...model.things].sort(),
               note: singleLine(model.note),
               canary: model.canary,
+              canaryMinutes: model.canaryMinutes,
               stages: model.stages,
               soakMinutes: model.soakMinutes,
               abortPercent: model.abortPercent,
@@ -2182,6 +2189,14 @@ function openDeploy(version) {
         }
         keep(state.deploymentDetails, deployment.id, deployment);
         self.close(true);
+        // More than one board (console 2.30.1): the server sent it to one canary first, as a staged rollout.
+        if (deployment.rollout) {
+          notify(
+            `Deployment of ${deployment.version ?? model.version} started: one board first, the rest once it has confirmed.`
+          );
+          location.hash = routeHash({ view: 'rollout', id: deployment.rollout });
+          return;
+        }
         notify(`Deployment of ${deployment.version ?? model.version} started.`);
         location.hash = routeHash({ view: 'deployment', id: deployment.id });
       }),

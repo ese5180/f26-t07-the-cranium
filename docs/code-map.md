@@ -31,7 +31,7 @@ Places are given by file and function name, which stay put as the code changes; 
 ## OTA (cloud side): `cloud/api/src`
 - Upload: `lib/mcuboot.mjs` `validateImage()` checks the signature with our key, the version and the size; `parseVersion` / `compareVersions`.
 - Deploy: `lib/jobs.mjs` creates the AWS IoT job (presigned URL lasting 600 s, `MAX_IN_FLIGHT` 5); `lib/fleet.mjs` decides which boards can take it (board type, layout, older version).
-- Staged rollout (extra credit): `rollouts-tick.mjs` runs on a schedule: canary first, then the waves, and it stops itself if the canary fails.
+- Staged rollout (extra credit): `rollouts-tick.mjs` runs on a schedule: canary first, then the stages, and it stops itself if the canary fails or does not confirm within its time limit.
 
 ## Fleet features added in console 2.18 to 2.21 (all paths from the repository root)
 - **Weekly report** ([`reports.md`](reports.md)): `cloud/api/src/handlers/reports.mjs` (the routes) and `cloud/api/src/lib/reports.mjs` (the week's tables); the Monday e-mail is sent by `cloud/api/src/tick.mjs`; the page is `cloud/web/src/site/assets/reports.js`; test `cloud/web/test/reports.test.mjs`.

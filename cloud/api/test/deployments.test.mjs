@@ -20,9 +20,13 @@ const idle = (version = '1.0.0+3') => ({
   uptime: 600,
 });
 
-/** A console with three boards, release 1.2.3+4 and a release manager. */
+/**
+ * A console with three boards, release 1.2.3+4 and a release manager. These are tests of the job layer:
+ * a deployment of several boards is one job here, as every stage of a staged rollout is. Through the API
+ * such a deployment goes to a canary first from console 2.30.1 (rollouts.test.mjs), so that is off here.
+ */
 async function setup(options) {
-  const console_ = createTestConsole(options);
+  const console_ = createTestConsole({ stagedDeployments: false, ...options });
   const manager = console_.addUser('manager', ['release-managers']);
   const viewer = console_.addUser('viewer', ['viewers']);
   for (const thing of [BOARD_A, BOARD_B, BOARD_C]) console_.fake.addThing(thing);

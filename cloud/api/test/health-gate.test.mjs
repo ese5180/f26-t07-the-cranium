@@ -185,7 +185,7 @@ test('a health gate is { on, minutes } in a request, 0 to 120 minutes, 10 unless
 test('a gate that passes: the next stage waits its minutes, Memfault shows nothing new, and the stage starts', async () => {
   const { world, rollout, canary, confirmedAt } = await confirmedCanary();
   assert.deepEqual(rollout.healthGate, { minutes: 10 });
-  assert.match(world.entries('rollout.create').at(-1).detail.stages, /, gate 10 min$/);
+  assert.match(world.entries('rollout.create').at(-1).detail.stages, /, gate 10 min, canary limit 6 min$/);
   // What Memfault has is no problem: the update's own restart, an issue on the old version, a crash before the
   // rollout started.
   const known = issueWith(11, 'Old crash', canary, Date.parse(rollout.createdAt) + 2 * MINUTE, '1.12.0+0');

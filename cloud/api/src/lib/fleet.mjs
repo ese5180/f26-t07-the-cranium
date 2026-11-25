@@ -13,7 +13,9 @@
 
 import { badRequest } from '../http.mjs';
 import { BOARD_LABELS, isBluetoothOnly } from './boards.mjs';
+import { IN_PROGRESS_TIMEOUT_MIN } from './jobs.mjs';
 import { compareVersions, parseVersion } from './mcuboot.mjs';
+import { RESTART_WINDOW_MS } from './shadow.mjs';
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -41,6 +43,24 @@ export const DEFAULT_ABORT_PERCENT = 20;
 export const MIN_EXECUTED = 1;
 // The most boards one rollout takes, all its waves together.
 export const MAX_ROLLOUT_BOARDS = 100;
+
+// The canary's time limit (console 2.30.1): how long from its job to its confirmation before the rest
+// is halted. Ten updates over the air took 181 to 227 s from the start to the confirmation (median
+// 192.5 s: about 70 s of download, 81 s of swap in MCUboot, the rest the check, the restart and the
+// reconnect; docs/test-results.md), and the schedule looks once a minute: 6 minutes is the slowest
+// of them with two minutes to spare. A canary that is visibly still at work gets longer (canaryClock).
+export const DEFAULT_CANARY_MINUTES = 6;
+// Below the time a real update takes, a healthy canary would be halted.
+export const MIN_CANARY_MINUTES = 3;
+// The job's own limit for a board at work: past it AWS IoT times the canary out anyway.
+export const MAX_CANARY_MINUTES = IN_PROGRESS_TIMEOUT_MIN;
+// A canary past its limit whose download has not gone up by a step (the board reports every 10%)
+// for this long has stalled. At the measured speed a step takes about 7 s.
+export const CANARY_STALL_MS = 3 * MINUTE_MS;
+// A board that has announced its restart settles the update itself within this long: up to 240 s to
+// come back (lib/shadow.mjs RESTART_WINDOW_MS), then 300 s on trial to confirm, or MCUboot swaps the
+// old image back and it reports rolled_back (firmware CONFIG_APP_OTA_SELF_TEST_TIMEOUT_SECONDS).
+export const CANARY_INSTALL_MS = RESTART_WINDOW_MS + 5 * MINUTE_MS;
 
 export const MAX_GROUPS = 50;
 export const MAX_GROUP_BOARDS = 100;
@@ -236,6 +256,88 @@ export function canaryVerdict(canary, executions) {
   return { state: confirmed === canary.length ? 'confirmed' : 'waiting', failed, confirmed };
 }
 
+const DOWNLOAD_PHASES = new Set(['starting', 'downloading', 'verifying']);
+const INSTALL_PHASES = new Set(['rebooting', 'testing']);
+
+/** A canary's download watch as stored: [{ thing, percent, at }], the entries that are well formed. */
+export function readCanaryWatch(value) {
+  return (Array.isArray(value) ? value : []).filter(
+    (entry) =>
+      typeof entry?.thing === 'string' &&
+      Number.isInteger(entry.percent) &&
+      entry.percent >= -1 &&
+      entry.percent <= 100 &&
+      Number.isFinite(Date.parse(entry.at ?? ''))
+  );
+}
+
+/**
+ * Where a canary that has not confirmed yet stands against its time limit of `minutes` from
+ * `startedAt` (epoch ms), from its job's executions as a deployment shows them (handlers/
+ * deployments.mjs: status, phase, progress, lastUpdatedAt). Returns { state, deadline, watch, stuck }:
+ *
+ *   "within"  the limit is not reached yet;
+ *   "moving"  it is reached, but every canary board that is still queued or at work is visibly getting
+ *             on: it announced its restart less than CANARY_INSTALL_MS ago (the firmware settles the
+ *             update by itself from there), or its download went up within CANARY_STALL_MS;
+ *   "over"    it is reached and a board is not getting on: never started (offline, or not taking the
+ *             job), waiting for its button, a download that stopped going up, or no word since a restart
+ *             that should have ended. `stuck` names them: [{ thing, phase, progress }].
+ *
+ * A download is watched from the limit on: `watch` is the last percent seen of each downloading board
+ * and since when ([{ thing, percent, at }], -1 for a board with none), stored on the rollout between
+ * runs. So a download that has stopped before the limit is halted at most CANARY_STALL_MS after it.
+ * A board that has ended its execution any other way is canaryVerdict's to judge, not this.
+ */
+export function canaryClock({ things, executions, startedAt, minutes, watch = [], nowMs }) {
+  const deadline = startedAt + minutes * MINUTE_MS;
+  if (nowMs < deadline) return { state: 'within', deadline, watch, stuck: [] };
+  const byThing = new Map(executions.map((execution) => [execution.thing, execution]));
+  const seen = new Map(readCanaryWatch(watch).map((entry) => [entry.thing, entry]));
+  const at = new Date(nowMs).toISOString();
+  const next = [];
+  const stuck = [];
+  for (const thing of things) {
+    const execution = byThing.get(thing) ?? { status: 'QUEUED', phase: 'waiting_for_device', progress: null };
+    if (execution.status !== 'QUEUED' && execution.status !== 'IN_PROGRESS') continue;
+    const phase = typeof execution.phase === 'string' ? execution.phase : 'waiting_for_device';
+    const progress = Number.isInteger(execution.progress) ? execution.progress : null;
+    if (INSTALL_PHASES.has(phase)) {
+      const since = Date.parse(execution.lastUpdatedAt ?? '');
+      if (Number.isFinite(since) && nowMs - since < CANARY_INSTALL_MS) continue;
+      stuck.push({ thing, phase, progress: null });
+    } else if (DOWNLOAD_PHASES.has(phase)) {
+      const percent = progress ?? -1;
+      const before = seen.get(thing);
+      if (before === undefined || percent > before.percent) {
+        next.push({ thing, percent, at });
+        continue;
+      }
+      next.push(before);
+      if (nowMs - Date.parse(before.at) < CANARY_STALL_MS) continue;
+      stuck.push({ thing, phase, progress });
+    } else {
+      stuck.push({ thing, phase, progress: null });
+    }
+  }
+  return { state: stuck.length > 0 ? 'over' : 'moving', deadline, watch: next, stuck };
+}
+
+/** Why a canary is halted at its time limit, in the console's words: "… within 6 minutes: …". */
+export function canaryLateWords(minutes, stuck) {
+  const why = ({ thing, phase, progress }) => {
+    if (phase === 'waiting_for_button') return `${thing} is waiting for someone to press its button`;
+    if (DOWNLOAD_PHASES.has(phase)) {
+      return progress === null ? `${thing} stopped downloading` : `${thing} stopped downloading at ${progress}%`;
+    }
+    if (INSTALL_PHASES.has(phase)) return `${thing} has not come back from its restart`;
+    return `${thing} has not started it (offline, or not taking the job)`;
+  };
+  const named = stuck.slice(0, 3).map(why).join('; ');
+  const more = stuck.length > 3 ? `; and ${stuck.length - 3} more` : '';
+  return `The canary did not confirm within ${minutes} minutes: ${named}${more}. The rest was not sent`;
+}
+
 /** The share of a wave's finished boards that failed, was rejected or timed out: { executed, failed, percent }. */
 export function failureShare(executions) {
   const executed = executions.filter((execution) =>
@@ -289,6 +391,30 @@ export function requireWhole(value, name, low, high, fallback) {
   return value;
 }
 
+/** A stored rollout's canary time limit in minutes, or null for a rollout from before console 2.30.1. */
+export function canaryMinutesOf(item) {
+  const minutes = item?.canaryMinutes;
+  return Number.isInteger(minutes) && minutes >= MIN_CANARY_MINUTES && minutes <= MAX_CANARY_MINUTES ? minutes : null;
+}
+
+/** When a stored rollout's canary job was made, as ISO 8601: its own start, else the rollout's. */
+function canaryStart(item) {
+  const at = Date.parse(item?.canary?.startedAt ?? item?.createdAt ?? '');
+  return Number.isFinite(at) ? new Date(at).toISOString() : null;
+}
+
+/**
+ * When a stored rollout's canary time limit is up, as ISO 8601, or null when it has none: a rollout from
+ * before console 2.30.1, or one whose canary is all of it, which has no rest to halt.
+ */
+export function canaryDeadline(item) {
+  const minutes = canaryMinutesOf(item);
+  const start = canaryStart(item);
+  const rest = Array.isArray(item?.rest?.things) ? item.rest.things.length : 0;
+  if (minutes === null || start === null || item?.canary?.only === true || rest === 0) return null;
+  return new Date(Date.parse(start) + minutes * MINUTE_MS).toISOString();
+}
+
 /** A stored rollout item as the API shows it, or null if it is not one. */
 export function rolloutFromItem(item) {
   if (item === null || typeof item !== 'object' || typeof item.id !== 'string' || !ROLLOUT_ID.test(item.id))
@@ -321,7 +447,12 @@ export function rolloutFromItem(item) {
       job: item.canary?.job ?? null,
       doneAt: item.canary?.doneAt ?? null,
       gatePassedAt: item.canary?.gatePassedAt ?? null,
+      // From console 2.30.1: when its job was made, and when its time limit is up (null: no limit).
+      startedAt: canaryStart(item),
+      deadline: canaryDeadline(item),
     },
+    // From console 2.30.1: the canary's time limit in minutes; null for a rollout from before, which has none.
+    canaryMinutes: canaryMinutesOf(item),
     rest: {
       things: list(item.rest?.things),
       leftOut: reasons(item.rest?.leftOut),

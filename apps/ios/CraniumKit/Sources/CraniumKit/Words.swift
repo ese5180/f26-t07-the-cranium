@@ -1371,6 +1371,7 @@ public enum Words {
         "invalid_target": "Not a target of a rollout: boards, a group, a type or the fleet",
         "invalid_types": "The list of board types and their releases was not valid",
         "invalid_canary": "The canary was not a whole number from 1 to 5",
+        "invalid_canaryMinutes": "The canary’s time limit was not a whole number of minutes from 3 to 30",
         "invalid_wave": "The first wave was not a whole number from 1 to 50 boards",
         "invalid_abortPercent": "The share of failures to stop at was not a whole number from 1 to 100",
         "invalid_stages": "The number of stages was not a whole number from 1 to 10",
