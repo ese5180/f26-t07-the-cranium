@@ -55,9 +55,10 @@ console take such an image like one from this folder. To fetch one, for example 
 gh release download v1.7.0 --dir release && cd release && shasum -a 256 -c SHA256SUMS
 ```
 
-The artifacts of the workflow runs in the Actions tab are named `...-ci-key-not-installable`, and
-that is what they are. GitHub Actions never has the signing key, so it signs what it builds with a
-throwaway key, and MCUboot and the console both refuse those images. They show that a commit builds
+The artifacts of the workflow runs in the Actions tab (until 2026-11-21: Actions is off now, and
+`scripts/ci/local-ci.sh` keeps no artifacts) are named `...-ci-key-not-installable`, and that is what
+they are. CI never has the signing key, so it signs what it builds with a throwaway key, and MCUboot
+and the console both refuse those images. They show that a commit builds
 and what size it is. [`docs/ci.md`](../docs/ci.md) has the rest.
 
 ## `scripts/firmware/ota.sh`

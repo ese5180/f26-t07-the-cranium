@@ -58,4 +58,4 @@ A Debug build run with `CRANIUM_MAC_SMOKE=<file.png>` takes a picture of the pag
 
 ## CI
 
-The `Mac app` job in `.github/workflows/ci.yml` makes the project with XcodeGen, builds the bundle and runs the unit tests unsigned. It is not a required check.
+The `Mac app` job in `.github/workflows/ci.yml`, run on a Mac by `scripts/ci/local-ci.sh --job macos` now that GitHub Actions is off ([ci.md](ci.md#local-ci-github-actions-is-off)), makes the project with XcodeGen, builds the bundle and runs the unit tests unsigned. It is not a required check.
