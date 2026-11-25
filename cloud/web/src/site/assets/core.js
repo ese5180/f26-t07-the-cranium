@@ -3352,7 +3352,7 @@ export function createApi({
         }),
       };
     },
-    // Raspberry Pi images (console 2.29.0, cloud/api/src/handlers/pi-images.mjs).
+    // Raspberry Pi images (console 2.30.0, cloud/api/src/handlers/pi-images.mjs).
     /** The Pi images and the latest Pi deployments with each board's progress. */
     piImages: async () => readPiImages(await get('/api/pi-images')),
     /**
@@ -4939,7 +4939,7 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to start a golden promotion',
     icon: 'shield',
   },
-  // Raspberry Pi images (console 2.29.0): the package described, what arrived checked, a deployment and its end.
+  // Raspberry Pi images (console 2.30.0): the package described, what arrived checked, a deployment and its end.
   'firmware.pi_upload': {
     done: 'uploaded the Pi image',
     tried: 'tried to upload the Pi image',

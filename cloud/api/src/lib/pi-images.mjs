@@ -1,5 +1,5 @@
 /**
- * Raspberry Pi images, updated by blocks through the board (console 2.29.0; docs/pi-delta-update.md, PR #279).
+ * Raspberry Pi images, updated by blocks through the board (console 2.30.0; docs/pi-delta-update.md, PR #279).
  *
  * The Pi has no network. A board wired to it (an nRF7002 DK running a firmware built with
  * scripts/firmware/build.sh --pi, from 1.20.0) keeps a copy of the Pi's image on an SD card and brings it

@@ -1,5 +1,5 @@
 /**
- * Raspberry Pi images on the Firmware page (console 2.29.0; lib/pi-images.mjs, docs/pi-delta-update.md).
+ * Raspberry Pi images on the Firmware page (console 2.30.0; lib/pi-images.mjs, docs/pi-delta-update.md).
  *
  *   GET  /api/pi-images
  *        The Pi images, newest first, and the latest Pi deployments with each board's progress.

@@ -93,7 +93,7 @@ export const ACTIONS = Object.freeze([
   // Golden image promotion (handlers/golden.mjs, console 2.27.7): a release's signed record, and a promotion.
   'firmware.golden_record',
   'golden.promote',
-  // Raspberry Pi images (handlers/pi-images.mjs, console 2.29.0): a package described and its URL, what arrived
+  // Raspberry Pi images (handlers/pi-images.mjs, console 2.30.0): a package described and its URL, what arrived
   // checked, a deployment to boards with a Pi, and its cancellation.
   'firmware.pi_upload',
   'firmware.pi_verify',

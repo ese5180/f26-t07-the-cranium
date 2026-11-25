@@ -13740,7 +13740,7 @@ button.back {
   font-size: var(--type-body);
 }
 
-/* Raspberry Pi images (console 2.29.0): the Firmware page's part for boards wired to a Pi, and the mark of such a
+/* Raspberry Pi images (console 2.30.0): the Firmware page's part for boards wired to a Pi, and the mark of such a
    board in the Devices list. */
 .pi-upload-form {
   display: grid;

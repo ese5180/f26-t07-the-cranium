@@ -1122,7 +1122,7 @@ Resources:
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerEnforced
-      # From console 2.29.0: a Raspberry Pi image package goes from the Firmware page straight to S3, with a PUT
+      # From console 2.30.0: a Raspberry Pi image package goes from the Firmware page straight to S3, with a PUT
       # that the console presigns for one key, one size and "only if new" (cloud/api/src/handlers/pi-images.mjs).
       # A browser asks first whether it may (CORS). PUT only, with the headers that request carries; the URL is
       # the permission, so any origin, as for the API. Nothing is read this way.
@@ -1698,7 +1698,7 @@ Resources:
           # Where both sites' pages keep their WebSocket for live updates (LiveApi, docs/live.md), which
           # their Content-Security-Policy allows and nothing else of that host.
           LIVE_URL: !Sub '${LiveApi.ApiEndpoint}/${LiveStage}'
-          # Where the Firmware page sends a Raspberry Pi image package with a presigned PUT (console 2.29.0),
+          # Where the Firmware page sends a Raspberry Pi image package with a presigned PUT (console 2.30.0),
           # which the console's Content-Security-Policy allows and nothing else.
           UPLOAD_ORIGIN: !Sub 'https://${FirmwareBucket}.s3.${AWS::Region}.amazonaws.com'
 
