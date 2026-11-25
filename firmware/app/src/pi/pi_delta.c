@@ -677,8 +677,13 @@ enum pi_err pi_delta_run(struct pi_delta *d, const struct pi_delta_job *job, boo
 	if (!job_is(&d->target, job)) {
 		return PI_ERR_MANIFEST_MISMATCH;
 	}
-	if (d->target.block_count > st->max_blocks || !pi_card_fits(card, d->target.image_size)) {
+	if (d->target.block_count > st->max_blocks) {
 		return PI_ERR_TOO_LARGE;
+	}
+	/* From 1.20.2: below the file area, or in place of a file no job offers (pi_os.h). */
+	err = pi_card_make_room(card, d->target.image_size, d->table);
+	if (err != PI_OK) {
+		return err;
 	}
 
 	/* The same update as the one the card is in the middle of: go on with it. */

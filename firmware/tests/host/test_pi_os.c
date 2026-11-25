@@ -427,9 +427,11 @@ static void test_interruptions(void)
 	CHECK(w.card.file.state == PI_FILE_DOWNLOADING && w.card.file.done == 10 * PI_SECTOR_SIZE);
 	CHECK(file_after_open(&w).done == 10 * PI_SECTOR_SIZE);
 	fetched = w.os.bytes_fetched;
-	CHECK(run(&w) == PI_OK && file_on_card(&w));
+	/* The next call, as the board makes it: the same engine, its count going on over the job. */
+	CHECK(pi_os_run(&w.os, &w.job) == PI_OK && file_on_card(&w));
 	CHECK(w.server.log_offset[1] == 10 * PI_SECTOR_SIZE && w.server.log_len[1] == SIZE - 10 * 512);
-	CHECK(fetched + w.os.bytes_fetched < SIZE + PI_SECTOR_SIZE);
+	CHECK(w.os.bytes_fetched == fetched + (SIZE - 10 * 512));
+	CHECK(w.os.bytes_fetched < SIZE + PI_SECTOR_SIZE);
 	fake_disk_free(&w.disk);
 
 	/* A server whose file is shorter than the job says: the range is refused, and nothing is done. */
@@ -520,8 +522,18 @@ static void test_digest(void)
 /* ------------------------------------------------------------------------------------------- */
 
 /* A delta update's image on the card (pi_delta.c), as a board of #279 leaves it. */
+static enum pi_err delta_update(struct world *w, uint8_t *image, uint64_t size, uint32_t block_size,
+				struct fake_server *server, uint8_t **package);
+
 static void install_image(struct world *w, uint8_t *image, uint64_t size, struct fake_server *server,
 			  uint8_t **package)
+{
+	CHECK(delta_update(w, image, size, BS, server, package) == PI_OK);
+}
+
+/* A delta update's image onto the card (pi_delta.c), as a "pi_delta" job brings it. */
+static enum pi_err delta_update(struct world *w, uint8_t *image, uint64_t size, uint32_t block_size,
+				struct fake_server *server, uint8_t **package)
 {
 	struct pi_delta delta;
 	struct pi_delta_job job;
@@ -530,7 +542,7 @@ static void install_image(struct world *w, uint8_t *image, uint64_t size, struct
 	uint64_t package_size;
 	bool already;
 
-	*package = fake_package(image, size, BS, "img1", &package_size, &m);
+	*package = fake_package(image, size, block_size, "img1", &package_size, &m);
 	memset(server, 0, sizeof(*server));
 	server->package = *package;
 	server->size = package_size;
@@ -542,7 +554,36 @@ static void install_image(struct world *w, uint8_t *image, uint64_t size, struct
 	memcpy(job.sha256, m.image_sha256, PI_HASH_SIZE);
 	pi_card_init(&w->card, &fake_disk_ops, &w->disk);
 	pi_delta_init(&delta, &w->card, &delta_config, &fetch, fake_verify, NULL);
-	CHECK(pi_delta_run(&delta, &job, &already) == PI_OK);
+	return pi_delta_run(&delta, &job, &already);
+}
+
+/*
+ * A delta update whose image reaches a file the card holds, which no job offers (its job ended):
+ * the file gives way, and the image goes onto the card whole.
+ */
+static void test_delta_takes_a_held_files_room(void)
+{
+	uint8_t *v1 = make_file(81, SIZE);
+	/* 3.5 MiB in 16 KiB blocks: past the file, 3 MiB into the 4 MiB after the layout. */
+	uint64_t image_size = 224ull * 16384;
+	uint8_t *image = make_file(82, (uint32_t)image_size);
+	struct fake_server server;
+	uint8_t *package = NULL;
+	struct world w;
+
+	world_create(&w);
+	offer_file(&w, v1, SIZE, "1.1.0", "1.0.0", 1);
+	CHECK(run(&w) == PI_OK && w.card.file.lba == layout.mirror_lba + 3 * 2048);
+	CHECK(delta_update(&w, image, image_size, 16384, &server, &package) == PI_OK);
+	CHECK(w.card.st.state == PI_STATE_READY && w.card.file.state == PI_FILE_NONE);
+	CHECK(memcmp(w.disk.data + layout.mirror_lba * 512, image, (size_t)image_size) == 0);
+	CHECK(file_after_open(&w).state == PI_FILE_NONE && file_after_open(&w).generation == 1);
+	/* The next OS job finds no room past this image for its file. */
+	CHECK(run(&w) == PI_ERR_TOO_LARGE);
+	fake_disk_free(&w.disk);
+	free(package);
+	free(image);
+	free(v1);
 }
 
 static void test_placement(void)
@@ -577,25 +618,54 @@ static void test_placement(void)
 	w.card.file.state = PI_FILE_NONE;
 	CHECK(pi_card_fits(&w.card, (w.card.file.lba - layout.mirror_lba + 1) * 512));
 	w.card.file.state = PI_FILE_READY;
+	{
+		uint64_t past = (w.card.file.lba - layout.mirror_lba + 1) * 512;
+		uint64_t writes_before = w.disk.writes;
+
+		/* While a job offers the file, it stays, and the image does not fit. */
+		w.card.file.offered = true;
+		CHECK(pi_card_make_room(&w.card, past, raw) == PI_ERR_TOO_LARGE && w.disk.writes == writes_before);
+		CHECK(w.card.file.state == PI_FILE_READY);
+		w.card.file.offered = false;
+		/* Larger than the card even without it: it stays too. */
+		CHECK(pi_card_make_room(&w.card, (card_sectors - layout.mirror_lba + 1) * 512, raw) ==
+		      PI_ERR_TOO_LARGE);
+		CHECK(w.card.file.state == PI_FILE_READY && w.disk.writes == writes_before);
+		/* One that fits below it: nothing changes. */
+		CHECK(pi_card_make_room(&w.card, 512, raw) == PI_OK && w.disk.writes == writes_before);
+		/* Held, and in the way: it gives way, on the card too, and its generation goes on. */
+		CHECK(pi_card_make_room(&w.card, past, raw) == PI_OK);
+		CHECK(w.card.file.state == PI_FILE_NONE && pi_card_fits(&w.card, past));
+		CHECK(file_after_open(&w).state == PI_FILE_NONE && file_after_open(&w).generation == 1);
+		/* The mirror's image is as it was; the file comes back with the next job, a generation on. */
+		CHECK(memcmp(w.disk.data + layout.mirror_lba * 512, image, (size_t)image_size) == 0);
+		offer_file(&w, v1, SIZE, "1.1.0", "1.0.0", 1);
+		CHECK(run(&w) == PI_OK && file_on_card(&w) && w.card.file.generation == 2);
+	}
 
 	/* A file that does not fit between the mirror's image and the card's end: refused, nothing written. */
 	writes = w.disk.writes;
 	offer_file(&w, v1, SIZE, "1.2.0", "1.1.0", 2);
 	w.job.size = (uint32_t)((card_sectors - layout.mirror_lba) * 512 - image_size + 1);
 	CHECK(run(&w) == PI_ERR_TOO_LARGE && w.disk.writes == writes);
-	CHECK(file_after_open(&w).state == PI_FILE_READY && file_after_open(&w).generation == 1);
+	CHECK(file_after_open(&w).state == PI_FILE_READY && file_after_open(&w).generation == 2);
 	/* Nor one larger than the card. */
 	w.job.size = UINT32_MAX;
 	CHECK(run(&w) == PI_ERR_TOO_LARGE && w.disk.writes == writes);
 
-	/* A header that says the file sits inside the mirror's image: no file. */
+	/* A header that says the file sits near the top of 64 bits, where its end wraps around: no file. */
+	CHECK(pi_card_file_load(&w.card, raw) == PI_OK);
+	pi_put64(raw + PI_FILE_AT_LBA, UINT64_MAX - 5);
+	CHECK(pi_card_file_store(&w.card, raw) == PI_OK);
+	CHECK(file_after_open(&w).state == PI_FILE_NONE && file_after_open(&w).generation == 2);
+	/* One that says it sits inside the mirror's image: no file either. */
 	CHECK(pi_card_file_load(&w.card, raw) == PI_OK);
 	pi_put64(raw + PI_FILE_AT_LBA, layout.mirror_lba + 8);
 	CHECK(pi_card_file_store(&w.card, raw) == PI_OK);
-	CHECK(file_after_open(&w).state == PI_FILE_NONE && file_after_open(&w).generation == 1);
+	CHECK(file_after_open(&w).state == PI_FILE_NONE && file_after_open(&w).generation == 2);
 	/* The next file goes on from that generation. */
 	offer_file(&w, v1, SIZE, "1.1.0", "1.0.0", 1);
-	CHECK(run(&w) == PI_OK && w.card.file.generation == 2);
+	CHECK(run(&w) == PI_OK && w.card.file.generation == 3);
 
 	/* Of the two copies, the newer good one counts: a torn newer one leaves the older. */
 	w.card.file.offered = true;
@@ -1340,6 +1410,7 @@ int main(void)
 	test_interruptions();
 	test_digest();
 	test_placement();
+	test_delta_takes_a_held_files_room();
 	test_link();
 	test_watch();
 	test_details();

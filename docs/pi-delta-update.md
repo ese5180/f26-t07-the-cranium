@@ -40,7 +40,8 @@ the board as SPI controller.
 card, thread, downloader and link: a `"op": "pi_os"` job carries one update file into a file area at the
 end of the card, and the Pi reads it with requests `0x20` to `0x23`. That is
 [`docs/pi-os-update.md`](pi-os-update.md); the card's layout below gains two header sectors (2050, 2051)
-and that file area, and a delta image may not reach the file while the card holds one.
+and that file area. A delta image that would reach the file takes its room when no job offers it,
+and fails with `too_large` when one does.
 
 ## Contents
 

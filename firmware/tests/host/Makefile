@@ -42,7 +42,8 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
 		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests \
-		$(BUILD)/pi_delta_tests $(BUILD)/pi_os_tests $(BUILD)/pi_delta_harness $(BUILD)/ota_pi_tests \
+		$(BUILD)/pi_delta_tests $(BUILD)/pi_os_tests $(BUILD)/pi_delta_ota_tests $(BUILD)/pi_delta_harness \
+		$(BUILD)/ota_pi_tests \
 		$(BUILD)/pi_rx_tests $(BUILD)/pi_rx_delta_tests $(BUILD)/app_pi_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
@@ -85,6 +86,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/sessions_tests
 	./$(BUILD)/pi_delta_tests
 	./$(BUILD)/pi_os_tests
+	./$(BUILD)/pi_delta_ota_tests
 	./$(BUILD)/ota_pi_tests
 	./$(BUILD)/pi_rx_tests
 	./$(BUILD)/pi_rx_delta_tests
@@ -127,6 +129,20 @@ $(BUILD)/pi_os_tests: test_pi_os.c pi_delta_fakes.c $(PI_DELTA_SOURCES) $(PI_DEL
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_PI_DELTA=1 -o $@ test_pi_os.c pi_delta_fakes.c \
 		$(PI_DELTA_SOURCES) $(SRC)/ota/ota_job.c $(SRC)/ota/version.c $(BUILD)/cJSON.o -lm
+# The board's glue for both kinds of Pi update (src/pi/pi_delta_ota.c), the real source with the card in memory,
+# a cloud that records the job's reports, no network, and the update's thread run until it waits: a pi_os job
+# whose download keeps failing ends after CONFIG_APP_PI_DELTA_DOWNLOAD_ATTEMPTS calls, after a delta job too; a
+# card swapped while a file is offered gives neither its file nor its result to the job.
+PI_DELTA_OTA_DEFINES := -DCONFIG_APP_PI_DELTA=1 -DCONFIG_APP_PI_DELTA_MAX_BLOCKS=256 \
+	-DCONFIG_APP_PI_DELTA_RUN_BLOCKS=16 -DCONFIG_APP_PI_DELTA_DOWNLOAD_ATTEMPTS=10 \
+	-DCONFIG_APP_PI_DELTA_HTTP_BUF=1024 -DCONFIG_APP_PI_DELTA_HTTP_TIMEOUT_S=30 \
+	-DCONFIG_APP_PI_DELTA_STACK_SIZE=5120 -DCONFIG_APP_PI_DELTA_PRIORITY=10 \
+	-DCONFIG_APP_DOWNLOAD_SEC_TAG=202 -DCONFIG_APP_LOG_LEVEL=0
+$(BUILD)/pi_delta_ota_tests: test_pi_delta_ota.c $(SRC)/pi/pi_delta_ota.c pi_delta_fakes.c $(PI_DELTA_SOURCES) \
+		$(PI_DELTA_HEADERS) stubs/zephyr/net/socket.h stubs/host_ota.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) $(PI_DELTA_OTA_DEFINES) -o $@ test_pi_delta_ota.c pi_delta_fakes.c \
+		$(PI_DELTA_SOURCES)
 # The Pi message link's receiver (src/pi/pi_rx.c, docs/pi-link.md), as every build without Pi delta updates has
 # it, and with them, where their requests go to pi_dlink.c and everything else stays as it was.
 $(BUILD)/pi_rx_tests: test_pi_rx.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_frame.c $(SRC)/pi/pi_rx.h $(SRC)/pi/pi_frame.h

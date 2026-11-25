@@ -67,7 +67,7 @@ struct pi_os {
 	/* Read by other threads for reports, each on its own. */
 	/* Bytes on the card (downloading), or read back and hashed (checking). */
 	volatile uint32_t done;
-	/* In this call: bytes downloaded. */
+	/* Bytes downloaded, over every call since the caller last set it to 0 (pi_delta_ota.c: the job). */
 	uint64_t bytes_fetched;
 	uint32_t size;
 	/* The generation the file is offered under, once ready. */

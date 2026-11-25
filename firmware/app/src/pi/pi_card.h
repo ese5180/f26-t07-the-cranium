@@ -130,6 +130,15 @@ uint64_t pi_card_mirror_end(const struct pi_card *card);
 enum pi_err pi_card_file_load(struct pi_card *card, uint8_t raw[PI_SECTOR_SIZE]);
 enum pi_err pi_card_file_store(struct pi_card *card, uint8_t raw[PI_SECTOR_SIZE]);
 
+/*
+ * A delta image that fits the card, but not below the file the card holds: the file gives way, if no
+ * job offers it now (its job has ended, or never offered it), and the card says it has none; its
+ * generation goes on. PI_OK when the image fits now (with or without dropping a file),
+ * PI_ERR_TOO_LARGE when it cannot, a card error if the header could not be saved. raw is a sector to
+ * work in.
+ */
+enum pi_err pi_card_make_room(struct pi_card *card, uint64_t image_size, uint8_t raw[PI_SECTOR_SIZE]);
+
 static inline void pi_card_lock(struct pi_card *card)
 {
 	if (card->ops->lock != NULL) {

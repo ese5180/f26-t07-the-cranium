@@ -281,7 +281,7 @@ static enum pi_err open_file(struct pi_card *card)
 	card->file.copy = (uint8_t)pick;
 	card->file.seq = h.seq;
 	card->file.generation = h.generation;
-	if (h.lba < pi_card_mirror_end(card) ||
+	if (h.lba < pi_card_mirror_end(card) || h.lba > card->sectors ||
 	    h.lba + (h.size + (uint64_t)PI_SECTOR_SIZE - 1) / PI_SECTOR_SIZE > card->sectors) {
 		return PI_OK;
 	}
@@ -301,6 +301,31 @@ enum pi_err pi_card_file_load(struct pi_card *card, uint8_t raw[PI_SECTOR_SIZE])
 	}
 	pi_card_unlock(card);
 	return err;
+}
+
+enum pi_err pi_card_make_room(struct pi_card *card, uint64_t image_size, uint8_t raw[PI_SECTOR_SIZE])
+{
+	enum pi_err err;
+
+	if (pi_card_fits(card, image_size)) {
+		return PI_OK;
+	}
+	if (card->file.state == PI_FILE_NONE || card->file.offered ||
+	    card->layout.mirror_lba + image_size / PI_SECTOR_SIZE > card->sectors) {
+		return PI_ERR_TOO_LARGE;
+	}
+	pi_card_lock(card);
+	err = pi_card_file_load(card, raw);
+	if (err == PI_OK && !card->file.offered) {
+		raw[PI_FILE_AT_STATE] = PI_FILE_NONE;
+		raw[PI_FILE_AT_RESULT] = PI_OS_NONE;
+		err = pi_card_file_store(card, raw);
+	}
+	pi_card_unlock(card);
+	if (err != PI_OK) {
+		return err;
+	}
+	return pi_card_fits(card, image_size) ? PI_OK : PI_ERR_TOO_LARGE;
 }
 
 enum pi_err pi_card_file_store(struct pi_card *card, uint8_t raw[PI_SECTOR_SIZE])

@@ -107,7 +107,8 @@ range downloader with resume and retries, SPI link and frames, and heartbeat rep
 until a `pi_os` job writes one. A header whose CRC fails, or that places its file where it cannot be
 (inside the layout or the mirror's images, past the card's end), counts as no file. The two kinds keep out
 of each other's way: a file is placed past the mirror's current image and any update in progress, and a
-delta image that would reach the file is refused with `too_large` while the card holds a file.
+delta image that would reach the file takes its room if no job offers it ([How a job
+ends](#how-a-job-ends)), or is refused with `too_large` if one does.
 
 **The file header** (one sector, little-endian; the good copy with the higher sequence counts, and each
 save goes to the other, so a save cut by a power cut leaves the one before):
@@ -247,7 +248,10 @@ not yet answered, and the partial file.
 5. **Read** with FILE_READ from where its partial file (`<sha256>.part`) ends, 480 bytes at a time,
    pipelined: each transfer carries the next FILE_READ and brings the last one's answer; the last answer
    comes with a POLL. **Every answer's generation must be FILE_INFO's**; if it changes, or FILE_READ is
-   refused with `no_image` or `updating`, the offer changed: drop the partial file and start again from 3.
+   refused with `no_image` or `updating`, the offer changed: stop and start again from 3, later. **Keep
+   the partial file while FILE_INFO names the same SHA-256** (it is named by it): after the board restarts,
+   or its card is put back, the same file is held (state 3) for a moment before its job offers it again,
+   perhaps under another generation, and those bytes are still good. Drop it only for another SHA-256.
    Write each piece at its offset; fsync now and then.
 6. **The whole file's SHA-256** must be FILE_INFO's. If not: delete it and start again (a few times at most).
 7. **`apply`** it (`apply_update(..., reboot=False)`): the signature, the manifest against the running slot,
@@ -272,7 +276,7 @@ The job's reports (`statusDetails`, every value a string), from `pi_delta_ota.c`
 | Checked, offered | IN_PROGRESS | `step: offered`, `generation`, `read: 0`, `total` |
 | The Pi reads it (at once, then at most every 30 s) | IN_PROGRESS | `step: fetched`, `generation`, `read` (bytes the Pi has read, the furthest), `total` |
 | RESULT applied | IN_PROGRESS | `step: applied`, ... |
-| RESULT confirmed, or OS_STATUS says it runs the job's version off trial | SUCCEEDED | `pi_version`, `generation`, `bytes` (downloaded by this board in this run), `read`, `running` |
+| RESULT confirmed, or OS_STATUS says it runs the job's version off trial | SUCCEEDED | `pi_version`, `generation`, `bytes` (downloaded for this job since the board last started, over every retry), `read`, `running` |
 | RESULT refused or rolled back | FAILED | `reason` (`refused`, `rolled_back`), `pi_reason` (the Pi's, cleaned), `step: result`, `running` |
 | The download fails | FAILED | `reason` (`download_failed`, `digest_mismatch`, `too_large`, `sd_absent`, `sd_io`), `step`, `running` |
 
@@ -282,9 +286,14 @@ The job's reports (`statusDetails`, every value a string), from `pi_delta_ota.c`
   on the card under the same generation, and it is offered again. A RESULT the Pi sent meanwhile is on the
   card already; one it sends later is taken; and if the Pi's next OS_STATUS shows it runs the version, the
   job succeeds.
-- **The card taken out** while the file is offered: the Pi gets nothing; put back, the file is offered
-  again if the card still holds it, or taken again (downloaded) if not.
-- **The file stays on the card** after the job, held: the Pi is offered nothing without a job.
+- **The card taken out** while the file is offered: the Pi gets nothing. Whatever card goes in next,
+  the job takes its file again, as at its start: the same card's file, with this job's tag, is offered
+  again at once; another card's file is never offered, nor its result taken for this job, even with the
+  same generation (each card counts its own), and the job's file is downloaded onto it.
+- **The file stays on the card** after the job, held: the Pi is offered nothing without a job. A delta
+  update whose image would reach a held file (or one left downloading) takes its room: the file is
+  dropped (the card says it has none; its generation goes on) and a later `pi_os` job downloads it again.
+  A file a job offers now is never dropped; the delta job then fails with `too_large`.
 
 ## The heartbeat
 
@@ -318,36 +327,38 @@ without `--pi`), read with `tools/memory_budget.py`.
 | --- | --- | --- | --- | --- |
 | Default (Bluetooth, the message link, no Pi updates), this branch | 33,226 | 1,860 | 12,484 | 552 / 12,532 |
 | Default, #279, for comparison | 33,226 | 1,860 | 12,484 | 552 / 12,532 |
-| `--pi` (delta and OS updates, no Bluetooth), this branch | 92,090 | 18,448 | 12,484 | 552 / 12,532 |
+| `--pi` (delta and OS updates, no Bluetooth), this branch | 91,930 | 18,448 | 12,484 | 552 / 12,532 |
 | `--pi`, #279 (delta updates only), for comparison | 98,370 | 18,880 | 12,484 | 552 / 12,532 |
 
 **The default build pays nothing:** its figures are #279's to the byte. Everything here is behind
 `CONFIG_APP_PI_DELTA`; the job record's `pi_from` is only in a Pi build.
 
-**A Pi build pays about 6.3 KB of flash and 432 bytes of RAM.** The flash, from the two builds' symbols
+**A Pi build pays about 6.4 KB of flash and 432 bytes of RAM.** The flash, from the two builds' symbols
 (LTO moves code between functions, so roughly): the download, its read-back check and the placement
 (about 1 KB, in the update's thread), the four requests (about 760 bytes, in the link's work), the job's
 offer and its watch for the Pi's result (about 780), the file header's format, open, load and store
 (about 1.3 KB), the job document and the heartbeat's `os` (about 700), and the reports' text. Trimmed back:
-one progress report for both kinds of job, and two log lines the job's reports carry (176 bytes). The RAM:
+one progress report for both kinds of job, and two log lines the job's reports carry (176 bytes). The
+review's fixes (a swapped card, the retry count, a delta update taking a held file's room) add 160. The RAM:
 the shadow document's 160 more bytes for `os`, the job record's `from` in its two copies (64), the card's
 file state and the Pi's status (108), the job's own state, and the engine (48 bytes, packed from 80).
 
 **Floors:** the Pi build's flash floor goes from 98,304 to **91,648** (13 steps of 512) in
-`tools/memory_budgets.json`, as this needs about 6.3 KB and the build had 66 bytes above the old floor.
-**Lowering a floor is the owner's call**: this PR proposes it and says why. The RAM floor (18,432) holds,
-16 bytes above it. The default build's floors are unchanged.
+`tools/memory_budgets.json`, as this needs about 6.4 KB and the build had 66 bytes above the old floor;
+the build keeps 282 bytes above the new one. **Lowering a floor is the owner's call**: this PR proposes it
+and says why. The RAM floor (18,432) holds, 16 bytes above it. The default build's floors are unchanged.
 
 ## Tests
 
 | Where | What | Count |
 | --- | --- | --- |
-| `make -C firmware/tests/host`: `pi_os_tests` | The file header (every field, every refusal, a reason with `"`, `\`, controls and UTF-8 cleaned); the download onto a blank card, the same job again (nothing downloaded), another job for the same file (offered anew), another file, a full image, a whole number of sectors; **the power cut at each of 58 writes in turn**, from a blank card and from one holding another file, each resuming in one call with at most a save's worth again and never "ready" with the wrong bytes; a lost connection, a short server, a withdrawn job (half way, and before it starts), the card pulled and put back, a card that cannot be written, no card; a wrong SHA-256 (twice, then refused, nothing kept), a byte wrong from the server once, a bit stored wrong once; next to #279's mirror (placed past it, the mirror and its state untouched, a delta image that would reach the file refused), a file too large, a header that points into the mirror, a torn newer copy, a failed save leaving RAM as it was, garbage where the header goes; **every file request**: before the link has a card, a card not read yet, no file, downloading, held, offered, the whole file in 480-byte pieces, nine malformed or out-of-range FILE_READs, malformed RESULTs, a RESULT for another generation or version, kept ones (on the card after a reopen), a long and dirty reason, a card that cannot be written, malformed OS_STATUS, a version that is not one, a new file where the old one was with the link's cache full (the card open all along), a full image's flag, the card taken out and put back, a header that cannot be read, a message between requests; what a job decides from each result and status; each report's JSON; the heartbeat's `os` in each state, at its longest exactly `PI_DELTA_REPORT_MAX`; the job document (14 bad ones); the delta update's progress report, which now shares the same function | 742 checks |
+| `make -C firmware/tests/host`: `pi_os_tests` | The file header (every field, every refusal, a reason with `"`, `\`, controls and UTF-8 cleaned); the download onto a blank card, the same job again (nothing downloaded), another job for the same file (offered anew), another file, a full image, a whole number of sectors; **the power cut at each of 58 writes in turn**, from a blank card and from one holding another file, each resuming in one call with at most a save's worth again and never "ready" with the wrong bytes; a lost connection, a short server, a withdrawn job (half way, and before it starts), the card pulled and put back, a card that cannot be written, no card; a wrong SHA-256 (twice, then refused, nothing kept), a byte wrong from the server once, a bit stored wrong once; next to #279's mirror (placed past it, the mirror and its state untouched, a delta image that would reach the file refused), a file too large, a header that points into the mirror, a torn newer copy, a failed save leaving RAM as it was, garbage where the header goes; **every file request**: before the link has a card, a card not read yet, no file, downloading, held, offered, the whole file in 480-byte pieces, nine malformed or out-of-range FILE_READs, malformed RESULTs, a RESULT for another generation or version, kept ones (on the card after a reopen), a long and dirty reason, a card that cannot be written, malformed OS_STATUS, a version that is not one, a new file where the old one was with the link's cache full (the card open all along), a full image's flag, the card taken out and put back, a header that cannot be read, a message between requests; what a job decides from each result and status; each report's JSON; the heartbeat's `os` in each state, at its longest exactly `PI_DELTA_REPORT_MAX`; the job document (14 bad ones); the delta update's progress report, which now shares the same function; a header whose place wraps around 64 bits; a delta image taking a held file's room (never an offered one's), alone and through a whole delta update; the bytes of a job counted over its calls | 762 checks |
+| `make -C firmware/tests/host`: `pi_delta_ota_tests` | The board's glue (`pi_delta_ota.c`, the real source) with the card in memory, a cloud that records the job's reports, no network, and the update's thread run until it waits: a `pi_os` job whose download keeps failing ends FAILED after 10 calls in a row, also after a delta job fetched blocks; a card swapped while a file is offered, for one with the same generation and a stored "confirmed": neither its file nor its result is taken, the job's file goes onto it, and the first card put back is offered again at once and ends the job with its own result; the same card taken out and put back; a withdrawn job | 52 checks |
 | `pi_delta_tests`, `app_pi_tests`, `pi_rx_tests`, `pi_rx_delta_tests`, `host_tests` | #279's, with `os` in every card report and the longest heartbeat; `0x20` to `0x23` taken in a Pi build and unknown in any other; `"op":"pi_os"` unsupported in a build without Pi updates | 1041, 13,964, 45, 45, 482 checks |
 | `firmware/tests/hil/test_pi_os.py` | The board's C code on the host (`pi_delta_harness os-update` and `serve --offer`) and `tools/pi_os_sim.py` as the Pi, with update files laid out as `cranium_ota.py make` writes them and signed with Ed25519: an update end to end (status, offer, read, signature, applied, trial, confirmed, status; the board keeps the result across a restart); nothing without a job; the Pi cut off half way and going on; refused before reading (wrong `from`; not newer); a bad signature; rolled back; a full image; a noisy wire with messages between the requests; a result sent again after a Pi restart; eight malformed requests; the download with a lost connection and a power cut; a wrong SHA-256 never offered; a delta image and an OS file on one card, each taken by its own stand-in | 15 tests |
 | `firmware/tests/hil/test_pi_delta.py` | #279's, unchanged | 19 tests |
 
-All host suites: 45, green. CI is off (GitHub Actions is paused); all of it was run locally.
+All host suites: 46, green. CI is off (GitHub Actions is paused); all of it was run locally.
 
 ## Questions for the Pi's side
 
@@ -377,6 +388,8 @@ None of this has run on a board, a card or a Pi:
 - The job's reports on AWS IoT, a restart of the board while the Pi is on trial, and the heartbeat's
   longer `pi` with the console.
 - The stacks: the update thread's (5 KiB, TLS) and the link queue's (2 KiB) with these requests.
+  `take()` and `verify()`, which hold a decoded header (about 180 bytes) and a SHA-256 state, are kept out
+  of line so that neither is on the stack below the TLS download; not measured.
 
 **It needs Demetrius's `cranium-update fetch` (phase 2) to talk to it.**
 

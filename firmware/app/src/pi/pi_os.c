@@ -2,8 +2,9 @@
  * Raspberry Pi OS updates with A/B slots and tryboot, the board's side: see pi_os.h.
  *
  * The file's header on the card is changed as a raw sector (pi_card_file_load() and _store()), so
- * that no decoded copy of it sits on the thread's stack while TLS runs below it. Three moments
- * change it, each saved before what it allows:
+ * that no decoded copy of it sits on the thread's stack while TLS runs below it: take() and verify(),
+ * which hold a decoded header and a SHA-256 state, are kept out of line, so their frames are gone
+ * before the download starts. Three moments change it, each saved before what it allows:
  *
  *   take       a new file: "downloading", the next generation, nothing on the card yet; or the same
  *              file for another job: the next generation, no result
@@ -70,7 +71,7 @@ static bool same_file(const struct pi_file_header *h, const struct pi_os_job *jo
  * The file area for this job: the file it holds already (offered anew, under the next generation,
  * if another job took it), or a new one, placed, "downloading", with nothing counted on the card.
  */
-static enum pi_err take(struct pi_os *os, const struct pi_os_job *job)
+__attribute__((noinline)) static enum pi_err take(struct pi_os *os, const struct pi_os_job *job)
 {
 	struct pi_card *card = os->card;
 	struct pi_file_header h;
@@ -217,7 +218,8 @@ static enum pi_err download(struct pi_os *os)
  * The file as the card holds it, hashed: "ready" if that is the job's SHA-256. If not, nothing on
  * the card counts any more, and PI_ERR_DIGEST_MISMATCH.
  */
-static enum pi_err verify(struct pi_os *os, const uint8_t want[PI_HASH_SIZE])
+__attribute__((noinline)) static enum pi_err verify(struct pi_os *os,
+						   const uint8_t want[PI_HASH_SIZE])
 {
 	struct pi_card *card = os->card;
 	struct pi_sha256 sha;
@@ -271,7 +273,6 @@ enum pi_err pi_os_run(struct pi_os *os, const struct pi_os_job *job)
 	os->step = PI_OS_STEP_DOWNLOAD;
 	os->done = 0;
 	os->size = job->size;
-	os->bytes_fetched = 0;
 
 	err = pi_card_open(card, os->cfg->default_max_blocks);
 	if (err != PI_OK) {

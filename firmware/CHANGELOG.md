@@ -25,6 +25,7 @@ that version off trial), FAILED when it refuses or rolls it back, with its reaso
 the Pi's version, slot and last result, and the file's state, result and progress. `tools/pi_os_sim.py` is a stand-in
 for the Pi's side, run against the board's code by `firmware/tests/hil/test_pi_os.py`.
 
+## 1.20.0
 
 Raspberry Pi delta updates, a build for boards wired to a Pi only (build.sh --pi, no Bluetooth), not yet tried on hardware: the board keeps the Pi's image on an SD card and brings it up to date by downloading only the blocks that changed, each checked against a signed manifest before it is written; the Pi takes them over its message link. Other builds are unchanged.
 

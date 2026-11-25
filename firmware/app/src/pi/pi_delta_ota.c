@@ -92,6 +92,8 @@ static struct {
 		struct pi_os_job os_job;
 	};
 	uint32_t offered_generation;
+	/* The card's open count when its file was offered: another card may hold that generation too. */
+	uint32_t offered_opens;
 	uint32_t watch_read;
 	/* "https://" and the host; the path and query. Only changed while the thread is idle. */
 	char host[OTA_JOB_HOST_MAX + 1];
@@ -599,6 +601,7 @@ static void offer(void)
 {
 	pi.offered_generation = os.generation;
 	pi_card_lock(&card);
+	pi.offered_opens = card.opens;
 	if (card.open && card.file.state == PI_FILE_READY &&
 	    card.file.generation == pi.offered_generation) {
 		card.file.offered = true;
@@ -622,7 +625,16 @@ static void watch_offer(void)
 	if (pi_card_disk_lock_within(WATCH_LOCK_MS) != 0) {
 		return;
 	}
-	/* Offered again after the card was taken out and put back, if it still holds the file. */
+	/*
+	 * The card was opened again since the offer: it may be another card, whose file has the same
+	 * generation but was checked for another job, and whose result is not this job's. The update
+	 * takes the file again: the same card's file, with this job's tag, is offered again at once.
+	 */
+	if (card.open && card.opens != pi.offered_opens) {
+		pi_card_unlock(&card);
+		run();
+		return;
+	}
 	if (card.open && card.file.state == PI_FILE_READY &&
 	    card.file.generation == pi.offered_generation) {
 		card.file.offered = true;
@@ -680,8 +692,11 @@ static void on_result(void)
 		return;
 	}
 	/* Something arrived since the last call: the count starts again. */
-	if (progress != pi.mark || delta.stats.blocks_fetched > 0 ||
-	    (pi.os_kind && os.bytes_fetched > 0)) {
+	/*
+	 * For an OS update, progress counts what reached the card; a delta update's counts are its own
+	 * and stay from its last job, so they are not looked at for an OS update.
+	 */
+	if (progress != pi.mark || (!pi.os_kind && delta.stats.blocks_fetched > 0)) {
 		pi.attempts = 0;
 	}
 	pi.mark = progress;
