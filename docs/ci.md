@@ -1,9 +1,16 @@
 # Continuous integration
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on GitHub Actions: it tests the code
-and builds the firmware on every push to `main` and `feature/**` and on every pull request. Anyone with
-write access can also start it by hand from the Actions tab. The repository is public, so the minutes
-are free, anybody can read the logs, and anybody signed in to GitHub can download the artifacts.
+**GitHub Actions is off for this repository.** Its runs were billed (about $360 for November 2026), so from
+2026-11-24 the same checks run on a person's own computer with `scripts/ci/local-ci.sh`, which reports the result
+to a pull request as the commit status `local-ci`: see [Local CI](#local-ci-github-actions-is-off). The workflows
+stay in `.github/workflows/`, disabled, as the definition of the checks; the script reads them and never changes
+them. Do not add or edit a file there: Actions is still on at the repository level, so a new or changed workflow
+could run, and bill.
+
+The rest of this page describes the jobs as they ran on Actions until 2026-11-21: what each one does and
+what a pass means, which holds for a local run as well, apart from the differences listed below.
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) ran on every push to `main` and `feature/**` and on
+every pull request.
 
 **It has run.** The first run with every job passing was on commit be91c50, on 2026-11-01, for the push and
 the pull request: the scan, the host tests, the Python tests, the cloud tests, and both firmware builds, on
@@ -19,6 +26,122 @@ not acquired by Runner of type hosted even after multiple attempts" while every 
 shows as failed (6147aea's first attempt, on 2026-11-05). Re-run it from the run's page (Re-run jobs) or with
 `gh run rerun <run id>`; nothing in the commit needs changing. The same can happen to the iPhone job of
 `release-apps.yml`.
+
+## Local CI (GitHub Actions is off)
+
+`scripts/ci/local-ci.sh` runs the jobs of `ci.yml`, `lint.yml`, `codeql.yml`, `cranium-mix.yml`,
+`firmware-image.yml`, `desktop-linux.yml` and `desktop-windows.yml` on your computer, prints a table of each
+job's result and time, keeps the logs, and can set the `local-ci` status on the commit.
+
+```sh
+scripts/ci/local-ci.sh --doctor      # what this computer can run, and what to install for the rest
+scripts/ci/local-ci.sh --list        # which jobs the changes call for, and why; runs nothing
+scripts/ci/local-ci.sh               # those jobs
+scripts/ci/local-ci.sh --all         # every job
+scripts/ci/local-ci.sh --job lint    # one job (repeat --job for more; --job firmware is all three builds)
+scripts/ci/local-ci.sh --post        # run, then set the commit status local-ci on HEAD
+```
+
+**Which jobs.** It compares HEAD with `origin/main` (`--base` for another branch), takes the changed files,
+with what is not committed yet, and runs each job whose paths they touch. `ci.yml` had no path filters, so its
+jobs are called for by the folders they build and the files their tests read; the other workflows' filters are
+copied as they are. A change to a workflow file calls for all of that workflow's jobs.
+
+| Job (`--job`) | Workflow | Called for by | What runs | Where it can run |
+| --- | --- | --- | --- | --- |
+| `scan` | `ci.yml`, No private key in git | Every change | `scripts/ci/scan-tracked-files.sh` | Anywhere |
+| `lint` | `lint.yml` | Every change | actionlint, shellcheck on the tracked scripts, `scripts/tests/notes-test.sh`, gitleaks on the history of HEAD | With shellcheck, actionlint and gitleaks |
+| `codeql` | `codeql.yml` | Every change | `codeql database create` and `analyze` for JavaScript/TypeScript, Python and the workflows, with the security-extended queries; fails on any result | Only with the CodeQL CLI; skipped otherwise |
+| `host-tests` | `ci.yml` | `firmware/` | `make -C firmware/tests/host` | macOS, Linux |
+| `python-tests` | `ci.yml` | `firmware/`, `tools/`, `scripts/board/`, `scripts/firmware/` | The console simulator, `test_new_board.py` and the eleven test files, failing on a skip ci.yml does not list | macOS, Linux |
+| `closed-loop` | `ci.yml` | `closed-loop/` | `./bench test` in `closed-loop/.venv` | macOS, Linux |
+| `cloud-tests` | `ci.yml` | `cloud/`, `apps/`, `firmware/app/`, the keys and certificates, `scripts/firmware/`, `docs/` | Prettier 3.3.3, then `node --test` in `cloud/api`, `cloud/web` and `cloud/dev` | With Node.js |
+| `desktop-core` | `ci.yml` | `apps/desktop/`, the pages* | `npm ci`, `npm test`, the app started once offscreen until it draws the sign-in | macOS, Linux, Windows |
+| `android` | `ci.yml` | `apps/android/`, the pages* | `./gradlew testDebugUnitTest assembleDebug`, then `./gradlew --stop` | With JDK 17 and the Android SDK |
+| `ios` | `ci.yml` | `apps/ios/`, the pages* | `swift test`, then the XcodeGen project built for iPhone without signing; then `xcrun simctl shutdown all` | macOS |
+| `macos` | `ci.yml` (allowed to fail) | `apps/macos/`, the pages* | The project made `--ad-hoc`, and `xcodebuild test` | macOS |
+| `firmware-default`, `firmware-no-bt`, `firmware-nrf5340dk` | `ci.yml`, the firmware matrix | `firmware/app/`, `firmware/netcore/`, the keys, `tools/`, `scripts/firmware/build.sh` | `scripts/firmware/build.sh --keep --no-upload --without-key --build-dir .local-ci/build/<job>` (with `--cmake-arg -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf` or `--board nrf5340dk`) and a throwaway golden key, then `tools/memory_budget.py` and the configuration's checks from ci.yml | macOS, Linux, with nrfutil and the SDK |
+| `cranium-mix` | `cranium-mix.yml` (comes with `pi/cranium-mix/`) | `pi/cranium-mix/` | `bash tools/test.sh` | Where `pi/cranium-mix/` exists |
+| `firmware-image` | `firmware-image.yml` | `tools/firmware-image/` | Nothing: skipped | Never locally |
+| `desktop-linux` | `desktop-linux.yml` | Its own paths | The AppImage, .deb and .rpm built and looked into; with `--install-packages`, the .deb installed, started and removed | Linux |
+| `desktop-windows` | `desktop-windows.yml` | Its own paths | The installers built and checked; with `--install-packages`, installed silently and uninstalled | Windows (Git Bash) |
+
+\* The pages the apps carry: `apps/shared/`, `apps/config/`, `cloud/web/` and `cloud/VERSION`.
+
+**Results.** Each job ends `passed`, `failed`, `allowed-failure` (the Mac app, as on Actions), `skipped`
+(with its reason: a job never run locally, one for another system, or one not in this tree) or `not-run` (a
+job the changes call for that this computer cannot run, with what to install). A skip is never counted as a
+pass. The exit status is 0 when nothing failed, 1 when a job failed, 2 when a job could not run here, and 3
+when `--post` could not post. Logs are in `.local-ci/runs/<time>-<commit>/` (the newest also at
+`.local-ci/latest`): each job's log, `summary.txt` and the firmware memory tables. Builds and caches are in
+`.local-ci/` too, which git ignores. The newest twenty runs are kept.
+
+**What is skipped, and why.**
+
+- `codeql`, without the CodeQL CLI (about a gigabyte with its query packs): install it to run it.
+- `firmware-image`, always: it builds Nordic's multi-gigabyte toolchain image and publishes it to GitHub
+  Packages. Build it by hand with `docker build tools/firmware-image` when the Dockerfile changes.
+- `desktop-linux` off Linux, `desktop-windows` off Windows, and `ios` and `macos` off macOS: their tools exist
+  only there. The desktop app's tests and its start run in `desktop-core` on every system.
+- `cranium-mix`, where `pi/cranium-mix/` is not in the tree.
+- Never run: `ci.yml`'s check of a published release (run `scripts/release/verify-github-release.sh` by hand),
+  and `deploy-console.yml` and `release-apps.yml`, which deploy and release rather than check.
+
+The status is `success` when nothing failed and every job the changes call for ran or is one of the optional
+skips above (CodeQL, the image, the packages, the Mac app); `failure` when a job failed; `error` when a required
+job could not run here (an iPhone change checked on Linux, say), or when `ci.yml` builds a firmware configuration
+this script does not (it says which: add it to the script in the branch that adds it).
+
+**Merging.** A pull request merges only when its head commit has a green `local-ci` status and the standing
+review has passed it ("OK to merge"). A status belongs to one commit: run `--post` again after every push.
+
+**Posting the status.** `--post` runs only on a clean tree whose HEAD is on GitHub (pushed), so that the status
+describes exactly that commit, and not with `--job`, because a status describes a whole run. It checks the API's
+rate limit first, then sets the status with `gh api repos/ese5180/f26-t07-the-cranium/statuses/<commit>`: the
+context `local-ci`, the state and a one-line description, with no link. That uses no Actions minutes. It needs
+the GitHub CLI signed in (`gh auth login`) as an account with write access to the repository. A worktree of the
+pull request's branch is a clean place to run it: `git worktree add ../pr-check <branch>`.
+
+**Memory.** Every job except `scan` and `lint` runs through a memory gate, one at a time, once at least 3 GB is
+free: `CRANIUM_HEAVY` names the gate (`off` for none), else `~/cranium-work/heavy.sh` if you have one, else
+`scripts/ci/heavy.sh`, which takes a lock in your temporary folder and reads `vm_stat` on macOS or
+`/proc/meminfo` on Linux (`CRANIUM_HEAVY_NEED_GB` changes the 3).
+
+### Setting up a computer
+
+`--doctor` lists what it found and what each job lacks. What the jobs need:
+
+| For | Install |
+| --- | --- |
+| Every job | git and bash (macOS's own bash 3.2 is enough); on Windows, Git Bash |
+| `--post` | The GitHub CLI, signed in with `gh auth login` |
+| `lint` | `brew install shellcheck actionlint gitleaks`; on Linux shellcheck from the package manager, and actionlint and gitleaks as their release binaries, at the versions `lint.yml` names |
+| `host-tests`, `python-tests` | make, a C compiler (Xcode's command line tools, or build-essential) and Python 3.10 or newer. A Python that has `firmware/tests/requirements.txt` is used if there is one (`CRANIUM_PYTHON`, the SDK toolchain's, or `python3`); otherwise the job makes `.local-ci/cache/venv` with them. Without the SDK, the jobs fetch the few files of it the tests read (`firmware/tests/fetch-sdk-files.sh`) |
+| `closed-loop` | Python 3.12 |
+| `cloud-tests`, `desktop-core` | Node.js 22 (another version works, and the log says so); npx fetches Prettier 3.3.3 the first time. On Linux without a display, xvfb (`xvfb-run`) |
+| `android` | JDK 17 (`brew install openjdk@17`, or `JAVA_HOME`) and the Android SDK (Android Studio, `ANDROID_HOME`, or `sdk.dir` in `apps/android/local.properties`) |
+| `ios`, `macos` | Xcode, and `brew install xcodegen` |
+| Firmware | nrfutil with the nRF Connect SDK `v3.4.0` and its toolchain ([new-board-setup.md](new-board-setup.md)). The SDK is found from `ZEPHYR_BASE`, `NCS_DIR`, nrfutil's install folder, `/opt/nordic/ncs/v3.4.0` or `~/ncs` |
+| `desktop-linux` | dpkg-deb and rpm (`apps/desktop/scripts/ci-setup-linux.sh` installs rpm) |
+| `codeql` | The CodeQL CLI on the PATH (optional) |
+
+### How a local run differs from Actions
+
+- **Your system, not Ubuntu.** The compilers, the C library, Node.js and Python are yours (Actions used
+  Ubuntu 24.04, Node.js 22 and Python 3.12), so a pass here and a pass there are not quite the same promise;
+  see [Running the tests by hand](#running-the-tests-by-hand).
+- **The firmware is built by `scripts/firmware/build.sh --without-key`**, with the SDK installed here rather
+  than Nordic's container. The bootloader takes the team's public key and the application a throwaway key that
+  no board takes, and the build goes to `.local-ci/build/<job>/`, so a checkout's own `build/` is never touched.
+  `tools/build_report.py` is not run: it needs `binaries/` to hold the build, which `--without-key` puts back
+  as it was. The memory floors, the key check and each configuration's checks are run. Nothing is uploaded,
+  flashed or deployed, and no artifact is kept beyond the logs.
+- **gitleaks scans the history of HEAD.** Actions scanned every branch it fetched; a clone holds whatever
+  branches its owner fetched, someone else's pull request among them, so the local scan is the commit's own
+  history.
+- **Two Python tests may run instead of skipping**: `test_golden.py` when `binaries/` has the 1.3.0 image, and
+  `test_flash_layout.py` when `build/` has a build. Both results are accepted.
+- **CodeQL fails on any result.** Actions compared the results with main's; a local run has no baseline.
 
 ## What runs
 
@@ -556,14 +679,15 @@ GitHub Actions is down.
 
 ## Requiring these checks on main
 
-As it is, a failed check only shows as a red mark. The owner of the repository could make it block a
-merge, with branch protection on `main`, or a ruleset, that requires these checks to pass. That setting
-needs admin rights on the repository. Changing the workflow does not set it, and whoever is only a
-writer cannot.
+As it is, the rule is the team's: no merge without a green `local-ci` status and the standing review. The
+owner of the repository could make GitHub enforce it, with branch protection on `main`, or a ruleset, that
+requires the status `local-ci`. That setting needs admin rights on the repository, and whoever is only a
+writer cannot set it.
 
-## Trying it without Actions
+## Running the tests by hand
 
-The commands of the test jobs work anywhere, from a clean clone:
+`scripts/ci/local-ci.sh` runs all of this ([Local CI](#local-ci-github-actions-is-off)). The commands of the
+test jobs also work by hand, from a clean clone:
 
 ```sh
 firmware/tests/fetch-sdk-files.sh /tmp/sdk
@@ -586,4 +710,4 @@ python3 firmware/tests/hil/test_bt_only_check.py
 
 On a Mac the sanitizers come from clang, and the compiler and the C library are not the ones Actions
 has. `int64_t` is `long long` on a Mac and on the board and `long` on 64-bit Linux, for example. So a
-pass on a Mac does not promise a pass on Actions.
+pass on a Mac does not promise a pass on Linux.
