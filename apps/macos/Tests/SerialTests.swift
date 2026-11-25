@@ -560,7 +560,8 @@ final class MacSerialTests: XCTestCase {
     func testDisconnectEndsExclusiveUseWhileAnotherProgramHasThePort() async throws {
         let path = "/dev/cu.Bluetooth-Incoming-Port"
         let other = Darwin.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
-        try XCTSkipIf(other < 0, "no serial device to try on this Mac")
+        let otherCode = errno
+        try XCTSkipIf(other < 0, "the Mac's Bluetooth incoming port could not be opened (errno \(otherCode))")
         defer { Darwin.close(other) }
         let serial = MacSerial(lister: FakeLister(ports: [info(path)]), choose: { $0.first })
         defer { serial.closeAll(owner: owner) }

@@ -17,7 +17,8 @@ final class SerialLine {
     static let readChunk = 4096
     private static let writeTimeout: TimeInterval = 5
 
-    /// The open port's descriptor; the tests check that a close lets go of it.
+    /// The open port's descriptor, for the tests (they check that a close lets go of it). Once the port is closed
+    /// its number may belong to another file, so nothing else reads it.
     let fd: Int32
     private let path: String
     private let readQueue = DispatchQueue(label: "cranium.serial.read")
@@ -71,7 +72,8 @@ final class SerialLine {
 
     /// Gives the port back. Exclusive use ends first: the kernel keeps it on the port itself, not on this
     /// descriptor, until the last descriptor on the port closes, so with another program's still open the port
-    /// would refuse every later open, the app's own too.
+    /// would refuse every later open, the app's own too. It also ends exclusive use another program asked for
+    /// after the app opened the port; the kernel cannot say who asked.
     private static func release(_ fd: Int32) {
         _ = ioctl(fd, UInt(TIOCNXCL))
         Darwin.close(fd)
