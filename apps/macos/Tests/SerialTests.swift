@@ -79,7 +79,7 @@ final class SerialPortsTests: XCTestCase {
 private final class Pty {
     let master: Int32
     let slavePath: String
-    private var slave: Int32
+    private(set) var slave: Int32
 
     init() throws {
         var master: Int32 = 0
@@ -246,6 +246,84 @@ final class SerialLineTests: XCTestCase {
         XCTAssertEqual(attributes.c_cflag & tcflag_t(PARENB | CSTOPB | CRTSCTS), 0)
         XCTAssertEqual(attributes.c_lflag & tcflag_t(ECHO | ICANON | ISIG), 0)
     }
+
+    // A close (the page's Disconnect) lets go of the port: the descriptor closes and the port opens again.
+
+    private func fileOf(_ fd: Int32) -> stat {
+        var info = stat()
+        XCTAssertEqual(fstat(fd, &info), 0)
+        return info
+    }
+
+    private func assertLetGo(_ line: SerialLine, _ was: stat, _ path: String) {
+        wait("the descriptor is closed") { !stillOpen(line.fd, as: was) }
+        XCTAssertNoThrow(try SerialLine(path: path, baudRate: 115_200, onData: { _ in }, onEnd: { _ in }).close(), "the port opens again")
+    }
+
+    func testACloseRightAfterOpenClosesTheDescriptor() throws {
+        let pty = try Pty()
+        defer { pty.closeMaster(); pty.closeSlave() }
+        let line = try open(pty, Collector())
+        let was = fileOf(line.fd)
+        line.close()
+        assertLetGo(line, was, pty.slavePath)
+    }
+
+    func testACloseDuringAWriteClosesTheDescriptor() async throws {
+        let pty = try Pty()
+        defer { pty.closeMaster(); pty.closeSlave() }
+        let line = try open(pty, Collector())
+        let was = fileOf(line.fd)
+        // Nobody reads the other end, so the write waits for room that never comes.
+        let writing = Task.detached { try await line.write(Data(count: 256 * 1024)) }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        line.close()
+        do {
+            try await writing.value
+            XCTFail("a write went through a closed port")
+        } catch {
+            // Expected.
+        }
+        assertLetGo(line, was, pty.slavePath)
+    }
+
+    func testACloseWhileTheBoardTalksClosesTheDescriptor() throws {
+        let pty = try Pty()
+        let collector = Collector()
+        let line = try open(pty, collector)
+        let was = fileOf(line.fd)
+        let master = pty.master
+        let talking = DispatchGroup()
+        DispatchQueue.global().async(group: talking) {
+            let chunk = [UInt8](repeating: 0x41, count: 512)
+            for _ in 0..<2_000 {
+                _ = chunk.withUnsafeBytes { Darwin.write(master, $0.baseAddress, chunk.count) }
+                usleep(100)
+            }
+        }
+        defer { talking.wait(); pty.closeMaster(); pty.closeSlave() }
+        wait("the board's bytes arrive") { !collector.all.isEmpty }
+        line.close()
+        assertLetGo(line, was, pty.slavePath)
+    }
+}
+
+/// Whether `fd` is still the descriptor that was open on the file `was` (its fstat then): a closed one, or
+/// its number given to another file since, is not.
+private func stillOpen(_ fd: Int32, as was: stat) -> Bool {
+    var now = stat()
+    guard fstat(fd, &now) == 0 else { return false }
+    return now.st_dev == was.st_dev && now.st_ino == was.st_ino
+}
+
+/// This process's descriptors open on `path`, but for those in `except`.
+private func descriptors(on path: String, except: Set<Int32> = []) -> [Int32] {
+    var found: [Int32] = []
+    var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+    for fd in 0..<getdtablesize() where !except.contains(fd) {
+        if fcntl(fd, F_GETPATH, &buffer) == 0, String(cString: buffer) == path { found.append(fd) }
+    }
+    return found
 }
 
 @MainActor
@@ -447,6 +525,55 @@ final class MacSerialTests: XCTestCase {
             XCTAssertEqual(error.code, .cancelled)
         }
         XCTAssertEqual(serial.openPorts, [])
+    }
+
+    func testDisconnectClosesThePortsDescriptor() async throws {
+        let pty = try Pty()
+        defer { pty.closeMaster(); pty.closeSlave() }
+        let serial = MacSerial(lister: FakeLister(ports: [info(pty.slavePath)]), choose: { $0.first })
+        defer { serial.closeAll(owner: owner) }
+        _ = try await open(serial, 115_200)
+        XCTAssertEqual(descriptors(on: pty.slavePath, except: [pty.slave]).count, 1)
+        // A write the board is not taking is under way when Disconnect is pressed.
+        let who = owner
+        let big = Data(count: 256 * 1024).base64EncodedString()
+        let writing = Task { try await serial.write(port: 0, base64: big, owner: who) }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        // usb.close, as the page's Disconnect sends it.
+        serial.close(port: 0, owner: owner)
+        await wait("the descriptor is closed") { descriptors(on: pty.slavePath, except: [pty.slave]).isEmpty }
+        do {
+            try await writing.value
+            XCTFail("a write went through a closed port")
+        } catch {
+            // Expected.
+        }
+        let again = try await open(serial, 115_200)
+        XCTAssertEqual(again["port"], .int(0))
+    }
+
+    /// Disconnect while another program also has the port open (pyserial and screen open a port shared): the
+    /// kernel keeps a port's exclusive use until the last descriptor on it closes, so up to 0.4.0 the port then
+    /// refused every open, the app's own too, until that program let go (issue #289). A pseudo-terminal does
+    /// not enforce exclusive use for a user who is not root, so this takes a real serial device: the Mac's own
+    /// Bluetooth incoming port, opened and closed with nothing written. Skipped on a Mac without one.
+    func testDisconnectEndsExclusiveUseWhileAnotherProgramHasThePort() async throws {
+        let path = "/dev/cu.Bluetooth-Incoming-Port"
+        let other = Darwin.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
+        try XCTSkipIf(other < 0, "no serial device to try on this Mac")
+        defer { Darwin.close(other) }
+        let serial = MacSerial(lister: FakeLister(ports: [info(path)]), choose: { $0.first })
+        defer { serial.closeAll(owner: owner) }
+        _ = try await open(serial, 115_200)
+        XCTAssertEqual(descriptors(on: path, except: [other]).count, 1)
+        serial.close(port: 0, owner: owner)
+        await wait("the app's descriptor is closed") { descriptors(on: path, except: [other]).isEmpty }
+        let fresh = Darwin.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
+        let code = errno
+        XCTAssertGreaterThanOrEqual(fresh, 0, "the port refused another program after Disconnect (errno \(code))")
+        if fresh >= 0 { Darwin.close(fresh) }
+        let again = try await open(serial, 115_200)
+        XCTAssertEqual(again["port"], .int(0), "the app opens it again itself")
     }
 }
 

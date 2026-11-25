@@ -20,8 +20,8 @@ options:
 settings:
   base:
     # The version people see (apps/macos/CHANGELOG.md, docs/versions.md).
-    MARKETING_VERSION: "0.4.0"
-    CURRENT_PROJECT_VERSION: "2"
+    MARKETING_VERSION: "0.4.1"
+    CURRENT_PROJECT_VERSION: "3"
 
 packages:
   CraniumKit:
