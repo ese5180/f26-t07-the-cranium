@@ -45,6 +45,25 @@ static bool card_open(const struct pi_dlink *link)
 	return link->card != NULL && link->card->open;
 }
 
+/* The file's state as the Pi is told it (FILE_INFO, and ERROR for the file requests). */
+static uint8_t file_state(const struct pi_dlink *link)
+{
+	const struct pi_card_file *f = &link->card->file;
+
+	if (f->state == PI_FILE_DOWNLOADING) {
+		return PI_DLINK_FILE_DOWNLOADING;
+	}
+	if (f->state == PI_FILE_READY) {
+		return f->offered ? PI_DLINK_FILE_OFFERED : PI_DLINK_FILE_HELD;
+	}
+	return PI_DLINK_FILE_NONE;
+}
+
+static bool file_request(uint8_t type)
+{
+	return type >= PI_DLINK_FILE_INFO && type <= PI_DLINK_OS_STATUS;
+}
+
 static size_t answer_error(struct pi_dlink *link, uint8_t *tx, const struct pi_rx *rx,
 			   const struct pi_frame *request, uint8_t code)
 {
@@ -54,10 +73,58 @@ static size_t answer_error(struct pi_dlink *link, uint8_t *tx, const struct pi_r
 	link->errors++;
 	memset(p, 0, 12);
 	p[0] = code;
-	p[1] = open ? link->card->st.state : PI_STATE_EMPTY;
-	pi_put32(p + 4, open ? link->card->st.generation : 0);
+	if (file_request(request->type)) {
+		/* The file's state and generation, as FILE_INFO gives them. */
+		p[1] = open ? file_state(link) : PI_DLINK_FILE_NONE;
+		pi_put32(p + 4, open ? link->card->file.generation : 0);
+	} else {
+		p[1] = open ? link->card->st.state : PI_STATE_EMPTY;
+		pi_put32(p + 4, open ? link->card->st.generation : 0);
+	}
 	p[8] = request->type;
 	return seal(tx, PI_DLINK_ERROR, rx, request, 12);
+}
+
+/*
+ * count bytes of the card from byte `start`, through the cache of the last sector read: the Pi reads
+ * in order. A sector cached under another generation of the mirror or the file, or another open of
+ * the card, is read again.
+ */
+static bool copy_out(struct pi_dlink *link, uint64_t start, uint32_t count, uint8_t *out,
+		     uint16_t *length)
+{
+	struct pi_card *card = link->card;
+	uint32_t done = 0;
+
+	if (!link->cache_valid || link->cache_generation != card->st.generation ||
+	    link->cache_file_generation != card->file.generation || link->cache_opens != card->opens) {
+		link->cache_valid = false;
+	}
+	while (done < count) {
+		uint64_t at = start + done;
+		uint64_t lba = at / PI_SECTOR_SIZE;
+		uint32_t in = (uint32_t)(at % PI_SECTOR_SIZE);
+		uint32_t take = PI_SECTOR_SIZE - in;
+
+		if (!link->cache_valid || link->cache_lba != lba) {
+			link->cache_valid = false;
+			if (pi_card_read(card, lba, link->cache, 1) != PI_OK) {
+				return false;
+			}
+			link->cache_lba = lba;
+			link->cache_generation = card->st.generation;
+			link->cache_file_generation = card->file.generation;
+			link->cache_opens = card->opens;
+			link->cache_valid = true;
+		}
+		if (take > count - done) {
+			take = count - done;
+		}
+		memcpy(out + done, link->cache + in, take);
+		done += take;
+	}
+	*length = (uint16_t)(PI_DLINK_ANSWER_HEAD + count);
+	return true;
 }
 
 /* The mirror may be read: a card that is open and ready. Otherwise the code to refuse with. */
@@ -224,7 +291,6 @@ static uint8_t read_mirror(struct pi_dlink *link, const uint8_t *req, uint8_t *p
 	uint32_t count = pi_get16(req + 8);
 	uint8_t code = readable(link);
 	uint64_t start;
-	uint32_t done = 0;
 
 	if (code != PI_DLINK_OK) {
 		return code;
@@ -236,40 +302,183 @@ static uint8_t read_mirror(struct pi_dlink *link, const uint8_t *req, uint8_t *p
 	    (uint64_t)offset + count > pi_manifest_block_len(&card->cur, block)) {
 		return PI_DLINK_OUT_OF_RANGE;
 	}
-	if (!link->cache_valid || link->cache_generation != card->st.generation ||
-	    link->cache_opens != card->opens) {
-		link->cache_valid = false;
-	}
-
 	memset(p, 0, PI_DLINK_ANSWER_HEAD);
 	pi_put32(p, card->st.generation);
 	pi_put32(p + 4, block);
 	pi_put32(p + 8, offset);
 	pi_put16(p + 12, (uint16_t)count);
 	start = (uint64_t)pi_card_block_lba(card, card->cur.block_size, block) * PI_SECTOR_SIZE + offset;
-	while (done < count) {
-		uint64_t at = start + done;
-		uint64_t lba = at / PI_SECTOR_SIZE;
-		uint32_t in = (uint32_t)(at % PI_SECTOR_SIZE);
-		uint32_t take = PI_SECTOR_SIZE - in;
+	return copy_out(link, start, count, p + PI_DLINK_ANSWER_HEAD, length) ? PI_DLINK_OK
+									      : PI_DLINK_CARD;
+}
 
-		if (!link->cache_valid || link->cache_lba != lba) {
-			link->cache_valid = false;
-			if (pi_card_read(card, lba, link->cache, 1) != PI_OK) {
-				return PI_DLINK_CARD;
-			}
-			link->cache_lba = lba;
-			link->cache_generation = card->st.generation;
-			link->cache_opens = card->opens;
-			link->cache_valid = true;
-		}
-		if (take > count - done) {
-			take = count - done;
-		}
-		memcpy(p + PI_DLINK_ANSWER_HEAD + done, link->cache + in, take);
-		done += take;
+/* ------------------------------------------------------------------------------------------- */
+/* Pi OS updates: the file area (pi_os.h)                                                       */
+
+static uint8_t file_info(struct pi_dlink *link, uint8_t *p)
+{
+	struct pi_card *card = link->card;
+
+	memset(p, 0, PI_DLINK_FILE_INFO_SIZE);
+	pi_put16(p, PI_DLINK_VERSION);
+	if (!card_open(link)) {
+		p[3] = PI_DLINK_INFO_NO_CARD;
+		return PI_DLINK_OK;
 	}
-	*length = (uint16_t)(PI_DLINK_ANSWER_HEAD + count);
+	p[2] = file_state(link);
+	pi_put32(p + 4, card->file.generation);
+	if (card->file.state == PI_FILE_NONE) {
+		return PI_DLINK_OK;
+	}
+	/* The header's digest and versions are on the card, not in RAM: read into the cache. */
+	link->cache_valid = false;
+	if (pi_card_file_load(card, link->cache) != PI_OK) {
+		return PI_DLINK_CARD;
+	}
+	if (link->cache[PI_FILE_AT_FROM] == '\0') {
+		p[3] = PI_DLINK_FILE_FULL;
+	}
+	pi_put32(p + 8, card->file.size);
+	pi_put32(p + 12, card->file.done);
+	p[16] = card->file.result;
+	memcpy(p + 20, link->cache + PI_FILE_AT_SHA256, PI_HASH_SIZE);
+	memcpy(p + 52, link->cache + PI_FILE_AT_VERSION, PI_VERSION_MAX + 1);
+	memcpy(p + 84, link->cache + PI_FILE_AT_FROM, PI_VERSION_MAX + 1);
+	return PI_DLINK_OK;
+}
+
+static uint8_t file_read(struct pi_dlink *link, const uint8_t *req, uint8_t *p, uint16_t *length)
+{
+	struct pi_card *card = link->card;
+	struct pi_card_file *f;
+	uint32_t offset = pi_get32(req);
+	uint32_t count = pi_get16(req + 4);
+
+	if (count == 0 || count > PI_DLINK_READ_MAX) {
+		return PI_DLINK_BAD_REQUEST;
+	}
+	if (!card_open(link)) {
+		return PI_DLINK_CARD;
+	}
+	f = &card->file;
+	if (f->state == PI_FILE_DOWNLOADING) {
+		return PI_DLINK_UPDATING;
+	}
+	if (f->state != PI_FILE_READY || !f->offered) {
+		return PI_DLINK_NO_IMAGE;
+	}
+	if (offset >= f->size || count > f->size - offset) {
+		return PI_DLINK_OUT_OF_RANGE;
+	}
+	memset(p, 0, PI_DLINK_ANSWER_HEAD);
+	pi_put32(p, f->generation);
+	pi_put32(p + 4, offset);
+	pi_put16(p + 8, (uint16_t)count);
+	pi_put32(p + 12, f->size);
+	if (!copy_out(link, f->lba * PI_SECTOR_SIZE + offset, count, p + PI_DLINK_ANSWER_HEAD,
+		      length)) {
+		return PI_DLINK_CARD;
+	}
+	if (offset + count > f->read) {
+		f->read = offset + count;
+	}
+	return PI_DLINK_OK;
+}
+
+/* The answer to RESULT and OS_STATUS: the file's generation and state, and whether it was kept. */
+static void ack(const struct pi_dlink *link, uint8_t *p, uint8_t taken)
+{
+	bool open = card_open(link);
+
+	memset(p, 0, PI_DLINK_ACK_SIZE);
+	pi_put32(p, open ? link->card->file.generation : 0);
+	p[4] = open ? file_state(link) : PI_DLINK_FILE_NONE;
+	p[5] = taken;
+}
+
+/*
+ * RESULT: kept with the file, in its header on the card, when it names the generation on the card
+ * and that file's version, so that a restart loses nothing. Acknowledged, and not kept, otherwise:
+ * a result for a file the card no longer holds.
+ */
+static uint8_t file_result(struct pi_dlink *link, const struct pi_frame *request, uint8_t *p)
+{
+	struct pi_card *card = link->card;
+	const uint8_t *req = request->payload;
+	bool taken;
+
+	if (request->length < PI_DLINK_RESULT_HEAD || req[1] > PI_DLINK_REASON_MAX ||
+	    request->length != PI_DLINK_RESULT_HEAD + req[1] || pi_get16(req + 2) != 0 ||
+	    req[0] == PI_OS_NONE || req[0] >= PI_OS_RESULT_COUNT) {
+		return PI_DLINK_BAD_REQUEST;
+	}
+	if (!card_open(link)) {
+		return PI_DLINK_CARD;
+	}
+	taken = card->file.state == PI_FILE_READY && pi_get32(req + 4) == card->file.generation;
+	if (taken) {
+		link->cache_valid = false;
+		if (pi_card_file_load(card, link->cache) != PI_OK) {
+			return PI_DLINK_CARD;
+		}
+		taken = memcmp(link->cache + PI_FILE_AT_VERSION, req + 8, PI_VERSION_MAX + 1) == 0;
+	}
+	if (taken) {
+		char *reason = (char *)link->cache + PI_FILE_AT_REASON;
+		size_t keep = req[1] < PI_OS_REASON_MAX ? req[1] : PI_OS_REASON_MAX;
+
+		const uint8_t *zero = memchr(req + PI_DLINK_RESULT_HEAD, 0, keep);
+
+		/* Up to a zero in it, if there is one: nothing after it goes onto the card. */
+		if (zero != NULL) {
+			keep = (size_t)(zero - (req + PI_DLINK_RESULT_HEAD));
+		}
+
+		link->cache[PI_FILE_AT_RESULT] = req[0];
+		memset(reason, 0, PI_OS_REASON_MAX);
+		memcpy(reason, req + PI_DLINK_RESULT_HEAD, keep);
+		/* The Pi's text: nothing but printable ASCII without " and \. */
+		pi_os_clean_text(reason, keep);
+		if (pi_card_file_store(card, link->cache) != PI_OK) {
+			return PI_DLINK_CARD;
+		}
+	}
+	ack(link, p, taken ? 1u : 0u);
+	return PI_DLINK_OK;
+}
+
+static bool slot_valid(uint8_t slot)
+{
+	return slot == 0 || slot == 'a' || slot == 'b';
+}
+
+/* OS_STATUS: kept in RAM for the heartbeat and the job, with a card in the slot or not. */
+static uint8_t os_status(struct pi_dlink *link, const struct pi_frame *request, uint8_t *p)
+{
+	const uint8_t *req = request->payload;
+	struct pi_os_status *os;
+	char version[PI_VERSION_MAX + 1];
+
+	if (request->length != PI_DLINK_OS_STATUS_SIZE || !slot_valid(req[0]) ||
+	    !slot_valid(req[1]) || req[2] > 1 || req[3] >= PI_OS_RESULT_COUNT) {
+		return PI_DLINK_BAD_REQUEST;
+	}
+	if (link->card == NULL) {
+		/* Not set up yet, at the board's start: the Pi sends it again. */
+		return PI_DLINK_CARD;
+	}
+	memcpy(version, req + 4, sizeof(version));
+	/* Anything but a version (1 to 31 of A-Z a-z 0-9 . _ + -, then zeros) is kept as not known. */
+	if (!pi_version_valid(version, sizeof(version))) {
+		memset(version, 0, sizeof(version));
+	}
+	os = &link->card->os;
+	os->known = true;
+	os->slot = req[0];
+	os->trial = req[2];
+	os->last = req[3];
+	memcpy(os->version, version, sizeof(version));
+	ack(link, p, 1);
 	return PI_DLINK_OK;
 }
 
@@ -308,6 +517,23 @@ static size_t answer_request(struct pi_dlink *link, const struct pi_rx *rx,
 		code = request->length != 12 || pi_get16(request->payload + 10) != 0
 			       ? PI_DLINK_BAD_REQUEST
 			       : read_mirror(link, request->payload, p, &length);
+		break;
+	case PI_DLINK_FILE_INFO:
+		code = request->length == 0 ? file_info(link, p) : PI_DLINK_BAD_REQUEST;
+		length = PI_DLINK_FILE_INFO_SIZE;
+		break;
+	case PI_DLINK_FILE_READ:
+		code = request->length != 8 || pi_get16(request->payload + 6) != 0
+			       ? PI_DLINK_BAD_REQUEST
+			       : file_read(link, request->payload, p, &length);
+		break;
+	case PI_DLINK_RESULT:
+		code = file_result(link, request, p);
+		length = PI_DLINK_ACK_SIZE;
+		break;
+	case PI_DLINK_OS_STATUS:
+		code = os_status(link, request, p);
+		length = PI_DLINK_ACK_SIZE;
 		break;
 	default:
 		code = PI_DLINK_UNKNOWN_TYPE;

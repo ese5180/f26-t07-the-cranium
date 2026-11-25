@@ -734,10 +734,11 @@ static void on_job(const struct ota_job *incoming)
 	 * jobs, which wait for it: AWS IoT names the job in progress first, so while it runs, any
 	 * other job named means it was withdrawn.
 	 */
-	if (pi_delta_ota_busy() && !incoming->pi_delta) {
+	if (pi_delta_ota_busy() && !incoming->pi_delta && !incoming->pi_os) {
 		pi_delta_ota_withdrawn();
 	}
-	if (incoming->pi_delta) {
+	/* From 1.20.2, a Pi OS update (pi_os.h) the same way. */
+	if (incoming->pi_delta || incoming->pi_os) {
 		if (ota.state == OTA_IDLE) {
 			pi_delta_ota_on_job(incoming);
 		}

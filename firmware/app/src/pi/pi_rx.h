@@ -8,7 +8,8 @@
  * the session and seq of the last one accepted is acknowledged again but not delivered twice.
  *
  * In a build with Raspberry Pi delta updates (CONFIG_APP_PI_DELTA), the same link also takes their
- * requests (0x10 to 0x13), which pi_dlink.c answers: pi_dlink_answer() then writes the frame for the
+ * requests (0x10 to 0x13), and from 1.20.2 those of Pi OS updates (0x20 to 0x23), which pi_dlink.c
+ * answers: pi_dlink_answer() then writes the frame for the
  * next transfer, the request's answer or STATUS. Any other build counts them as unknown.
  */
 
@@ -49,7 +50,7 @@ enum pi_rx_result {
 	PI_RX_NOTHING,
 	PI_RX_BAD,
 #if defined(CONFIG_APP_PI_DELTA)
-	/* A Pi delta update's request (0x10 to 0x13): pi_dlink_answer() answers it. */
+	/* A Pi delta or OS update's request (0x10 to 0x13, 0x20 to 0x23): pi_dlink_answer() answers it. */
 	PI_RX_DELTA,
 #endif
 };

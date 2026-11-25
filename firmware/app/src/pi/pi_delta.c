@@ -744,6 +744,45 @@ const char *pi_step_name(uint8_t step)
 	return names[step < sizeof(names) / sizeof(names[0]) ? step : PI_STEP_IDLE];
 }
 
+/*
+ * From 1.20.2, the Pi's own system and the file area (pi_os.h), at buf + at: "os":{...} and the
+ * report's closing brace. The total length, or -ENOSPC.
+ */
+static int report_os(const struct pi_card *card, char *buf, size_t len, int at)
+{
+	/* By FILE_INFO's state (pi_dlink.h): none, downloading, offered, held. */
+	static const char *const files[] = { "none", "downloading", "ready", "held" };
+	const struct pi_card_file *f = &card->file;
+	const struct pi_os_status *os = &card->os;
+	char slot[2] = { 0, 0 };
+	const char *version = "";
+	unsigned int file = 0;
+	uint8_t result = PI_OS_NONE;
+	uint32_t done = 0;
+	uint32_t size = 0;
+	int written;
+
+	if (os->known) {
+		slot[0] = os->slot == 'a' || os->slot == 'b' ? (char)os->slot : '\0';
+		if (pi_version_valid(os->version, PI_VERSION_MAX + 1)) {
+			version = os->version;
+		}
+	}
+	if (card->open && f->state != PI_FILE_NONE) {
+		file = f->state == PI_FILE_DOWNLOADING ? 1u : f->offered ? 2u : 3u;
+		result = f->result;
+		size = f->size;
+		done = f->done < f->size ? f->done : f->size;
+	}
+	written = snprintf(buf + at, len - (size_t)at,
+			   "\"os\":{\"version\":\"%s\",\"slot\":\"%s\",\"last\":\"%s\",\"file\":\"%s\","
+			   "\"result\":\"%s\",\"done\":%u,\"size\":%u}}",
+			   version, slot, pi_os_result_name(os->known ? os->last : PI_OS_NONE),
+			   files[file], pi_os_result_name(result), (unsigned int)done,
+			   (unsigned int)size);
+	return written < 0 || (size_t)written >= len - (size_t)at ? -ENOSPC : at + written;
+}
+
 int pi_delta_report(const struct pi_delta *d, bool job, char *buf, size_t len)
 {
 	/* By the state's number, then a card that is not open. */
@@ -769,9 +808,12 @@ int pi_delta_report(const struct pi_delta *d, bool job, char *buf, size_t len)
 	}
 	written = snprintf(buf, len,
 			   "{\"card\":\"%s\",\"version\":\"%s\",\"generation\":%u,\"step\":\"%s\","
-			   "\"done\":%u,\"total\":%u}",
+			   "\"done\":%u,\"total\":%u,",
 			   cards[state], version, (unsigned int)generation,
 			   pi_step_name(job ? d->step : PI_STEP_IDLE),
 			   (unsigned int)(done < total ? done : total), (unsigned int)total);
-	return written < 0 || (size_t)written >= len ? -ENOSPC : written;
+	if (written < 0 || (size_t)written >= len) {
+		return -ENOSPC;
+	}
+	return report_os(card, buf, len, written);
 }

@@ -44,6 +44,12 @@ enum pi_frame_type {
 	 */
 	PI_FRAME_DELTA_FIRST = 0x10,
 	PI_FRAME_DELTA_LAST = 0x13,
+	/*
+	 * Pi to board, from 1.20.2: the requests of a Raspberry Pi OS update, 0x20 to 0x23
+	 * (pi_dlink.h, docs/pi-os-update.md), on the same terms as the delta requests.
+	 */
+	PI_FRAME_OS_FIRST = 0x20,
+	PI_FRAME_OS_LAST = 0x23,
 	/* Board to Pi: what it has accepted. */
 	PI_FRAME_STATUS = 0x81,
 };

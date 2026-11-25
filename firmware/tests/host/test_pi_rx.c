@@ -1,7 +1,8 @@
 /*
  * Host tests of the Raspberry Pi message link's receiver (src/pi/pi_rx.c, docs/pi-link.md): what it
  * does with each frame, and the STATUS frame it answers with. Built twice: as every build without
- * Pi delta updates has it (pi_rx_tests), where their requests (0x10 to 0x13) are of a type the board
+ * Pi delta updates has it (pi_rx_tests), where their requests (0x10 to 0x13, and from 1.20.2 the Pi OS
+ * update's 0x20 to 0x23) are of a type the board
  * does not take, and with CONFIG_APP_PI_DELTA (pi_rx_delta_tests), where they go to pi_dlink.c and
  * DATA, POLL and the rest stay as they were.
  */
@@ -85,6 +86,22 @@ int main(void)
 	CHECK(rx.unknown == 2 && rx.delta == 4 && rx.bad == 3);
 #else
 	CHECK(rx.unknown == 6 && rx.bad == 7);
+#endif
+	/* From 1.20.2, the requests of Pi OS updates, and the types next to them. */
+	for (unsigned int type = 0x1f; type <= 0x24; type++) {
+		enum pi_rx_result result = take(&rx, (uint8_t)type, 0x2222, 9, "");
+#if defined(CONFIG_APP_PI_DELTA)
+		bool os = type >= PI_FRAME_OS_FIRST && type <= PI_FRAME_OS_LAST;
+
+		CHECK(result == (os ? PI_RX_DELTA : PI_RX_BAD));
+#else
+		CHECK(result == PI_RX_BAD);
+#endif
+	}
+#if defined(CONFIG_APP_PI_DELTA)
+	CHECK(rx.unknown == 4 && rx.delta == 8 && rx.bad == 5);
+#else
+	CHECK(rx.unknown == 12 && rx.bad == 13);
 #endif
 	/* None of them is a message: STATUS still names the last DATA. */
 	CHECK(status_names(&rx, 0x1111, 6) && rx.delivered == 2 && rx.duplicates == 1);

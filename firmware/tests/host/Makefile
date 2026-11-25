@@ -42,7 +42,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
 		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests \
-		$(BUILD)/pi_delta_tests $(BUILD)/pi_delta_harness $(BUILD)/ota_pi_tests \
+		$(BUILD)/pi_delta_tests $(BUILD)/pi_os_tests $(BUILD)/pi_delta_harness $(BUILD)/ota_pi_tests \
 		$(BUILD)/pi_rx_tests $(BUILD)/pi_rx_delta_tests $(BUILD)/app_pi_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
@@ -84,6 +84,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/bt_only_leds_tests
 	./$(BUILD)/sessions_tests
 	./$(BUILD)/pi_delta_tests
+	./$(BUILD)/pi_os_tests
 	./$(BUILD)/ota_pi_tests
 	./$(BUILD)/pi_rx_tests
 	./$(BUILD)/pi_rx_delta_tests
@@ -108,7 +109,7 @@ $(BUILD)/sessions_tests: test_sessions.c $(SRC)/cloud/sessions.c $(SRC)/cloud/se
 # fails, and a server that drops the connection or sends wrong bytes; every request of the Pi's link, the
 # malformed ones too; and the "pi_delta" job document, with CONFIG_APP_PI_DELTA as a Pi build has it.
 PI_DELTA_SOURCES := $(SRC)/pi/pi_frame.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_sha256.c $(SRC)/pi/pi_delta_fmt.c \
-	$(SRC)/pi/pi_card.c $(SRC)/pi/pi_delta.c $(SRC)/pi/pi_dlink.c $(SRC)/pi/pi_http.c
+	$(SRC)/pi/pi_card.c $(SRC)/pi/pi_delta.c $(SRC)/pi/pi_dlink.c $(SRC)/pi/pi_http.c $(SRC)/pi/pi_os.c
 PI_DELTA_HEADERS := $(wildcard $(SRC)/pi/*.h) pi_delta_fakes.h
 $(BUILD)/pi_delta_tests: test_pi_delta.c pi_delta_fakes.c $(PI_DELTA_SOURCES) $(PI_DELTA_HEADERS) \
 		$(SRC)/ota/ota_job.c $(SRC)/ota/ota_job.h $(SRC)/ota/version.c $(BUILD)/cJSON.o
@@ -116,6 +117,16 @@ $(BUILD)/pi_delta_tests: test_pi_delta.c pi_delta_fakes.c $(PI_DELTA_SOURCES) $(
 	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_PI_DELTA=1 -o $@ test_pi_delta.c pi_delta_fakes.c \
 		$(PI_DELTA_SOURCES) $(SRC)/ota/ota_job.c $(SRC)/ota/version.c $(BUILD)/cJSON.o -lm
 
+# From 1.20.2, Raspberry Pi OS updates with A/B slots and tryboot (src/pi/pi_os.c, docs/pi-os-update.md): the
+# file area's header and its place on the card, the download with a power cut at each write in turn, a lost
+# connection, a withdrawn job, a bad SHA-256, a card that fails; every file request of the Pi's link, the
+# malformed ones too; what a job decides and reports from the Pi's result and status; the heartbeat's "os"
+# part; and the "pi_os" job document.
+$(BUILD)/pi_os_tests: test_pi_os.c pi_delta_fakes.c $(PI_DELTA_SOURCES) $(PI_DELTA_HEADERS) \
+		$(SRC)/ota/ota_job.c $(SRC)/ota/ota_job.h $(SRC)/ota/version.c $(BUILD)/cJSON.o
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_PI_DELTA=1 -o $@ test_pi_os.c pi_delta_fakes.c \
+		$(PI_DELTA_SOURCES) $(SRC)/ota/ota_job.c $(SRC)/ota/version.c $(BUILD)/cJSON.o -lm
 # The Pi message link's receiver (src/pi/pi_rx.c, docs/pi-link.md), as every build without Pi delta updates has
 # it, and with them, where their requests go to pi_dlink.c and everything else stays as it was.
 $(BUILD)/pi_rx_tests: test_pi_rx.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_frame.c $(SRC)/pi/pi_rx.h $(SRC)/pi/pi_frame.h

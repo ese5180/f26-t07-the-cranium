@@ -93,8 +93,8 @@ class LinkError(Exception):
 class HarnessTransport:
     """The board's C code on the host: pi_delta_harness serve CARD."""
 
-    def __init__(self, harness: Path, card: Path, flip_every: int = 0):
-        self.proc = subprocess.Popen([str(harness), "serve", str(card)], stdin=subprocess.PIPE,
+    def __init__(self, harness: Path, card: Path, flip_every: int = 0, extra: tuple[str, ...] = ()):
+        self.proc = subprocess.Popen([str(harness), "serve", str(card), *extra], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.flip_every = flip_every
         self.count = 0

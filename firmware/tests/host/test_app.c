@@ -3444,7 +3444,9 @@ static void test_a_pi_build_s_heartbeat_carries_its_card(void)
 	/* Every field at its longest: what main.c leaves room for. */
 	static const char longest[] =
 		"{\"card\":\"updating\",\"version\":\"9999999999999999999999999999999\","
-		"\"generation\":4294967295,\"step\":\"manifest\",\"done\":4294967295,\"total\":4294967295}";
+		"\"generation\":4294967295,\"step\":\"manifest\",\"done\":4294967295,\"total\":4294967295,"
+		"\"os\":{\"version\":\"8888888888888888888888888888888\",\"slot\":\"a\",\"last\":\"rolled_back\","
+		"\"file\":\"downloading\",\"result\":\"rolled_back\",\"done\":4294967295,\"size\":4294967295}}";
 	int reports;
 
 	memset(&pi_card, 0, sizeof(pi_card));

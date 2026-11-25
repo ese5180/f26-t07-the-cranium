@@ -50,10 +50,47 @@ enum pi_dlink_type {
 	PI_DLINK_MANIFEST = 0x11,
 	PI_DLINK_CHANGED = 0x12,
 	PI_DLINK_READ = 0x13,
+	/*
+	 * From 1.20.2, Pi OS updates (pi_os.h, docs/pi-os-update.md): the update file in the card's
+	 * file area, and what the Pi says back.
+	 *
+	 *   0x20 FILE_INFO  no payload          whether a file is offered: its state, generation, size,
+	 *                                       SHA-256, version and the version it updates from
+	 *   0x21 FILE_READ  offset u32, length u16
+	 *                                       length bytes (1 to 480) of the file, while offered
+	 *   0x22 RESULT     code u8, n u8, generation u32, version, reason (n bytes)
+	 *                                       what the Pi did with that generation of the file
+	 *   0x23 OS_STATUS  slot, default, trial, last, version, last version
+	 *                                       what the Pi runs (cranium-update status)
+	 */
+	PI_DLINK_FILE_INFO = 0x20,
+	PI_DLINK_FILE_READ = 0x21,
+	PI_DLINK_RESULT = 0x22,
+	PI_DLINK_OS_STATUS = 0x23,
 	/* The answers: the request's type | PI_DLINK_ANSWER. */
 	PI_DLINK_ANSWER = 0x80,
 	PI_DLINK_ERROR = 0xff,
 };
+
+/* FILE_INFO's state, and ERROR's for the file requests. */
+enum pi_dlink_file_state {
+	PI_DLINK_FILE_NONE = 0,
+	PI_DLINK_FILE_DOWNLOADING = 1,
+	/* Checked, and offered by a job now: FILE_READ answers. */
+	PI_DLINK_FILE_OFFERED = 2,
+	/* Checked, but no job offers it now (it ended, was withdrawn, or the board restarted). */
+	PI_DLINK_FILE_HELD = 3,
+};
+
+#define PI_DLINK_FILE_INFO_SIZE 116u
+/* FILE_INFO flags: 1 a full image (no version it updates from), 4 no card (as INFO's). */
+#define PI_DLINK_FILE_FULL      0x01u
+/* RESULT: the fixed part before the reason, and the longest reason the Pi may send. */
+#define PI_DLINK_RESULT_HEAD    40u
+#define PI_DLINK_REASON_MAX     64u
+#define PI_DLINK_OS_STATUS_SIZE 68u
+/* The answers to RESULT and OS_STATUS. */
+#define PI_DLINK_ACK_SIZE       8u
 
 enum pi_dlink_code {
 	PI_DLINK_OK = 0,
@@ -75,6 +112,10 @@ enum pi_dlink_code {
 	PI_DLINK_CARD = 7,
 	/* The list of changed blocks does not describe the image on the card. */
 	PI_DLINK_NO_LIST = 8,
+	/*
+	 * The file requests use the same codes: 4 nothing offered (no file, or one no job offers),
+	 * 5 the file is being downloaded or checked, 6 an offset past its end, 7 no card.
+	 */
 };
 
 #define PI_DLINK_MANIFEST_MAX 15u
@@ -98,6 +139,8 @@ struct pi_dlink {
 	uint8_t cache[PI_SECTOR_SIZE];
 	uint64_t cache_lba;
 	uint32_t cache_generation;
+	/* The file's generation when it was read: a new file is written where an old one was. */
+	uint32_t cache_file_generation;
 	/* The card's open count when the sector was read: another card may have the same generation. */
 	uint32_t cache_opens;
 	bool cache_valid;
