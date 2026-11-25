@@ -1790,8 +1790,8 @@ export function canaryLimitLine(rollout, now) {
       now < deadline
         ? `Time limit: ${limit}, up in ${plural(Math.ceil((deadline - now) / 60_000), 'minute')}. If it has not ` +
           'confirmed by then, and is not visibly still downloading or restarting, the rest is not sent.'
-        : `Past its time limit of ${limit}, but still downloading or restarting: it gets longer while its ` +
-          'download goes up or its restart and trial run, and the rest is not sent once it stops.';
+        : `Past its time limit of ${limit}: the rest is sent only if it confirms, and it gets longer only while its ` +
+          'download goes up or its restart and trial run.';
   }
   return h('p', { class: 'quiet canary-limit', key: 'canary-limit' }, text);
 }

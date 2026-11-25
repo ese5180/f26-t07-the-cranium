@@ -361,12 +361,15 @@ export function createRolloutHandlers(
    * A rollout with its jobs as deployments: the canary's, each stage's with its counts and where it
    * stands, and for a rollout from before the stages its waves.
    */
-  async function detailOf(item) {
+  async function detailOf(item, { lenient = false } = {}) {
     const rollout = rolloutFromItem(item);
+    // `lenient`: a job that cannot be read right now is left null rather than failing the whole answer.
+    const read = (job) =>
+      job === null ? null : lenient ? deployments.detail(job).catch(() => null) : deployments.detail(job);
     const [canaryJob, wavesJob, stageJobs] = await Promise.all([
-      rollout.canary.job === null ? null : deployments.detail(rollout.canary.job),
-      rollout.rest.job === null ? null : deployments.detail(rollout.rest.job),
-      Promise.all(rollout.stages.map((stage) => (stage.job === null ? null : deployments.detail(stage.job)))),
+      read(rollout.canary.job),
+      read(rollout.rest.job),
+      Promise.all(rollout.stages.map((stage) => read(stage.job))),
     ]);
     const { waves, notOffered } = await wavesOf(rollout, wavesJob);
     const stages = rollout.stages.map((stage, index) => ({
@@ -381,8 +384,9 @@ export function createRolloutHandlers(
   /**
    * Start a rollout on boards that were chosen already: its canary job, then its record. If the
    * record cannot be written, the job is cancelled again: a canary nobody follows is no rollout.
+   * `onLaunched`, if given, is handed the canary's deployment as launch() described it on making it.
    */
-  async function start({ release, things, leftOut, target, purpose, options, actor, entry }) {
+  async function start({ release, things, leftOut, target, purpose, options, actor, entry, onLaunched }) {
     if (things.length > MAX_ROLLOUT_BOARDS) {
       throw unprocessable('too_many_boards', `A rollout takes at most ${MAX_ROLLOUT_BOARDS} boards.`);
     }
@@ -426,7 +430,7 @@ export function createRolloutHandlers(
     };
     const { abort } = rolloutConfigs(options);
     const description = buildJobDescription({ email: actor.email, sub: actor.sub, note: stageNote(record, 'canary') });
-    const { id: job } = await deployments.launch({
+    const { id: job, detail: launched } = await deployments.launch({
       release,
       things: canary,
       description,
@@ -435,6 +439,7 @@ export function createRolloutHandlers(
       abort: canary.length > 1 ? abort : null,
     });
     record.canary.job = job;
+    onLaunched?.(launched);
     if (record.rest.things.length === 0) record.canary.only = true;
     let stored = false;
     try {
@@ -887,6 +892,8 @@ export function createRolloutHandlers(
   /** What a CANCELED job of a rollout says about why it stopped; `where` names the stage. */
   function cancelledWhy(job, executions, item, where = '') {
     if (job.reasonCode === 'RELEASE_REVOKED') return ['revoked'];
+    // Halted at its time limit, though the stop that follows the cancel was lost: the reason stays the limit.
+    if (job.reasonCode === 'CANARY_TIMEOUT') return ['canary_timeout'];
     const share = failureShare(executions);
     if (job.reasonCode === null && share.executed > 0 && share.percent >= item.abortPercent) {
       return [
@@ -1420,6 +1427,7 @@ export function createRolloutHandlers(
         abortPercent: DEFAULT_ABORT_PERCENT,
         note,
       };
+      let launched = null;
       const record = await start({
         release,
         things: chosen.things,
@@ -1429,11 +1437,17 @@ export function createRolloutHandlers(
         options,
         actor,
         entry,
+        onLaunched: (detail) => {
+          launched = detail;
+        },
       });
       entry.target = record.canary.job;
       noteChange(entry, 'deployment', null, record.canary.job);
-      const rollout = await detailOf(record);
-      return { status: 201, body: { deployment: rollout.canaryJob, rollout } };
+      // The rollout is stored from here on, so the answer is 201 even if its canary's job cannot be read
+      // back right now: then the canary's deployment is the one launch() described as it made the job.
+      const rollout = await detailOf(record, { lenient: true });
+      const deployment = rollout.canaryJob ?? launched;
+      return { status: 201, body: { deployment, rollout: { ...rollout, canaryJob: deployment } } };
     },
 
     async cancel({ actor, params, json, entry }) {

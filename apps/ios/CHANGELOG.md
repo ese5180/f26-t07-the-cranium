@@ -6,9 +6,9 @@ same numbers for the same features. The first paragraph of an entry is what the 
 
 ## 0.9.3
 
-A canary's time limit (console 2.30.1 and later): the rollout dialogs and New deployment have a Canary time limit, and a rollout whose canary has not confirmed in time stops and says why. The console's refusal of a limit out of its bounds reads in the same words. (build 41)
+A canary's time limit (console 2.30.1 and later): the rollout dialogs and New deployment have a Canary time limit, and a rollout whose canary has not confirmed in time stops and says why. The console's refusal of a limit out of its bounds reads in the same words. In Classic mode, a New deployment of more than one board says that one board goes first and the rest once it has confirmed. (build 42)
 
-`CraniumKit/Sources/CraniumKit/Words.swift`: `invalid_canaryMinutes`. The pages are the console's.
+`CraniumKit/Sources/CraniumKit/Words.swift`: `invalid_canaryMinutes`; `App/Views/DeploymentsView.swift`: the Classic screen's words for more than one board, the console's. The pages are the console's.
 
 ## 0.9.2
 

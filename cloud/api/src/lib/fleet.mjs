@@ -57,9 +57,9 @@ export const MAX_CANARY_MINUTES = IN_PROGRESS_TIMEOUT_MIN;
 // A canary past its limit whose download has not gone up by a step (the board reports every 10%)
 // for this long has stalled. At the measured speed a step takes about 7 s.
 export const CANARY_STALL_MS = 3 * MINUTE_MS;
-// A board that has announced its restart settles the update itself within this long: up to 240 s to
-// come back (lib/shadow.mjs RESTART_WINDOW_MS), then 300 s on trial to confirm, or MCUboot swaps the
-// old image back and it reports rolled_back (firmware CONFIG_APP_OTA_SELF_TEST_TIMEOUT_SECONDS).
+// A board that has announced its restart settles the update itself within this long: the swap (81 s) and
+// its first boot, then 300 s on trial to confirm (firmware CONFIG_APP_OTA_SELF_TEST_TIMEOUT_SECONDS); an
+// image that does not confirm is swapped back (another 81 s) and reports rolled_back once it reconnects.
 export const CANARY_INSTALL_MS = RESTART_WINDOW_MS + 5 * MINUTE_MS;
 
 export const MAX_GROUPS = 50;
@@ -287,6 +287,8 @@ export function readCanaryWatch(value) {
  * A download is watched from the limit on: `watch` is the last percent seen of each downloading board
  * and since when ([{ thing, percent, at }], -1 for a board with none), stored on the rollout between
  * runs. So a download that has stopped before the limit is halted at most CANARY_STALL_MS after it.
+ * A percent below the last one seen is a new attempt (the firmware starts a retried download again
+ * from 0% after a 10 to 40 s wait), so it starts the watch afresh rather than reading as a stall.
  * A board that has ended its execution any other way is canaryVerdict's to judge, not this.
  */
 export function canaryClock({ things, executions, startedAt, minutes, watch = [], nowMs }) {
@@ -309,7 +311,7 @@ export function canaryClock({ things, executions, startedAt, minutes, watch = []
     } else if (DOWNLOAD_PHASES.has(phase)) {
       const percent = progress ?? -1;
       const before = seen.get(thing);
-      if (before === undefined || percent > before.percent) {
+      if (before === undefined || percent > before.percent || (percent >= 0 && percent < before.percent)) {
         next.push({ thing, percent, at });
         continue;
       }

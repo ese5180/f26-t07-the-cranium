@@ -1673,7 +1673,11 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
             val deployment = client.deploy(version, d.things.sorted(), Words.singleLine(d.note))
             _store.update { it.copy(deploymentDetails = it.deploymentDetails + (deployment.id to Resource(deployment, null, now(), false))) }
             _dialog.value = null
-            notify("Deployment of ${deployment.version ?: version} started.")
+            // More than one board (console 2.30.1): the server sends it to one canary first, as a staged rollout.
+            notify(
+                if (d.things.size > 1) "Deployment of ${deployment.version ?: version} started: one board first, the rest once it has confirmed."
+                else "Deployment of ${deployment.version ?: version} started."
+            )
             open(Route.DeploymentPage(deployment.id))
             viewModelScope.launch { loadDeployments() }
         }
