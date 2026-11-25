@@ -183,7 +183,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
-| 2026-11-25 | Canary time limit: a canary that has not confirmed in time halts the rest, unless visibly still at work; a deployment of several boards gets a canary | console 2.30.1, apps 0.9.3, desktop 0.1.17 | #286 |
+| 2026-11-25 | Canary time limit: a canary that has not confirmed in time halts the rest, unless visibly still at work; a deployment of several boards gets a canary | console 2.30.1, apps 0.9.3, desktop 0.1.17 | #293 |
 | 2026-11-24 | Raspberry Pi images on the Firmware page: upload checked as a board checks it, deploy as `pi_delta` jobs, download estimates, each board's progress, Pi marks (boards need #279) | console 2.30.0, apps 0.9.2, desktop 0.1.16 | #288 |
 | 2026-11-24 | Plays: what each board played from its Pi, in order with BPM, key and time played, on its page and the customer's Mixes | console 2.29.0 | #283 |
 | 2026-11-16 | Golden image promotion over the air: signed record, counter floor, the bootloader seals it (board runs it; the promotion itself not yet tried on hardware) | firmware 1.19.3 | v1.19.3 |
