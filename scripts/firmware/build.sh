@@ -14,6 +14,10 @@
 #                                      the bootloader takes the team's public key, firmware/keys/fw_signing_pub.pem,
 #                                      and the application is signed with a throwaway key, which that bootloader
 #                                      refuses. binaries/ is left as it was. No release is ever built this way
+#   scripts/firmware/build.sh --build-dir DIR   build in DIR instead of build/ (build-nrf5340dk/ for that board)
+#   scripts/firmware/build.sh --cmake-arg ARG   pass ARG to CMake as well, as a configuration of the CI firmware
+#                                      job does (-DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf); only with --without-key,
+#                                      so a check build never becomes a release (scripts/ci/local-ci.sh)
 #
 # Each build starts clean, and stores binaries/cranium-<version>-0.signed.bin, along with
 # binaries/latest.signed.bin and binaries/latest.json. For a board type other than nrf7002dk the type
@@ -54,7 +58,7 @@ die() {
 }
 
 usage() {
-  sed -n '3,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,35p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 field() {
@@ -97,9 +101,21 @@ upload=true
 without_key=false
 version=""
 board_type=nrf7002dk
+build_dir=""
+cmake_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=true ;;
+    --build-dir)
+      [ $# -ge 2 ] || die "--build-dir needs a folder"
+      build_dir="$2"
+      shift
+      ;;
+    --cmake-arg)
+      [ $# -ge 2 ] || die "--cmake-arg needs an argument, for example -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf"
+      cmake_args+=("$2")
+      shift
+      ;;
     --no-upload) upload=false ;;
     --without-key) without_key=true ;;
     --board)
@@ -147,6 +163,10 @@ case "$board_type" in
     ;;
   *) die "--board takes nrf7002dk or nrf5340dk, not $board_type" ;;
 esac
+if [ -n "$build_dir" ]; then
+  mkdir -p "$build_dir" || die "the folder $build_dir could not be made"
+  BUILD_DIR="$(cd "$build_dir" && pwd)"
+fi
 [ -n "$version" ] && [ "$keep" = true ] && die "use --keep or --version, not both"
 if [ -n "$version" ] && ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   die "--version must look like 1.8.0, not $version"
@@ -159,6 +179,8 @@ if [ "$without_key" = true ]; then
   [ "$keep" = true ] && [ "$upload" = false ] && [ -z "$version" ] \
     || die "--without-key builds no release: use it with --keep --no-upload"
 else
+  [ "${#cmake_args[@]}" -eq 0 ] \
+    || die "--cmake-arg builds a check image, never a release: use it with --keep --no-upload --without-key"
   [ -f "$KEY" ] || die "the signing key was not found at $KEY" \
     "See secrets/README.md. An image signed with another key will not install on a board." \
     "To set up a board without it: --keep --no-upload --without-key (scripts/board/new-board.sh does)."
@@ -214,7 +236,8 @@ open(sys.argv[1], "wb").write(key.private_bytes(serialization.Encoding.PEM, seri
 fi
 echo "Building firmware $expected for the $board_type with $jobs jobs. This takes a minute or two."
 if ! (cd "$NCS_DIR" && nice -n 5 west build -p always -d "$BUILD_DIR" -b "$BOARD" \
-    --sysbuild "$REPO_DIR/firmware/app" -- ${key_args[@]+"${key_args[@]}"} ) > "$log" 2>&1; then
+    --sysbuild "$REPO_DIR/firmware/app" -- ${key_args[@]+"${key_args[@]}"} \
+    ${cmake_args[@]+"${cmake_args[@]}"} ) > "$log" 2>&1; then
   mkdir -p "$BUILD_DIR"
   cp "$log" "$BUILD_DIR/last-build.log"
   grep -E "error:|FATAL_ERROR|CMake Error" "$log" | head -10 >&2 || true
@@ -338,7 +361,7 @@ fi
 # An nRF5340 DK's image has no Memfault in it.
 if [ "$board_type" = nrf7002dk ]; then
   echo
-  if ! python3 -I "$REPO_DIR/tools/memfault_upload.py" --build "$REPO_DIR/build"; then
+  if ! python3 -I "$REPO_DIR/tools/memfault_upload.py" --build "$BUILD_DIR"; then
     echo "warning: Memfault did not get all of this build: see above. Run tools/memfault_upload.py --build build" \
       "again while build/ holds it." >&2
   fi

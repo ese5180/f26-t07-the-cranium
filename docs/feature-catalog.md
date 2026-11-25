@@ -170,7 +170,7 @@ firmware against fixed, measured tests. Built and host-tested; not yet run on ha
 The way the platform is built is as reusable as the features: every change is small, tested, reviewed and released by a tag.
 
 1. **One PR per task.** Its own branch, labels, milestone and project entry, and "Closes #N" for the task's issue on the pinned work list (#128).
-2. **CI on every push** (`.github/workflows/ci.yml`): cloud and web tests, host tests for firmware logic, firmware builds for each board, the iPhone, Android, Mac and desktop apps, CodeQL, and a check that no private key is in git.
+2. **Local CI before every merge** (`scripts/ci/local-ci.sh`, [docs/ci.md](ci.md#local-ci-github-actions-is-off)): the jobs of `.github/workflows/` run on a teammate's computer (GitHub Actions is off since 2026-11-24): cloud and web tests, host tests for firmware logic, firmware builds for each board, the iPhone, Android, Mac and desktop apps, lint and secrets, and a check that no private key is in git. `--post` sets the `local-ci` commit status a pull request needs.
 3. **Memory floors.** Each firmware build reports flash and RAM free per board; a build below its floor fails (`tools/memory_budgets.json`).
 4. **Review before merge.** A reviewer posts one comment review ending "OK to merge"; nothing merges without it.
 5. **Rebase-merge, delete the branch.** No merge commits, never force-push; a conflicting PR is copied onto a fresh branch instead.
