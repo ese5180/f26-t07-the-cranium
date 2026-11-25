@@ -84,8 +84,9 @@ installer needs a second build. Windows 11 on Arm runs the x64 one.
 
 ## What has been tried, and what has not
 
-CI builds, installs and uninstalls the installer on Windows Server, and the app draws its first page there. Not
-tried yet:
+CI built, installed and uninstalled the installer on Windows Server, and the app drew its first page there. With GitHub
+Actions off, `scripts/ci/local-ci.sh --job desktop-windows --install-packages` does the same from Git Bash on a Windows
+computer (docs/ci.md, "Local CI"); it has not been tried there yet. Not tried yet:
 
 - the installer by hand, with its desktop shortcut question;
 - SmartScreen's warning on a PC;

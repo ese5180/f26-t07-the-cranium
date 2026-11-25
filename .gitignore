@@ -4,6 +4,8 @@
 
 # Build output
 build/
+# scripts/ci/local-ci.sh: its logs, builds and caches
+/.local-ci/
 build_*/
 build-*/
 node_modules/

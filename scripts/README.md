@@ -9,7 +9,7 @@ The scripts are grouped by what they are for:
 | `fleet/` | `fleet-check.sh` | Checking that a fleet-management (3.11) demonstration is ready; it only reads |
 | `release/` | `github-release.sh`, `verify-github-release.sh`, `notes.sh`, `release-lib.sh` | Publishing a GitHub Release and checking one (`release-lib.sh` is shared by both) |
 | `console/` | `open-console.sh` | Signing in to AWS and opening the console |
-| `ci/` | `scan-tracked-files.sh`, `check-west-workspace.sh` | Checks CI runs; they also run by hand |
+| `ci/` | `local-ci.sh`, `heavy.sh`, `scan-tracked-files.sh`, `check-west-workspace.sh` | `local-ci.sh` runs the workflows' checks on your computer and sets the `local-ci` status (GitHub Actions is off: docs/ci.md, "Local CI"); `heavy.sh` runs a heavy job when it has its turn and the memory; the other two are checks CI runs, also by hand |
 | `docs/` | `render-diagrams.sh` | Redrawing the README's diagrams: each page in `pics/src/` becomes a PNG in `pics/`, at twice its size, through Chrome |
 
 Each script finds the repository from its own place, so it runs from any folder.

@@ -124,8 +124,9 @@ arm64 is not built: a Raspberry Pi or an Arm laptop would want it, but nothing h
 
 ## What has been tried, and what has not
 
-CI builds the three files on Ubuntu 24.04 and looks into each. It installs the .deb, starts the installed app under its
-sandbox, and removes it.
+CI built the three files on Ubuntu 24.04 and looked into each, installed the .deb, started the installed app under its
+sandbox, and removed it. With GitHub Actions off, `scripts/ci/local-ci.sh --job desktop-linux --install-packages` does
+the same on a Linux computer (docs/ci.md, "Local CI").
 
 Not tried yet:
 
