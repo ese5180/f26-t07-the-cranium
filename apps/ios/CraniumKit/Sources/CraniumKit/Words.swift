@@ -1102,7 +1102,7 @@ public enum Words {
                                               triedAlone: "tried to upload a golden record", icon: "shield"),
         "golden.promote": AuditAction(done: "made golden", doneAlone: "started a golden promotion",
                                       tried: "tried to make golden", triedAlone: "tried to start a golden promotion", icon: "shield"),
-        // Raspberry Pi images (console 2.29.0): the package described, what arrived checked, a deployment and its end.
+        // Raspberry Pi images (console 2.30.0): the package described, what arrived checked, a deployment and its end.
         "firmware.pi_upload": AuditAction(done: "uploaded the Pi image", tried: "tried to upload the Pi image",
                                           triedAlone: "tried to upload a Pi image", icon: "upload"),
         "firmware.pi_verify": AuditAction(done: "checked the Pi image", tried: "tried to check the Pi image",

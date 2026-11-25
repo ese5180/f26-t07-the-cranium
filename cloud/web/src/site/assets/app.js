@@ -64,7 +64,7 @@ import {
   uploadInHand,
   versionOfDeployment,
 } from './core.js';
-// Raspberry Pi images (console 2.29.0): the package's header, read before it is sent; boards that take one.
+// Raspberry Pi images (console 2.30.0): the package's header, read before it is sent; boards that take one.
 import { PI_HEADER_SIZE, piUnderWay, readPiHeader, takesPiImage } from './core.js';
 import {
   accountView,
@@ -159,7 +159,7 @@ const state = {
   deviceDetails: new Map(),
   deploymentDetails: new Map(),
   upload: { stage: 'idle', over: false },
-  // Raspberry Pi images (console 2.29.0): GET /api/pi-images, and the package being sent from this tab.
+  // Raspberry Pi images (console 2.30.0): GET /api/pi-images, and the package being sent from this tab.
   pi: resource(),
   piUpload: {
     stage: 'idle',
@@ -636,7 +636,7 @@ const pages = {
         load(state.firmware, api.firmware),
         // Whether the release that was just uploaded has been deployed since.
         state.upload.stage === 'done' ? load(state.deployments, api.deployments) : null,
-        // The Raspberry Pi images and their deployments, and which boards report a Pi (console 2.29.0).
+        // The Raspberry Pi images and their deployments, and which boards report a Pi (console 2.30.0).
         load(state.pi, api.piImages),
         full || state.devices.loadedAt === 0 ? load(state.devices, api.devices) : null,
       ]),
@@ -2411,7 +2411,7 @@ function openGolden(release) {
   self = openDialog(() => goldenDialog(model, { state, actions }));
 }
 
-// Raspberry Pi images (console 2.29.0, docs/pi-delta-update.md): a package goes from this tab straight to S3, with
+// Raspberry Pi images (console 2.30.0, docs/pi-delta-update.md): a package goes from this tab straight to S3, with
 // a URL the console gives only once its header's signature holds; then the console checks what arrived.
 
 const PI_SENDING = new Set(['reading', 'describing', 'sending', 'verifying']);
@@ -2965,7 +2965,7 @@ const actions = {
   },
   openNotes,
   openGolden,
-  // Raspberry Pi images (console 2.29.0).
+  // Raspberry Pi images (console 2.30.0).
   choosePiFile,
   setPiNotes,
   uploadPi,

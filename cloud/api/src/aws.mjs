@@ -271,7 +271,7 @@ const POINTER_KEY = Object.freeze({ pk: { S: 'META' }, sk: { S: 'HIGHEST' } });
 const AUDIT_PKS = Object.freeze([AUDIT_PK, CUSTOMER_ACTIONS_PK]);
 const TOKEN_PK = 'TOK';
 // The partitions of the fleet's records (handlers/groups.mjs, handlers/rollouts.mjs, handlers/fleet.mjs).
-// PIIMG: the Raspberry Pi images (console 2.29.0, lib/pi-images.mjs).
+// PIIMG: the Raspberry Pi images (console 2.30.0, lib/pi-images.mjs).
 const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH', 'RPT', 'SCH', 'NAME', 'PIIMG']);
 
 const THROTTLING = new Set([

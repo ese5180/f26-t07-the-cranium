@@ -152,7 +152,7 @@ object AuditText {
             "made golden", "tried to make golden", "tried to start a golden promotion", Glyph.SHIELD,
             doneAlone = "started a golden promotion",
         ),
-        // Raspberry Pi images (console 2.29.0): the package described, what arrived checked, a deployment and its end.
+        // Raspberry Pi images (console 2.30.0): the package described, what arrived checked, a deployment and its end.
         "firmware.pi_upload" to Action(
             "uploaded the Pi image", "tried to upload the Pi image", "tried to upload a Pi image", Glyph.UPLOAD,
         ),

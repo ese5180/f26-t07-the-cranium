@@ -87,7 +87,7 @@ import { canCommand, distanceWords, positionSteps, unplacedReason } from './core
 import { describeOutcome, updateHow, updateSummary, updateTime, updateTotals } from './core.js';
 // Golden image promotion (console 2.27.7): which releases can become golden.
 import { takesGolden } from './core.js';
-// Raspberry Pi images (console 2.29.0): boards with a Pi, the packages, their deployments.
+// Raspberry Pi images (console 2.30.0): boards with a Pi, the packages, their deployments.
 import { PI_CARD_WORDS, piCardWords, piEstimateWords, piProgressWords, piUnderWay, takesPiImage } from './core.js';
 // Search and filters of the long lists (docs/search-filters.md).
 import {
@@ -4210,7 +4210,7 @@ export function devicesView(ctx) {
                 h('h2', { class: 'device-name' }, boardLabel(device, 'cover-link'), icon('arrow-right', 'is-small')),
                 boardName(device) === device.thing ? null : h('p', { class: 'device-thing' }, boardThing(device)),
                 ctx.fleet?.boardTags(device, ctx) ?? null,
-                // A board wired to a Raspberry Pi, as a firmware built with --pi reports (console 2.29.0).
+                // A board wired to a Raspberry Pi, as a firmware built with --pi reports (console 2.30.0).
                 device.pi
                   ? h('p', { class: 'device-pi' }, badge('info', 'chip', 'Raspberry Pi', piCardWords(device.pi)))
                   : null,
@@ -5385,7 +5385,7 @@ function releaseRow(release, ctx) {
   );
 }
 
-// Raspberry Pi images (console 2.29.0, docs/pi-delta-update.md): for boards wired to a Pi. A board built with
+// Raspberry Pi images (console 2.30.0, docs/pi-delta-update.md): for boards wired to a Pi. A board built with
 // --pi, from firmware 1.20.0, keeps the Pi's image on an SD card and downloads only the blocks that changed.
 
 const PI_UPLOAD_STEPS = Object.freeze({
@@ -5776,7 +5776,7 @@ export function firmwareView(ctx) {
     canWrite ? null : h('section', { class: 'ui-card card upload is-readonly', key: 'upload' }, trustPanel(ctx)),
     h('h2', { class: 'section-title', key: 'title' }, 'Releases'),
     releases,
-    // Raspberry Pi images (console 2.29.0): on a console that has the state for them.
+    // Raspberry Pi images (console 2.30.0): on a console that has the state for them.
     state.pi ? piSection(ctx) : null
   );
 }
@@ -7904,7 +7904,7 @@ export function goldenDialog(model) {
   });
 }
 
-// Raspberry Pi images (console 2.29.0): deploying one to boards with a Pi, and cancelling such a deployment.
+// Raspberry Pi images (console 2.30.0): deploying one to boards with a Pi, and cancelling such a deployment.
 
 export function piDeployDialog(model) {
   const { image } = model;

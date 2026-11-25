@@ -250,7 +250,7 @@ export const TILE_ORIGIN = 'https://tile.openstreetmap.org';
 /**
  * The page may talk to its own origin, to the managed login pages (the token and the
  * revocation of the refresh token), to Cognito's user pool API (the console's own
- * sign-in page), with live updates to the live API (docs/live.md) and, from console 2.29.0, to the
+ * sign-in page), with live updates to the live API (docs/live.md) and, from console 2.30.0, to the
  * firmware bucket, where the Firmware page PUTs a Raspberry Pi image package with a presigned URL.
  * Nowhere else. It may show images from itself and from OpenStreetMap's tile server, for the map,
  * and from nowhere else.
