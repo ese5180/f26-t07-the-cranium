@@ -4,6 +4,12 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.9.2
+
+A canary's time limit (console 2.28.1 and later): the rollout dialogs and New deployment have a Canary time limit, and a rollout whose canary has not confirmed in time stops and says why. The console's refusal of a limit out of its bounds reads in the same words. (versionCode 39)
+
+`core/Audit.kt`: `invalid_canaryMinutes`. The pages are the console's.
+
 ## 0.9.1
 
 The activity log names the two serial console commands that set a board's Bluetooth passkey, `BT_PASSKEY` and `BT_OFFLINE|NEW`, in the same words as the console (2.27.5), and the Android app's USB serial console puts them on record once the board answers OK. Never the passkey. (versionCode 38)

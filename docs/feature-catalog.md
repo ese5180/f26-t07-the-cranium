@@ -54,6 +54,7 @@ The cloud is one AWS SAM stack (`cloud/infra/template.yaml`): an HTTP API, AWS I
 | Console navigation | Sections in groups in the sidebar; on a phone a floating pill tab bar (Overview, Devices, Deploy, Alerts, More) whose corners follow the screen's; old addresses redirect | 2.28.0 | `views.js` `navView`, `core.js` `MOVED`, `app.css` "The frame", `docs/console-design.md` | Concentric radii from one token, `--radius-screen` |
 | Firmware releases | Upload a signed image; the console checks the signature and registers the version once | 1.x | `firmware` page, `scripts/firmware/upload-to-console.sh` | A version number is burned once uploaded |
 | Deployments and staged rollouts | Send a release to one board, a group or the fleet, in waves, with rollback to the last good | 1.x | `deployments`, `rollout`, `docs/mass-updates.md` | Built on AWS IoT jobs |
+| Canary time limit | A canary that has not confirmed within 6 minutes (3 to 30 per rollout) halts the rest and says what it was doing; one still visibly downloading or restarting gets longer; a deployment of several boards gets a canary too | 2.28.1 | `cloud/api/src/lib/fleet.mjs` `canaryClock`, `handlers/rollouts.mjs`, `docs/fleet.md` | Judge a hang by progress, not by time alone: a limit from measured update times, extended while the device reports progress |
 | Groups | Boards grouped by type and by hand; roll out or roll back per group | 1.x | Devices page | Groups by board type are automatic |
 | Activity log and audit | Every action and every board event, with what changed field by field | 2.13.1 | `activity`, `events`, `docs/audit-diff.md` | 62 action types, readable words |
 | Live updates | An open page hears of a board connecting, updating or failing as it happens | 2.4.0 | `docs/live.md` | WebSocket push, no refresh |
@@ -179,6 +180,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-24 | Canary time limit: a canary that has not confirmed in time halts the rest, unless visibly still at work; a deployment of several boards gets a canary | console 2.28.1 | #286 |
 | 2026-11-16 | Golden image promotion over the air: signed record, counter floor, the bootloader seals it (board runs it; the promotion itself not yet tried on hardware) | firmware 1.19.3 | v1.19.3 |
 | 2026-11-15 | Closed-loop HIL bench (Adam's): UART to Bluetooth telemetry app, Saleae and PPK2 acceptance, MCP bench tools, host tests in CI (not yet on hardware) | — | #261 |
 | 2026-11-12 | Console navigation in groups, a floating tab bar shaped for the iPhone 17 Pro's corners, Fleet folded into Devices and Deployments, Memfault named Crashes | console 2.28.0 | #258 |

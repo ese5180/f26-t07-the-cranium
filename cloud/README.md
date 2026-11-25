@@ -603,8 +603,10 @@ page, and some of it on the others.
 - **Staged rollouts.** A deployment of more than one board from the website, a rollout to a group (its "Roll out"
   button), and each type of "Update everything" start with a canary, one board unless you ask for more. Its page
   (`#/rollouts/<id>`) shows the canary, then the waves once the canary has confirmed, what was left out and why, and
-  why it stopped. The waves are started by `RolloutTickFn` within a minute of the canary's confirmation; a
-  deployment to one board, and every deployment from the API (`POST /api/deployments`), is one job as before.
+  why it stopped. The waves are started by `RolloutTickFn` within a minute of the canary's confirmation. From 2.28.1 a
+  deployment from the API (`POST /api/deployments`) to two or more boards gets a canary too, and every canary has a time
+  limit (`canaryMinutes`, 3 to 30, default 6) after which the rest is halted unless it is visibly still downloading or
+  restarting ([docs/fleet.md](../docs/fleet.md)). A deployment to one board is one job as before.
 - **Update everything** reviews, by type, the newest release, the boards it goes to and the ones it leaves out, and
   starts one staged rollout per type.
 - **Roll back to last good** (on a group on Devices, and on the Deployments page) is the one way back: each board goes to its last good
@@ -614,7 +616,8 @@ page, and some of it on the others.
   `curl -X PUT -H "Authorization: Bearer $CRANIUM_TOKEN" -H 'content-type: application/json'
   -d '{"notes":"…"}' "$CONSOLE/api/t/firmware/1.11.3%2B0/notes"`.
 
-Limits: at most 50 groups of up to 100 boards each; a rollout takes at most 100 boards and a canary at most 5;
+Limits: at most 50 groups of up to 100 boards each; a rollout takes at most 100 boards and a canary at most 5, with 3 to
+30 minutes to confirm (default 6);
 the first wave is 1 to 50 boards a minute; the abort threshold is 1 to 100% (default 20%); 60 sightings a minute
 per person. The function that moves rollouts on logs to `/aws/lambda/<stack>-rollouts`.
 

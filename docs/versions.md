@@ -54,6 +54,7 @@ what the apps show without a new app version, and the app's settings say which c
 | 2026-11-15 | 2.27.7 | | | Make golden (firmware 1.19.3), readable timeline counts |
 | 2026-11-15 | 2.28.0 | | | Navigation in groups, a floating tab bar, Fleet folded into Devices and Deployments |
 | 2026-11-16 | | | 0.1.15 | The desktop app's Bluetooth reader refuses malformed answers |
+| 2026-11-24 | 2.28.1 | 0.9.2 | 0.1.16 | A canary's time limit; a deployment to several boards goes to a canary first |
 
 The console's 2.18.0 to 2.28.0 are tagged `console-v<version>`, except 2.25.7 and 2.27.4, which have no tag (2.27.1 to 2.27.3 have no entry). The apps' 0.8.17 to 0.8.20 and
 the desktop app's 0.1.1 to 0.1.15 have no tags (the app tags are `ios-v0.8.21`, `ios-v0.9.0`, `ios-v0.9.1` and the same for

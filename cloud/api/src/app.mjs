@@ -299,6 +299,9 @@ function guarded(aws, requests) {
  * @param {object} [options.versions]  what versions.json says (lib/versions.mjs parseBundledVersions);
  *                                  left out, the file beside the code, as deployed
  * @param {object} [options.pacing]  options of lib/iot-pace.mjs pace (a clock and sleep for tests)
+ * @param {boolean} [options.stagedDeployments]  true (the default, from console 2.28.1): a deployment to
+ *                                  more than one board goes to a canary first (handlers/rollouts.mjs
+ *                                  deployBoards); false makes it one job, for the tests of that job layer
  * @returns {(event: object, invocation?: object) => Promise<object>} the Lambda handler
  */
 export function createApp({
@@ -310,6 +313,7 @@ export function createApp({
   timers = { set: setTimeout, clear: clearTimeout },
   versions,
   pacing = {},
+  stagedDeployments = true,
 }) {
   if (aws === undefined || aws === null) throw new TypeError('createApp needs an AWS adapter');
   if (config === undefined || config === null) throw new TypeError('createApp needs a configuration');
@@ -332,7 +336,13 @@ export function createApp({
   let updates = null;
   let memfault = null;
   const fleet = createFleetHandlers(context, { devices, updates: () => updates, memfault: () => memfault });
-  const deployments = createDeploymentHandlers(context, { devices, fleet });
+  // A deployment to more than one board is a staged rollout (console 2.28.1): those handlers come below.
+  let rollouts = null;
+  const deployments = createDeploymentHandlers(context, {
+    devices,
+    fleet,
+    staged: () => (stagedDeployments ? rollouts : null),
+  });
   // The update history (handlers/updates.mjs): every update of every board, deployments and the
   // updates the boards reported themselves, over Bluetooth or by USB.
   updates = createUpdateHandlers(context, { devices, deployments });
@@ -343,7 +353,7 @@ export function createApp({
   // Golden image promotion (console 2.27.7, firmware 1.19.3): a release's signed record, and its jobs.
   const golden = createGoldenHandlers(context, { devices, fleet });
   const groups = createGroupHandlers(context, { devices, fleet });
-  const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit, updates: () => updates });
+  rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit, updates: () => updates });
   // Starts asked for later (console 2.20.0): made, edited and cancelled here, started by the schedule (tick.mjs).
   const schedules = createScheduleHandlers(context, { deployments, rollouts, audit });
   const me = createMeHandlers(context);

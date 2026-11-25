@@ -624,9 +624,13 @@ test('stored records are read defensively', () => {
 
 const RELEASE_KEY = '001.002.00003.0000000004';
 
-/** A console with release 1.2.3+4 and two boards. */
+/**
+ * A console with release 1.2.3+4 and two boards. A deployment of both is one job here, as a stage of a
+ * staged rollout is, so that revoking is tested on a job with one board at work and one waiting. Through the
+ * API such a deployment goes to a canary first from console 2.28.1 (rollouts.test.mjs).
+ */
 async function withReleases(options) {
-  const context = setup(options);
+  const context = setup({ stagedDeployments: false, ...options });
   context.fake.addThing(THING);
   context.fake.addThing(OTHER_THING);
   assert.equal((await context.upload(fixture('valid-1.2.3+4.signed.bin'))).status, 201);

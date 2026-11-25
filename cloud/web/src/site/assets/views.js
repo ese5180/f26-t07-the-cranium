@@ -6813,6 +6813,16 @@ function stagedChoices(model, chosen) {
     'div',
     { class: 'staged-choices', key: 'staged' },
     number('canary', 'Canary boards', Math.min(model.canary, most), 1, most, model.setCanary, null),
+    // The canary's time limit (console 2.28.1): 3 to 30 minutes, 6 unless changed.
+    number(
+      'canary-minutes',
+      'Canary time limit',
+      model.canaryMinutes ?? 6,
+      3,
+      30,
+      model.setCanaryMinutes ?? (() => {}),
+      'min'
+    ),
     number('stages', 'Stages after it', model.stages ?? 1, 1, 10, model.setStages, null),
     number('soak', 'Wait between stages', model.soakMinutes ?? 0, 0, 60, model.setSoakMinutes, 'min'),
     number('abort', 'Stop when failures reach', model.abortPercent, 1, 100, model.setAbortPercent, '%'),
@@ -6901,7 +6911,9 @@ function wizardReview(model, release, chosen, now) {
                     'with no new Memfault issue and no unexpected reboot, or it stops. '
                   : '') +
                 `It stops by itself, before what has not started, once ${model.abortPercent}% ` +
-                'of the boards that finished have failed.',
+                'of the boards that finished have failed. ' +
+                `If the canary has not confirmed within ${plural(model.canaryMinutes ?? 6, 'minute')}, and is not ` +
+                'visibly still downloading or restarting, the rest is not sent and the rollout stops.',
             ]
           : null,
         [

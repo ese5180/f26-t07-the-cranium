@@ -14,7 +14,7 @@ for everybody who gets alerts.
 | A board is offline | a board has been disconnected from AWS IoT longer than the threshold, and again when it is back | minutes (5 to 1440) | on, 15 |
 | A new Memfault issue | Memfault has an issue it did not have before; one alert per board with its traces, linking to the issue | none | on |
 | A crash loop | one board restarts unexpectedly (Assert, a fault, a watchdog, a stuck restart) N times in M minutes | N (2 to 20), M (5 to 1440) | on, 3 in 30 |
-| A staged rollout stopped by itself | its canary failed, a stage's failures reached the limit, or its health gate failed or could not read Memfault | none | on |
+| A staged rollout stopped by itself | its canary failed or did not confirm within its time limit, a stage's failures reached the limit, or its health gate failed or could not read Memfault | none | on |
 | Low supply voltage | a board's `supply_mv`, from its hourly Memfault heartbeat (firmware 1.15.0), is under the threshold | mV (1000 to 6000) | on, 3000 |
 
 These always go and have no rule: an update that failed or was rolled back, a restart for being stuck, and a board that
@@ -35,7 +35,7 @@ heartbeat is never alerted twice.
   most 5. Its first look only learns which issues there are. A look Memfault does not answer raises nothing and is
   tried again at the next run.
 - **Rollout stopped**: when the schedule stops a rollout for one of its own reasons (`handlers/rollouts.mjs`
-  `SELF_STOPS`: `canary_failed`, `aborted`, `health_failed`, `health_unknown`). The e-mail links to the rollout's page,
+  `SELF_STOPS`: `canary_failed`, `canary_timeout`, `aborted`, `health_failed`, `health_unknown`). The e-mail links to the rollout's page,
   and for a failed health gate the line links to the Memfault issue.
 
 The rules are one item in the state table (pk `ALR`, sk `rules`), read by the API, the recorder and the schedule, each

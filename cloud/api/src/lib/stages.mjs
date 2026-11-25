@@ -22,6 +22,7 @@
  */
 
 import { badRequest } from '../http.mjs';
+import { DEFAULT_CANARY_MINUTES } from './fleet.mjs';
 
 export const MAX_STAGES = 10;
 export const DEFAULT_STAGES = 1;
@@ -234,7 +235,7 @@ function growingSizes(count, total) {
  * @param {Map|object} [input.history]  thing -> { updates, failures } from the update history
  * @returns {{ canary: string[], stages: { things: string[], size: number, percent: number,
  *   offline: number }[], stageCount: number, batch: { unit: 'count', sizes: number[] } | null,
- *   soakMinutes: number, healthGate: { on: true, minutes: number }, reasons: { canary: string,
+ *   soakMinutes: number, healthGate: { on: true, minutes: number }, canaryMinutes: number, reasons: { canary: string,
  *   stages: string, batch: string, soak: string, health: string, offline: string | null },
  *   warnings: string[] }}
  */
@@ -280,7 +281,8 @@ export function suggestPlan({ boards, online = [], types = {}, history = {} }) {
         `${clean === canary.length ? ', with a clean update history' : ', with the fewest failed updates'}: it goes first.`;
   if (noOnline.length > 0) {
     warnings.push(
-      `No board of type ${noOnline.join(', ')} is online: its canary waits until it is back, and so does the rest.`
+      `No board of type ${noOnline.join(', ')} is online: its canary waits for it, and if it has not confirmed ` +
+        `within the canary's time limit (${DEFAULT_CANARY_MINUTES} minutes unless changed) the rest is not sent.`
     );
   }
 
@@ -343,6 +345,8 @@ export function suggestPlan({ boards, online = [], types = {}, history = {} }) {
     batch: stages.length <= 1 ? null : { unit: 'count', sizes: stages.slice(0, -1).map((stage) => stage.size) },
     soakMinutes,
     healthGate: { on: true, minutes: DEFAULT_GATE_MINUTES },
+    // From console 2.28.1: the canary's time limit (lib/fleet.mjs canaryClock).
+    canaryMinutes: DEFAULT_CANARY_MINUTES,
     reasons: {
       canary: canaryReason,
       stages: stagesReason,

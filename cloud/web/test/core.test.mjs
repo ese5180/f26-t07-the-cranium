@@ -1114,6 +1114,30 @@ test('names are checked before they are put into a path', async () => {
   assert.equal(calls.length, 0);
 });
 
+test('a deployment to several boards answers with its rollout, and the page is told which (console 2.28.1)', async () => {
+  const rollout = 'rol-20261124T120000Z-0a1b2c';
+  const { api, calls } = client({
+    answers: [
+      reply(201, { deployment: SOME_DEPLOYMENT, rollout: { id: rollout, stage: 'canary' } }),
+      reply(201, { deployment: SOME_DEPLOYMENT }),
+      reply(201, { deployment: SOME_DEPLOYMENT, rollout: { id: 'not a rollout' } }),
+    ],
+  });
+  const staged = await api.deploy({ version: '1.1.0+7', things: [THING, 'cranium-0123456789abcdef'] });
+  assert.equal(staged.rollout, rollout);
+  assert.equal(staged.id, SOME_DEPLOYMENT.id);
+  assert.equal((await api.deploy({ version: '1.1.0+7', things: [THING] })).rollout, undefined);
+  assert.equal((await api.deploy({ version: '1.1.0+7', things: [THING] })).rollout, undefined);
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    version: '1.1.0+7',
+    things: [THING, 'cranium-0123456789abcdef'],
+  });
+  assert.equal(
+    core.REFUSAL_WORDS.invalid_canaryMinutes,
+    'The canary’s time limit was not a whole number of minutes from 3 to 30'
+  );
+});
+
 test('paths and bodies are what the API expects', async () => {
   const deployment = { deployment: SOME_DEPLOYMENT };
   const revokedRelease = {
