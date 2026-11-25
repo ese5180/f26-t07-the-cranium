@@ -6,8 +6,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  CANARY_INSTALL_MS,
+  CANARY_STALL_MS,
+  DEFAULT_CANARY_MINUTES,
   LEFT_OUT,
   OFFLINE_LONG_MS,
+  canaryClock,
+  canaryLateWords,
   canaryVerdict,
   chooseCanary,
   failureShare,
@@ -15,6 +20,7 @@ import {
   selectTargets,
   wavePlan,
 } from '../src/lib/fleet.mjs';
+import { suggestPlan } from '../src/lib/stages.mjs';
 import { A, B, C, D, E, fleetConsole, report } from './fleet-world.mjs';
 
 const NOW = Date.parse('2026-11-04T12:00:00Z');
@@ -354,7 +360,7 @@ test('stages go one after another: the next starts only when the one before has 
     rollout.stages.flatMap((stage) => stage.things).sort(),
     names.filter((thing) => !rollout.canary.things.includes(thing))
   );
-  assert.equal(world.entries('rollout.create').at(-1).detail.stages, '3 (2,3), soak 5 min');
+  assert.equal(world.entries('rollout.create').at(-1).detail.stages, '3 (2,3), soak 5 min, canary limit 6 min');
 
   // The canary confirms: the soak time follows it too.
   world.finish(rollout.canary.job, rollout.canary.things[0], 'SUCCEEDED', '1.13.0+0');
@@ -804,4 +810,386 @@ test('"Update everything" starts a staged rollout per type, checked against the 
     [entry.outcome, entry.target, entry.detail.rollouts, entry.detail.versions, entry.detail.things],
     ['ok', 'fleet', rollout.id, 'nrf7002dk 1.13.1+0', '2']
   );
+});
+
+// The canary's time limit (console 2.30.1, lib/fleet.mjs canaryClock).
+
+const MINUTE = 60_000;
+
+test("the canary's clock: within its limit it waits; past it, only a board visibly at work gets longer", () => {
+  const at = (minutes) => NOW + minutes * MINUTE;
+  const iso = (minutes) => new Date(at(minutes)).toISOString();
+  const run = (executions, minutes, watch = []) =>
+    canaryClock({ things: [A, B], executions, startedAt: NOW, minutes: 6, watch, nowMs: at(minutes) });
+  const queued = { thing: A, status: 'QUEUED', phase: 'waiting_for_device', progress: null };
+  const done = { thing: B, status: 'SUCCEEDED', phase: 'succeeded', progress: null };
+
+  // Within the limit nothing is looked at, however it looks.
+  assert.equal(run([queued, done], 5.99).state, 'within');
+  assert.equal(run([queued, done], 5.99).deadline, at(6));
+  // At the limit, a board that never started it is stuck; a board that confirmed is not looked at.
+  assert.deepEqual(run([queued, done], 6), {
+    state: 'over',
+    deadline: at(6),
+    watch: [],
+    stuck: [{ thing: A, phase: 'waiting_for_device', progress: null }],
+  });
+  // No execution yet is the same as queued; one waiting for its button is stuck too.
+  assert.deepEqual(run([done], 6).stuck, [{ thing: A, phase: 'waiting_for_device', progress: null }]);
+  assert.equal(run([{ ...queued, phase: 'waiting_for_button' }, done], 6).state, 'over');
+  // A board that has ended any other way is canaryVerdict's to judge: not stuck here.
+  assert.equal(run([{ thing: A, status: 'FAILED', phase: 'rolled_back' }, done], 6).state, 'moving');
+
+  // A board that announced its restart settles it itself, within CANARY_INSTALL_MS (9 minutes).
+  assert.equal(CANARY_INSTALL_MS, 9 * MINUTE);
+  const restarting = { thing: A, status: 'IN_PROGRESS', phase: 'rebooting', progress: null, lastUpdatedAt: iso(4) };
+  assert.equal(run([restarting, done], 12.9).state, 'moving');
+  assert.equal(run([{ ...restarting, phase: 'testing' }, done], 12.9).state, 'moving');
+  assert.deepEqual(run([restarting, done], 13).stuck, [{ thing: A, phase: 'rebooting', progress: null }]);
+
+  // A download is watched from the limit on: the first look and every step up give it longer.
+  const downloading = (progress) => ({ thing: A, status: 'IN_PROGRESS', phase: 'downloading', progress });
+  const first = run([downloading(40), done], 6);
+  assert.deepEqual([first.state, first.watch], ['moving', [{ thing: A, percent: 40, at: iso(6) }]]);
+  const same = run([downloading(40), done], 8.9, first.watch);
+  assert.deepEqual([same.state, same.watch], ['moving', first.watch]);
+  const up = run([downloading(50), done], 8.9, first.watch);
+  assert.deepEqual(up.watch, [{ thing: A, percent: 50, at: iso(8.9) }]);
+  // No step up for CANARY_STALL_MS (3 minutes): stalled.
+  assert.equal(CANARY_STALL_MS, 3 * MINUTE);
+  assert.deepEqual(run([downloading(40), done], 9, first.watch).stuck, [
+    { thing: A, phase: 'downloading', progress: 40 },
+  ]);
+  // A board with no percent at all (its report lost) is watched the same way, from -1.
+  const blind = run([downloading(null), done], 6);
+  assert.deepEqual(blind.watch, [{ thing: A, percent: -1, at: iso(6) }]);
+  assert.equal(run([downloading(null), done], 9, blind.watch).state, 'over');
+  // A watch that is not well formed is not trusted: the board starts a new one.
+  assert.equal(run([downloading(40), done], 9, [{ thing: A, percent: 'x', at: 'then' }]).state, 'moving');
+
+  // The words the console shows.
+  assert.equal(
+    canaryLateWords(6, [
+      { thing: A, phase: 'waiting_for_device', progress: null },
+      { thing: B, phase: 'downloading', progress: 40 },
+    ]),
+    `The canary did not confirm within 6 minutes: ${A} has not started it (offline, or not taking the job); ` +
+      `${B} stopped downloading at 40%. The rest was not sent`
+  );
+  assert.match(canaryLateWords(6, [{ thing: A, phase: 'waiting_for_button', progress: null }]), /waiting for someone/);
+  assert.match(
+    canaryLateWords(6, [{ thing: A, phase: 'rebooting', progress: null }]),
+    /not come back from its restart/
+  );
+  assert.match(
+    canaryLateWords(
+      6,
+      [C, D, E, A].map((thing) => ({ thing, phase: 'waiting_for_device', progress: null }))
+    ),
+    /; and 1 more\. The rest was not sent$/
+  );
+});
+
+/** A rollout to the fleet of fiveBoards (A, B, C on 1.12.0, D current), with the body's extra choices. */
+async function fleetRollout(extra = {}) {
+  const world = await fiveBoards();
+  const response = await world.call('POST', '/api/rollouts', {
+    version: '1.13.0+0',
+    target: { kind: 'fleet' },
+    ...extra,
+  });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  const { rollout } = response.body;
+  return { world, rollout, job: rollout.canary.job, canary: rollout.canary.things[0] };
+}
+const cancels = (world) => world.fake.calls.filter((call) => call.method === 'cancelJob').map((call) => call.args[0]);
+
+test('a canary that never starts halts the rest at its time limit, and the console says why', async () => {
+  const { world, rollout, job, canary } = await fleetRollout();
+  assert.equal(DEFAULT_CANARY_MINUTES, 6);
+  assert.equal(rollout.canaryMinutes, 6);
+  assert.equal(rollout.canary.startedAt, rollout.createdAt);
+  assert.equal(rollout.canary.deadline, new Date(Date.parse(rollout.createdAt) + 6 * MINUTE).toISOString());
+  assert.match(world.entries('rollout.create').at(-1).detail.stages, /, canary limit 6 min$/);
+
+  // The board never takes the job. Within the limit, nothing happens.
+  world.advance(6 * MINUTE - 1000);
+  assert.deepEqual(await world.tick(), { checked: 1, advanced: 0, stopped: 0, done: 0, failed: 0 });
+  assert.deepEqual(cancels(world), []);
+  // At the limit: halted.
+  world.advance(1000);
+  assert.equal((await world.tick()).stopped, 1);
+  const detail = await detailOf(world, rollout.id);
+  assert.deepEqual([detail.stage, detail.stopped.code], ['stopped', 'canary_timeout']);
+  assert.equal(
+    detail.stopped.text,
+    `The canary did not confirm within 6 minutes: ${canary} has not started it (offline, or not taking the job). ` +
+      'The rest was not sent'
+  );
+  // The rest were never offered it; what had not started of the canary's job is withdrawn, without force.
+  assert.equal(createJobs(world).length, 1);
+  assert.deepEqual(cancels(world), [{ jobId: job, force: false, reasonCode: 'CANARY_TIMEOUT', comment: rollout.id }]);
+  assert.deepEqual(
+    detail.stages.map((stage) => stage.state),
+    ['never']
+  );
+  // The boards' own doing: an alert, and the console's stop on record with why.
+  assert.equal(world.raised.length, 1);
+  assert.deepEqual([world.raised[0].kind, world.raised[0].deployment], ['deployment', job]);
+  assert.match(world.raised[0].text, /did not confirm within 6 minutes/);
+  const stop = world.entries('rollout.stop').at(-1);
+  assert.deepEqual([stop.target, stop.detail.code], [rollout.id, 'canary_timeout']);
+  // Over: the next run leaves it alone.
+  world.advance(MINUTE);
+  assert.deepEqual(await world.tick(), { checked: 0, advanced: 0, stopped: 0, done: 0, failed: 0 });
+});
+
+test('a canary that confirms within its limit lets the rest go, and the limit is not looked at again', async () => {
+  const { world, rollout, job, canary } = await fleetRollout();
+  world.advance(MINUTE);
+  world.fake.execution(job, canary).update('IN_PROGRESS', { step: 'downloading' });
+  assert.equal((await world.tick()).advanced, 0);
+  world.advance(3 * MINUTE);
+  world.fake.execution(job, canary).update('SUCCEEDED', { running: '1.13.0+0' });
+  world.advance(MINUTE);
+  assert.equal((await world.tick()).advanced, 1);
+  const stage = createJobs(world)[1];
+  assert.deepEqual(stage.things, rollout.rest.things);
+  // Well past the canary's limit, the stage goes on: the limit is the canary's alone.
+  world.advance(20 * MINUTE);
+  assert.equal((await world.tick()).stopped, 0);
+  assert.deepEqual((await detailOf(world, rollout.id)).stage, 'stages');
+  assert.deepEqual(cancels(world), []);
+});
+
+test('a canary past its limit that is still downloading gets longer while it goes up, and is halted once it stalls', async () => {
+  const { world, rollout, job, canary } = await fleetRollout({ canaryMinutes: 3 });
+  assert.equal(rollout.canaryMinutes, 3);
+  world.fake.execution(job, canary).update('IN_PROGRESS', { step: 'downloading' });
+  // A slow download: 10% a minute, as the board reports it (every 10%) in its shadow.
+  const downloading = (progress) =>
+    world.fake
+      .device(canary)
+      .report({ ...report('1.12.0+0'), ota: { state: 'downloading', progress, job, last: 'none', error: '' } });
+  for (const progress of [10, 20, 30, 40, 50]) {
+    world.advance(MINUTE);
+    downloading(progress);
+    assert.equal((await world.tick()).stopped, 0, `at ${progress}%`);
+  }
+  // Past its limit (3 minutes) and going up: still the canary, with what was seen last kept on the rollout.
+  const watched = world.fake.fleetItems.get(`ROL ${rollout.id}`);
+  assert.equal(watched.stage, 'canary');
+  assert.deepEqual(
+    watched.canary.watch.map((entry) => [entry.thing, entry.percent]),
+    [[canary, 50]]
+  );
+  // It stops at 50%: two minutes on it waits, three minutes on it is halted.
+  world.advance(2 * MINUTE);
+  downloading(50);
+  assert.equal((await world.tick()).stopped, 0);
+  world.advance(MINUTE);
+  downloading(50);
+  assert.equal((await world.tick()).stopped, 1);
+  const detail = await detailOf(world, rollout.id);
+  assert.equal(detail.stopped.code, 'canary_timeout');
+  assert.equal(
+    detail.stopped.text,
+    `The canary did not confirm within 3 minutes: ${canary} stopped downloading at 50%. The rest was not sent`
+  );
+  // A board at work is left to finish or roll back by itself: the cancellation is without force.
+  assert.deepEqual(cancels(world), [{ jobId: job, force: false, reasonCode: 'CANARY_TIMEOUT', comment: rollout.id }]);
+  assert.equal(createJobs(world).length, 1);
+});
+
+test('a canary that announced its restart is left to its restart and trial, and confirms past its limit', async () => {
+  const { world, rollout, job, canary } = await fleetRollout();
+  world.advance(MINUTE);
+  world.fake.execution(job, canary).update('IN_PROGRESS', { step: 'downloading' });
+  world.advance(3 * MINUTE);
+  world.fake.execution(job, canary).update('IN_PROGRESS', { step: 'rebooting' });
+  // Its restart and its trial take it past the 6 minutes: nothing is halted while they can.
+  for (let minute = 5; minute <= 12; minute += 1) {
+    world.advance(MINUTE);
+    assert.equal((await world.tick()).stopped, 0, `minute ${minute}`);
+  }
+  world.fake.execution(job, canary).update('SUCCEEDED', { running: '1.13.0+0' });
+  world.advance(MINUTE);
+  assert.equal((await world.tick()).advanced, 1);
+  assert.deepEqual(createJobs(world)[1].things, rollout.rest.things);
+
+  // Another that never comes back: halted once its restart and trial would have ended (9 minutes after it said so).
+  const late = await fleetRollout();
+  late.world.fake.execution(late.job, late.canary).update('IN_PROGRESS', { step: 'rebooting' });
+  late.world.advance(9 * MINUTE - 1000);
+  assert.equal((await late.world.tick()).stopped, 0);
+  late.world.advance(1000);
+  assert.equal((await late.world.tick()).stopped, 1);
+  assert.match((await detailOf(late.world, late.rollout.id)).stopped.text, /has not come back from its restart/);
+});
+
+test('a canary that reports FAILED stops the rollout as before, within its limit or past it', async () => {
+  const { world, rollout, job, canary } = await fleetRollout();
+  world.advance(2 * MINUTE);
+  world.finish(job, canary, 'FAILED');
+  assert.equal((await world.tick()).stopped, 1);
+  const detail = await detailOf(world, rollout.id);
+  assert.equal(detail.stopped.code, 'canary_failed');
+  assert.match(
+    detail.stopped.text,
+    new RegExp(`^The canary did not confirm the update: ${canary} failed \\(rolled_back\\)$`)
+  );
+  assert.deepEqual(cancels(world), []);
+  assert.equal(createJobs(world).length, 1);
+
+  // Failed while no run looked, and only seen past the limit: still the failure it is, not a time-out.
+  const late = await fleetRollout();
+  late.world.advance(10 * MINUTE);
+  late.world.finish(late.job, late.canary, 'FAILED');
+  assert.equal((await late.world.tick()).stopped, 1);
+  assert.equal((await detailOf(late.world, late.rollout.id)).stopped.code, 'canary_failed');
+});
+
+test('the time limit is chosen per rollout within its bounds; a rollout from before it has none', async () => {
+  const { world, rollout } = await fleetRollout({ canaryMinutes: 12 });
+  assert.equal(rollout.canaryMinutes, 12);
+  assert.equal(rollout.canary.deadline, new Date(Date.parse(rollout.createdAt) + 12 * MINUTE).toISOString());
+  assert.match(world.entries('rollout.create').at(-1).detail.stages, /, canary limit 12 min$/);
+  for (const canaryMinutes of [2, 31, 6.5, '6', null]) {
+    const refused = await world.call('POST', '/api/rollouts', {
+      version: '1.13.0+0',
+      target: { kind: 'fleet' },
+      canaryMinutes,
+    });
+    assert.deepEqual([refused.status, refused.body.error?.code], [400, 'invalid_canaryMinutes'], String(canaryMinutes));
+  }
+  // What the console suggests carries the default.
+  const suggested = await world.call('GET', '/api/rollouts/suggest?release=1.13.0%2B0', undefined, world.viewer);
+  assert.equal(suggested.body.suggestion.canaryMinutes, 6);
+  assert.match(
+    suggestPlan({ boards: [A], online: [] }).warnings.join(' '),
+    /its canary waits for it, and if it has not confirmed within the canary's time limit/
+  );
+
+  // A rollout whose canary is all of it holds back nothing: no deadline, and it waits as one board's deployment does.
+  const free = [A, B, C].find((thing) => !rollout.canary.things.includes(thing));
+  const alone = await world.call('POST', '/api/rollouts', {
+    version: '1.13.0+0',
+    target: { kind: 'boards', things: [free] },
+    canaryMinutes: 3,
+  });
+  assert.equal(alone.status, 201, JSON.stringify(alone.body));
+  assert.deepEqual([alone.body.rollout.canaryMinutes, alone.body.rollout.canary.deadline], [3, null]);
+  world.advance(20 * MINUTE);
+  await world.tick();
+  assert.equal((await detailOf(world, alone.body.rollout.id)).stage, 'canary');
+
+  // As console 2.28.0 stored it: no limit. Its canary waits as long as it takes.
+  const before = await fleetRollout();
+  const stored = before.world.fake.fleetItems.get(`ROL ${before.rollout.id}`);
+  delete stored.canaryMinutes;
+  delete stored.canary.startedAt;
+  before.world.advance(40 * MINUTE);
+  assert.equal((await before.world.tick()).stopped, 0);
+  const shown = await detailOf(before.world, before.rollout.id);
+  assert.deepEqual([shown.stage, shown.canaryMinutes, shown.canary.deadline], ['canary', null, null]);
+});
+
+// A deployment to more than one board (POST /api/deployments, console 2.30.1).
+
+test('a deployment to several boards goes to one canary first, and to the rest once it has confirmed', async () => {
+  const world = await fiveBoards();
+  const response = await world.call('POST', '/api/deployments', {
+    version: '1.13.0+0',
+    things: [C, A, B],
+    note: 'Bench',
+    canaryMinutes: 10,
+  });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  const { deployment, rollout } = response.body;
+  // Answered as a deployment: the canary's, with its rollout beside it.
+  assert.equal(rollout.canary.things.length, 1);
+  const [canary] = rollout.canary.things;
+  assert.deepEqual([deployment.id, deployment.things], [rollout.canary.job, [canary]]);
+  assert.deepEqual(
+    [rollout.stage, rollout.purpose, rollout.target, rollout.things, rollout.canaryMinutes],
+    ['canary', 'deploy', { kind: 'boards' }, [A, B, C], 10]
+  );
+  // One stage after it with every other board, no soak time, no health gate, the usual failure limit.
+  assert.deepEqual(
+    rollout.stages.map((stage) => stage.things),
+    [[A, B, C].filter((thing) => thing !== canary)]
+  );
+  assert.deepEqual([rollout.soakMinutes, rollout.healthGate, rollout.abortPercent], [0, null, 20]);
+  const [job] = createJobs(world);
+  assert.deepEqual(job.things, [canary]);
+  assert.match(JSON.parse(job.description).note, /^Canary of staged rollout rol-\S+: Bench$/);
+  // On record as the deployment that was asked for, with its canary and its rollout.
+  const entry = world.entries('deployment.create').at(-1);
+  assert.deepEqual(
+    [entry.outcome, entry.target, entry.detail.things, entry.detail.canary, entry.detail.stages],
+    ['ok', deployment.id, '3', canary, '1 (even), soak 0 min, canary limit 10 min']
+  );
+  assert.deepEqual(
+    entry.changes.map((change) => change.field),
+    ['rollout', 'version', 'phase', 'boards', 'plan', 'deployment']
+  );
+
+  // The canary confirms: the rest follow in one job.
+  world.finish(job.jobId, canary, 'SUCCEEDED', '1.13.0+0');
+  world.advance(MINUTE);
+  assert.equal((await world.tick()).advanced, 1);
+  assert.deepEqual(
+    createJobs(world)[1].things,
+    [A, B, C].filter((thing) => thing !== canary)
+  );
+
+  // Out of its bounds, the limit is refused, for one board as for several, before anything is checked.
+  for (const [things, canaryMinutes] of [
+    [[A, B], 2],
+    [[A], 31],
+    [[A, B], 1.5],
+  ]) {
+    const refused = await world.call('POST', '/api/deployments', { version: '1.13.0+0', things, canaryMinutes });
+    assert.deepEqual([refused.status, refused.body.error?.code], [400, 'invalid_canaryMinutes']);
+  }
+  assert.equal(createJobs(world).length, 2);
+});
+
+test('a deployment to several boards whose canary hangs halts the rest too', async () => {
+  const world = await fiveBoards();
+  const { deployment, rollout } = (
+    await world.call('POST', '/api/deployments', { version: '1.13.0+0', things: [A, B] })
+  ).body;
+  assert.equal(rollout.canaryMinutes, 6);
+  world.advance(6 * MINUTE);
+  assert.equal((await world.tick()).stopped, 1);
+  assert.equal((await detailOf(world, rollout.id)).stopped.code, 'canary_timeout');
+  assert.deepEqual(cancels(world), [
+    { jobId: deployment.id, force: false, reasonCode: 'CANARY_TIMEOUT', comment: rollout.id },
+  ]);
+  assert.equal(createJobs(world).length, 1);
+});
+
+test('a deployment to one board is one job, as before: no canary, no rollout', async () => {
+  const world = await fiveBoards();
+  const response = await world.call('POST', '/api/deployments', { version: '1.13.0+0', things: [A], note: 'One' });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  assert.equal(response.body.rollout, undefined);
+  assert.deepEqual(response.body.deployment.things, [A]);
+  const jobs = createJobs(world);
+  assert.deepEqual(
+    jobs.map((job) => [job.things, JSON.parse(job.description).note]),
+    [[[A], 'One']]
+  );
+  assert.equal([...world.fake.fleetItems.keys()].filter((key) => key.startsWith('ROL ')).length, 0);
+  const entry = world.entries('deployment.create').at(-1);
+  assert.deepEqual([entry.outcome, entry.target, entry.detail.canary], ['ok', response.body.deployment.id, undefined]);
+  // A limit given for one board is checked, and has nothing to act on.
+  const given = await world.call('POST', '/api/deployments', { version: '1.13.0+0', things: [B], canaryMinutes: 4 });
+  assert.equal(given.status, 201);
+  assert.equal(given.body.rollout, undefined);
+  // Its board never takes it: nothing halts anything, the job is AWS IoT's to time out.
+  world.advance(20 * MINUTE);
+  assert.deepEqual(await world.tick(), { checked: 0, advanced: 0, stopped: 0, done: 0, failed: 0 });
+  assert.deepEqual(cancels(world), []);
 });

@@ -1754,6 +1754,7 @@ export function createTestConsole({
   startMs = Date.UTC(2026, 9, 10, 22, 15, 0),
   versions,
   pacing,
+  stagedDeployments,
 } = {}) {
   const clock = { ms: startMs };
   const now = () => clock.ms;
@@ -1771,6 +1772,8 @@ export function createTestConsole({
     versions: versions ?? parseBundledVersions(null),
     // How AWS IoT's job reads are paced (src/lib/iot-pace.mjs): a test may give it a clock and sleep.
     pacing,
+    // A deployment to more than one board goes to a canary first, unless a test of the job layer says not.
+    stagedDeployments,
     log: (line) => logs.push(line),
     // Repeatable, so that ids in a test are the same on every run.
     randomHex: (count) => {

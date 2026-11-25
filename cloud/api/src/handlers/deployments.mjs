@@ -16,6 +16,11 @@
  * A staged rollout (handlers/rollouts.mjs) is made of deployments too: its canary and its
  * waves are each a job started by launch() below, the same way as one made here.
  *
+ * A deployment to more than one board (from console 2.30.1) is one such rollout: create() checks
+ * it as below, then hands it to rollouts.deployBoards, which sends it to one canary first and to
+ * the rest only once the canary has confirmed within `canaryMinutes` (3 to 30, default 6). The
+ * answer is the canary's deployment, with the rollout beside it. One board is one job, as before.
+ *
  * Cancelling is asked of AWS and then read back. AWS applies a cancellation a few
  * seconds after it accepted it, and a job that was cancelled without force keeps the
  * boards that had started. So nothing here says that a deployment is over because the
@@ -24,6 +29,7 @@
 
 import { conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
 import { boardsValue, change } from '../lib/audit.mjs';
+import { DEFAULT_CANARY_MINUTES, MAX_CANARY_MINUTES, MIN_CANARY_MINUTES, requireWhole } from '../lib/fleet.mjs';
 import {
   EXECUTION_STATUSES,
   IN_PROGRESS_TIMEOUT_MIN,
@@ -198,7 +204,14 @@ function queuedRow(thing, createdAt) {
   };
 }
 
-export function createDeploymentHandlers({ aws, config, now, randomHex, log }, { devices, fleet = null }) {
+/**
+ * `staged` gives the staged rollouts' handlers (handlers/rollouts.mjs), which are made after these:
+ * a deployment to more than one board goes there. Null (a test, or a caller without them): one job.
+ */
+export function createDeploymentHandlers(
+  { aws, config, now, randomHex, log },
+  { devices, fleet = null, staged = () => null }
+) {
   let listing = null; // { jobs, at }: the result of ListJobs
   const summaries = new Map(); // id -> { summary, settled, at }
   const details = new Map(); // id -> { detail, at }
@@ -679,6 +692,14 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
       const named = things.join(' ');
       if (named.length <= MAX_BOARDS_NAMED) entry.detail.boards = named;
       const note = requireText(field(body, 'note'), 'note', { max: MAX_NOTE });
+      // The canary's time limit, for more than one board (console 2.30.1); checked whatever the count.
+      const canaryMinutes = requireWhole(
+        field(body, 'canaryMinutes'),
+        'canaryMinutes',
+        MIN_CANARY_MINUTES,
+        MAX_CANARY_MINUTES,
+        DEFAULT_CANARY_MINUTES
+      );
       // From the phone app: on record as such. Its recent sign-in is checked by the router.
       if (caller?.clientId !== undefined && caller.clientId === config.mobileClientId) entry.detail.from = 'phone';
 
@@ -707,6 +728,12 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
 
       const busy = await unfinishedOn(things);
       if (busy.length > 0) throw deviceBusy(busy);
+
+      // More than one board: one canary first, the rest only once it has confirmed in time.
+      const rollouts = staged();
+      if (things.length > 1 && rollouts !== null) {
+        return rollouts.deployBoards({ version, things, note, canaryMinutes, actor, entry });
+      }
 
       const description = buildJobDescription({ email: actor.email, sub: actor.sub, note });
       const { detail } = await launch({

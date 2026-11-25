@@ -49,6 +49,18 @@
  * release revoked, a job cancelled elsewhere or gone: the rollout is "stopped", and says why.
  * Cancelled here: "cancelled".
  *
+ * The canary's time limit (console 2.30.1, `canaryMinutes`, 3 to 30, default 6; lib/fleet.mjs
+ * canaryClock): a canary that has not confirmed that long after its job was made halts the rest, the
+ * rollout "stopped" with code "canary_timeout" and, per board, what it was doing, unless every canary
+ * board still at it is visibly getting on: its download went up a step in the last 3 minutes, or it
+ * announced its restart less than 9 minutes ago (the firmware's own restart and trial settle it from
+ * there, as SUCCEEDED or rolled_back). What of the canary's job has not started is withdrawn (cancelled
+ * without force, as for a failed canary); a board at work is left to finish or roll back by itself. A
+ * rollout from before 2.30.1 has no limit, nor has one whose canary is all of it (no rest to halt).
+ *
+ * A deployment to more than one board (POST /api/deployments, from console 2.30.1: deployBoards) is
+ * such a rollout too: one canary, then one stage with every other board, no soak time, no health gate.
+ *
  * A rollout created before console 2.8.0 has no stages: after its canary comes "waves", one job on
  * the rest that AWS IoT paces (`wave` boards a minute, growing as boards succeed). advance() still
  * takes such a rollout to its end.
@@ -82,11 +94,18 @@ import { BOARD_TYPES, isBoardType } from '../lib/boards.mjs';
 import {
   DEFAULT_ABORT_PERCENT,
   DEFAULT_CANARY,
+  DEFAULT_CANARY_MINUTES,
   DEFAULT_WAVE,
   MAX_CANARY,
+  MAX_CANARY_MINUTES,
   MAX_ROLLOUT_BOARDS,
   MAX_WAVE,
+  MIN_CANARY_MINUTES,
   boardLabel,
+  canaryClock,
+  canaryDeadline,
+  canaryLateWords,
+  canaryMinutesOf,
   canaryVerdict,
   chooseCanary,
   failureShare,
@@ -128,11 +147,12 @@ const LOST_START_MS = 5 * 60_000;
 const CONSOLE_ACTOR = Object.freeze({ sub: '', email: '' });
 // The stops that are the boards' own doing: each is a "deployment" alert (lib/alerts.mjs) when the
 // schedule is given an alerter. A revocation, a cancellation or a lost job is a person's or AWS's.
-const SELF_STOPS = new Set(['canary_failed', 'aborted', 'health_failed', 'health_unknown']);
+const SELF_STOPS = new Set(['canary_failed', 'canary_timeout', 'aborted', 'health_failed', 'health_unknown']);
 const ALERT_TEXT_MAX = 200;
 
 const STOP_TEXT = Object.freeze({
   canary_failed: 'The canary did not confirm the update',
+  canary_timeout: 'The canary did not confirm within its time limit',
   aborted: 'Too many boards failed: AWS IoT stopped the rest',
   revoked: 'The release was revoked',
   cancelled_elsewhere: 'A deployment of it was cancelled outside the rollout',
@@ -186,18 +206,35 @@ export function rolloutOptions(body) {
   requireWhole(field(body, 'wave'), 'wave', 1, MAX_WAVE, DEFAULT_WAVE);
   return {
     canary: requireWhole(field(body, 'canary'), 'canary', 1, MAX_CANARY, DEFAULT_CANARY),
+    canaryMinutes: requireCanaryMinutes(body),
     ...requireStagePlan((name) => field(body, name)),
     abortPercent: requireWhole(field(body, 'abortPercent'), 'abortPercent', 1, 100, DEFAULT_ABORT_PERCENT),
     note: requireText(field(body, 'note'), 'note', { max: MAX_NOTE }),
   };
 }
 
-/** What the activity log keeps of a rollout's stage choices: "3 (2,6), soak 5 min". */
+/**
+ * The canary's time limit of a request body (console 2.30.1): `canaryMinutes`, a whole number from
+ * MIN_CANARY_MINUTES to MAX_CANARY_MINUTES; DEFAULT_CANARY_MINUTES when not given, so that a script or a
+ * client from before has it too.
+ */
+export function requireCanaryMinutes(body) {
+  return requireWhole(
+    field(body, 'canaryMinutes'),
+    'canaryMinutes',
+    MIN_CANARY_MINUTES,
+    MAX_CANARY_MINUTES,
+    DEFAULT_CANARY_MINUTES
+  );
+}
+
+/** What the activity log keeps of a rollout's stage choices: "3 (2,6), soak 5 min, canary limit 6 min". */
 function planWords(options) {
   const batch =
     options.batch === null ? 'even' : `${options.batch.sizes.join(',')}${options.batch.unit === 'percent' ? '%' : ''}`;
   const gate = options.healthGate ? `, gate ${options.healthGate.minutes} min` : '';
-  return `${options.stages} (${batch}), soak ${options.soakMinutes} min${gate}`;
+  const limit = Number.isInteger(options.canaryMinutes) ? `, canary limit ${options.canaryMinutes} min` : '';
+  return `${options.stages} (${batch}), soak ${options.soakMinutes} min${gate}${limit}`;
 }
 
 /** Where a rollout stands, as its activity entries say it: canary, waves, stage <n>, done, stopped or cancelled. */
@@ -368,7 +405,10 @@ export function createRolloutHandlers(
       stage: 'canary',
       things,
       leftOut,
-      canary: { size: canary.length, things: canary, job: null, doneAt: null },
+      // `startedAt` (console 2.30.1): when its job was made, from which its time limit counts.
+      canary: { size: canary.length, things: canary, job: null, doneAt: null, startedAt: createdAt },
+      // From console 2.30.1: minutes the canary has to confirm before the rest is halted (lib/fleet.mjs canaryClock).
+      canaryMinutes: options.canaryMinutes ?? DEFAULT_CANARY_MINUTES,
       // All the boards after the canary; its job stays null (the waves of a rollout from before).
       rest: { things: restThings, leftOut: [], job: null, startedAt: null },
       stages: stages.map((members) => ({ things: members, leftOut: [], job: null, startedAt: null, doneAt: null })),
@@ -1126,6 +1166,40 @@ export function createRolloutHandlers(
     );
   }
 
+  /**
+   * A canary that has not confirmed yet, against its time limit (lib/fleet.mjs canaryClock): "waiting"
+   * while within it or visibly getting on, the download watch kept on the rollout from one run to the
+   * next; past it and stuck, what has not started of its job is withdrawn and the rollout stops with
+   * "canary_timeout", naming what each board was doing. `job` is the canary's job as just described.
+   */
+  async function canaryInTime(item, job) {
+    // A canary that is the whole rollout holds back nothing: it waits as a deployment to one board does.
+    if (canaryDeadline(item) === null || now() < Date.parse(canaryDeadline(item))) return 'waiting';
+    const minutes = canaryMinutesOf(item);
+    const startedAt = Date.parse(item.canary?.startedAt ?? item.createdAt ?? '');
+    // Each board's phase and download, as its deployment shows them: the execution and the board's own report.
+    const detail = await deployments.detail(item.canary.job);
+    if (detail === null) return stop(item, 'job_missing');
+    const clock = canaryClock({
+      things: item.canary.things,
+      executions: detail.executions,
+      startedAt,
+      minutes,
+      watch: item.canary.watch ?? [],
+      nowMs: now(),
+    });
+    if (clock.state === 'over') {
+      if (job.status === 'IN_PROGRESS') {
+        await aws
+          .cancelJob({ jobId: item.canary.job, force: false, reasonCode: 'CANARY_TIMEOUT', comment: item.id })
+          .catch(() => null);
+      }
+      return stop(item, 'canary_timeout', canaryLateWords(minutes, clock.stuck));
+    }
+    if (JSON.stringify(clock.watch) === JSON.stringify(item.canary.watch ?? [])) return 'waiting';
+    return (await change(item, { canary: { ...item.canary, watch: clock.watch } })) === null ? 'raced' : 'waiting';
+  }
+
   /** One open rollout, one step on if there is one to take. Returns what happened. */
   async function advanceOne(item) {
     if (item.stage === 'canary') {
@@ -1149,7 +1223,7 @@ export function createRolloutHandlers(
         }
         return stop(item, 'canary_failed', await canaryWords(item.canary.job, verdict.failed));
       }
-      if (verdict.state !== 'confirmed') return 'waiting';
+      if (verdict.state !== 'confirmed') return canaryInTime(item, job);
       if (item.canary.only || (item.rest?.things ?? []).length === 0) return finish(item);
       // A rollout from before the stages goes on in waves.
       if (!Array.isArray(item.stages)) return startWaves(item);
@@ -1323,6 +1397,43 @@ export function createRolloutHandlers(
       });
       entry.target = record.id;
       return { status: 201, body: { rollout: await detailOf(record) } };
+    },
+
+    /**
+     * A deployment to more than one board (POST /api/deployments, from console 2.30.1; deployments.mjs
+     * create hands it here once its own checks have passed): a staged rollout of the boards named, one
+     * canary first and then every other board in one stage, with no soak time and no health gate, so
+     * that the rest goes out only once the canary has confirmed within its time limit. It answers as a
+     * deployment does, with the canary's deployment, and the rollout beside it.
+     */
+    async deployBoards({ version, things, note, canaryMinutes, actor, entry }) {
+      const release = await findRelease(version);
+      const chosen = await namedBoards(things, release);
+      if (chosen.things.length === 0) throw nothingToDeploy(chosen.leftOut);
+      const options = {
+        canary: DEFAULT_CANARY,
+        canaryMinutes,
+        stages: 1,
+        batch: null,
+        soakMinutes: 0,
+        healthGate: null,
+        abortPercent: DEFAULT_ABORT_PERCENT,
+        note,
+      };
+      const record = await start({
+        release,
+        things: chosen.things,
+        leftOut: chosen.leftOut,
+        target: { kind: 'boards' },
+        purpose: 'deploy',
+        options,
+        actor,
+        entry,
+      });
+      entry.target = record.canary.job;
+      noteChange(entry, 'deployment', null, record.canary.job);
+      const rollout = await detailOf(record);
+      return { status: 201, body: { deployment: rollout.canaryJob, rollout } };
     },
 
     async cancel({ actor, params, json, entry }) {

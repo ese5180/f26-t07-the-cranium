@@ -82,7 +82,9 @@ image on a board checks it. The board's own check is the last word.
 - **A deployment targets** some boards, a group, a type, or the whole fleet. It only ever takes the boards of the
   release's type, and leaves out those already on that version.
 - **Staged rollout.** A deployment of more than one board starts with a canary: the first board (or the number asked
-  for), online and with a clean update history first. The rest follow only once the canary has confirmed the update,
+  for), online and with a clean update history first. That holds for every way of starting one, `POST /api/deployments`
+  with two or more boards included (from console 2.30.1: one canary, then the rest in one stage, no soak time, no health
+  gate; the answer is the canary's deployment with its rollout). A deployment to one board is one job. The rest follow only once the canary has confirmed the update,
   in 1 to 10 **stages** (from console 2.8.0). Each stage is one AWS IoT job on all its boards at once, offered as fast as
   AWS IoT allows (1000 boards a minute), so its boards update side by side rather than one after another.
   - **Gating.** The next stage starts only once the job of the one before has completed with its failures under the
@@ -100,15 +102,25 @@ image on a board checks it. The board's own check is the last word.
     ([alerts.md](alerts.md)). The create form has **Health gate** on, 10 minutes, by default; a request that gives no
     `healthGate` (a script, or a client from before 2.13.0) has none. The gate holds back the next stage: after the
     last stage there is none, and the rollout is done when its job is.
-  - **Stops.** A canary that does not confirm, a stage whose failed, rejected or timed-out boards reach the failure
+  - **Stops.** A canary that does not confirm, or not within its time limit, a stage whose failed, rejected or timed-out boards reach the failure
     limit (default 20%, from the first finished board; AWS IoT's abort configuration stops what has not started), the
     health gate, a release revoked, or a cancellation: the rollout stops and says why. Each change of stage is a conditional write on
     the rollout, so two runs of the schedule never start a stage twice.
-  - **No time limit for a canary yet.** A canary that hangs fails only when its job times out, after 30 minutes, and a
-    plain deployment (one board) has no canary. A limit of a few minutes, after which the rest is halted, is planned
-    ([`roadmap.md`](roadmap.md)).
+  - **The canary's time limit** (from console 2.30.1). A canary that has not confirmed within `canaryMinutes` of its job
+    (3 to 30, default 6) halts the rest: the rollout stops with code `canary_timeout`, says per board what it was doing
+    (not started, waiting for its button, stopped downloading at some percent, not back from its restart), withdraws what
+    of the canary's job has not started (without force) and raises the "rollout stopped by itself" alert. **6 minutes**
+    because ten updates over the air took 181 to 227 s from the start to the confirmation (median 192.5 s: about 70 s of
+    download and 81 s of swap; [`test-results.md`](test-results.md)) and the schedule looks once a minute: the slowest
+    with two minutes to spare. **A slow canary is not a hung one.** Past the limit, a canary board that is visibly at
+    work gets longer: while its download, which the board reports in its shadow at every 10%, has gone up within the
+    last 3 minutes, and for 9 minutes after it announced its restart (the 240 s restart window, then the firmware's 300 s
+    trial, after which it has confirmed or rolled back by itself). A download that stops is halted at most 3 minutes
+    after the limit. A FAILED canary stops the rollout as before. A board at work is never stopped by force; its job's
+    30-minute timeout still applies. Rollouts from before 2.30.1 have no limit, nor has a rollout whose canary is all of
+    it, which holds nothing back.
   - **Choices.** The create form (Roll out to a group; New deployment for boards picked by hand; Update everything)
-    takes the canary size, the number of stages, the batch size of each stage but the last (a
+    takes the canary size, the canary's time limit, the number of stages, the batch size of each stage but the last (a
     percent or a count of the boards after the canary; the last stage takes the rest; empty stages are left out), the
     soak time, the failure limit and the health gate. The server checks every one (`lib/stages.mjs`).
   - **Suggestions.** `GET /api/rollouts/suggest?release=<version>&group=<id>` (viewers and release managers; the fleet

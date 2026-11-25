@@ -148,16 +148,19 @@ test('a scheduled deployment starts once when it is due, never before, and goes 
   assert.equal(createJobs(world).length, 0);
   assert.equal((await listed(world))[0].status, 'scheduled');
 
-  // Due: one deployment, as its creator, with the note.
+  // Due: as its creator, with the note. Two boards (console 2.30.1): one canary first, as a staged rollout.
   world.clock.ms = Date.parse('2026-10-11T06:00:30Z');
   await world.tick();
   const jobs = createJobs(world);
   assert.equal(jobs.length, 1);
-  assert.deepEqual(jobs[0].things, [A, B]);
-  assert.deepEqual(JSON.parse(jobs[0].description).note, 'Overnight');
+  assert.equal(jobs[0].things.length, 1);
+  assert.ok([A, B].includes(jobs[0].things[0]));
+  assert.match(JSON.parse(jobs[0].description).note, /^Canary of staged rollout rol-\S+: Overnight$/);
   assert.equal(JSON.parse(jobs[0].description).by, world.manager.email);
   const [after] = await listed(world);
   assert.deepEqual([after.status, after.started.deployments, after.error], ['started', [jobs[0].jobId], null]);
+  assert.equal(after.started.rollouts.length, 1);
+  assert.equal(world.fake.fleetItems.get(`ROL ${after.started.rollouts[0]}`).canary.job, jobs[0].jobId);
 
   // The next run starts nothing more.
   world.advance(MINUTE);
@@ -172,7 +175,7 @@ test('a scheduled deployment starts once when it is due, never before, and goes 
   );
   assert.deepEqual(
     started[0].changes.map((change) => change.field),
-    ['deployment', 'version', 'boards', 'status']
+    ['rollout', 'version', 'phase', 'boards', 'plan', 'deployment', 'status']
   );
   assert.deepEqual(started[0].changes.at(-1), { field: 'status', from: 'scheduled', to: 'started' });
 });

@@ -4,6 +4,12 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-windows-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.17
+
+A canary's time limit (console 2.30.1 and later): the rollout dialogs and New deployment have a Canary time limit, and a rollout whose canary has not confirmed in time stops and says why.
+
+Nothing of the app changed but its version: the pages are the console's, and the app loads them as before.
+
 ## 0.1.16
 
 Raspberry Pi images from the console (2.30.0 and later): the Firmware page lists them, deploys one to the boards wired to a Pi with what each would download, and follows each board's progress; the Devices list marks the boards with a Pi. A package is uploaded from the console's website, since the app's pages may talk to the console alone.

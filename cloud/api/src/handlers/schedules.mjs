@@ -9,7 +9,7 @@
  *   POST /api/schedules/{id}/cancel   body {}                                -> { schedule }      schedule.cancel
  *
  * `kind` is "deployment" (request as for POST /api/deployments), "rollout" (as for POST /api/rollouts)
- * or "last_good" ({ group?, things?, canary?, stages?, batch?, soakMinutes?, healthGate?, abortPercent?,
+ * or "last_good" ({ group?, things?, canary?, canaryMinutes?, stages?, batch?, soakMinutes?, healthGate?, abortPercent?,
  * note? }: a roll back to last good of the group, or of the fleet, for the boards in `things` or all).
  * `at` is a local date and time ("2026-11-10T02:00") in `timeZone` (lib/schedule.mjs), at least a minute
  * and at most 30 days ahead. The request is checked as far as it can be without starting anything: its
@@ -56,7 +56,7 @@ import {
 } from '../lib/schedule.mjs';
 import { MAX_NOTE, requireText, requireThings, requireVersion } from '../lib/validate.mjs';
 import { releaseFromItem, releaseKey } from './firmware.mjs';
-import { requireBoardList, rolloutOptions } from './rollouts.mjs';
+import { requireBoardList, requireCanaryMinutes, rolloutOptions } from './rollouts.mjs';
 
 const LIST_LIMIT = 50;
 export const START_LOST_MS = 10 * 60_000;
@@ -189,12 +189,32 @@ export function createScheduleHandlers(
       const version = requireVersion(field(body, 'version'));
       const things = requireThings(field(body, 'things'));
       const note = requireText(field(body, 'note'), 'note', { max: MAX_NOTE });
+      // The canary's time limit for more than one board (console 2.30.1), kept only when asked for.
+      const canaryMinutes = field(body, 'canaryMinutes') === undefined ? undefined : requireCanaryMinutes(body);
       await findRelease(version);
-      return { request: { version: version.text, things: [...things].sort(), note }, group: null, groupName: null };
+      return {
+        request: {
+          version: version.text,
+          things: [...things].sort(),
+          note,
+          ...(canaryMinutes === undefined ? {} : { canaryMinutes }),
+        },
+        group: null,
+        groupName: null,
+      };
     }
     rolloutOptions(body);
     const options = {};
-    for (const name of ['canary', 'stages', 'batch', 'soakMinutes', 'healthGate', 'abortPercent', 'note']) {
+    for (const name of [
+      'canary',
+      'canaryMinutes',
+      'stages',
+      'batch',
+      'soakMinutes',
+      'healthGate',
+      'abortPercent',
+      'note',
+    ]) {
       if (field(body, name) !== undefined) options[name] = field(body, name);
     }
     if (kind === 'rollout') {
@@ -282,7 +302,10 @@ export function createScheduleHandlers(
     const request = structuredClone(item.request ?? {});
     if (item.kind === 'deployment') {
       const { body } = await deployments.create({ caller: null, actor, json: () => request, entry });
-      return { deployments: [body.deployment.id] };
+      // More than one board is a staged rollout from console 2.30.1: its canary's deployment, and the rollout.
+      return body.rollout
+        ? { deployments: [body.deployment.id], rollouts: [body.rollout.id] }
+        : { deployments: [body.deployment.id] };
     }
     if (item.kind === 'rollout') {
       const { body } = await rollouts.create({ caller: null, actor, json: () => request, entry });

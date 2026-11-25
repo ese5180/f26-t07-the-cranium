@@ -65,7 +65,9 @@ export function createRolloutTick({
   const devices = createDeviceHandlers(context);
   const memfault = createMemfaultHandlers(context, { devices });
   const fleet = createFleetHandlers(context, { devices, memfault: () => memfault });
-  const deployments = createDeploymentHandlers(context, { devices, fleet });
+  // A scheduled deployment to more than one board is a staged rollout (console 2.30.1): those come below.
+  let rollouts = null;
+  const deployments = createDeploymentHandlers(context, { devices, fleet, staged: () => rollouts });
   const audit = createAuditHandlers(context);
   // The boards' update histories, for a scheduled roll back to last good: read only. Who started or sent
   // each update is not needed for a plan, so the user pool and the activity log are not asked, and a
@@ -82,7 +84,7 @@ export function createRolloutTick({
     },
     { devices, deployments }
   );
-  const rollouts = createRolloutHandlers(context, {
+  rollouts = createRolloutHandlers(context, {
     devices,
     deployments,
     fleet,
