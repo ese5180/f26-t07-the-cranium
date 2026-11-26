@@ -208,7 +208,10 @@ test('the Vitals page shows the vitals, a chart a day, the boards and the versio
   assert.ok(figures.getAttribute('class').includes('is-tiles'));
   assert.match(textOf(figures), /Crash-free boards 50% 1 of 2 boards in 7 days/);
   assert.match(textOf(figures), /Connected 97% 70 h online/);
-  assert.match(textOf(figures), /On the newest release 67% 2 of 3 boards/);
+  assert.match(textOf(figures), /On the newest release 67% 2 of 3 boards with a known version/);
+  // How it works says the days are UTC days, and which boards the newest-release share counts.
+  assert.match(textOf(root), /Days are UTC days\./);
+  assert.match(textOf(root), /its share is of every board whose version is known, seen in these days or not/);
   assert.match(textOf(figures), /Restarts 4 1 crash/);
   // Three charts, each with its table of days.
   assert.equal(all(root, 'figure.chart').length, 3);
@@ -297,6 +300,7 @@ test("a board's page shows its tiles, its days and its versions, with links to t
   assert.match(figures, /Version 1\.1\.0\+0 the newest/);
   assert.equal(all(root, 'figure.chart').length, 4);
   // The days, newest first, with the signal and memory where there were readings.
+  assert.match(textOf(one(one(root, 'table.vitals-days'), 'thead')), /^Day \(UTC\)/);
   const days = all(one(root, 'table.vitals-days'), 'tr').slice(1);
   assert.equal(days.length, 2);
   assert.deepEqual(

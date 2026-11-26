@@ -11,6 +11,7 @@ import {
   boardDetail,
   boardVitals,
   daysBetween,
+  firstConnectionOf,
   fleetVitals,
   samplesByDay,
   tallyOut,
@@ -69,6 +70,22 @@ test('each count goes to the version the board ran, and time to the version it r
   assert.deepEqual(pick(made.versions.get('1.1.0+0')), [28, 28 - 2 / 60, 3, 0, 0, 1]);
 });
 
+test('after an update, time goes to the new version, though its boot is counted on the old one', () => {
+  const update = [
+    connected(FROM + HOUR),
+    // The first report after the update's restart: the uptime went down and the firmware changed.
+    event('restart', 'restarted', FROM + 6 * HOUR, { upFor: 18_000 }),
+    event('firmware', 'changed', FROM + 6 * HOUR + 1, { from: '1.0.0+0', version: '1.1.0+0' }),
+    // Its diary a moment later, which withVersions places on the version the restart ran.
+    event('restart', 'boot', FROM + 6 * HOUR + MINUTE, { cause: '2', version: '1.1.0+0', newBoots: 1 }),
+  ];
+  const made = boardVitals({ events: update, fromMs: FROM, toMs: TO, onlineNow: true, current: '1.1.0+0' });
+  const hours = (version) => Math.round(made.versions.get(version).onlineMs / HOUR);
+  assert.equal(hours('1.0.0+0'), 5);
+  assert.equal(hours('1.1.0+0'), 42);
+  assert.equal(made.versions.get('1.0.0+0').restarts, 1);
+});
+
 test('time before what a board said is unknown, and counts neither way', () => {
   // Its first connection event is a connect: it may not have existed before it.
   const late = boardVitals({ events: [connected(FROM + DAY)], fromMs: FROM, toMs: TO });
@@ -87,6 +104,27 @@ test('time before what a board said is unknown, and counts neither way', () => {
   // Events outside the window are not counted.
   const outside = boardVitals({ events: [disconnected(FROM - HOUR), connected(TO + HOUR)], fromMs: FROM, toMs: TO });
   assert.equal(outside.total.drops, 0);
+});
+
+test('a board offline when the window began is offline until its first connect, when the event before says so', () => {
+  // Its last connection event before the window was a disconnect: the first day is known, and offline.
+  const off = boardVitals({ events: [connected(FROM + DAY)], fromMs: FROM, toMs: TO, before: 'disconnected' });
+  assert.deepEqual(pick(off.days.get('2026-11-10')), [24, 0, 0, 0, 0, 0]);
+  assert.equal(off.days.get('2026-11-10').active, true);
+  assert.equal(tallyOut(off.total).connectivity, 0.5);
+  // A connect before it says nothing about the time in between; nor does a disconnect when the first event is one.
+  assert.deepEqual(
+    pick(boardVitals({ events: [connected(FROM + DAY)], fromMs: FROM, toMs: TO, before: 'connected' }).total),
+    [24, 24, 0, 0, 0, 0]
+  );
+  assert.deepEqual(
+    pick(boardVitals({ events: [disconnected(FROM + DAY)], fromMs: FROM, toMs: TO, before: 'disconnected' }).total),
+    [48, 24, 0, 0, 1, 0]
+  );
+  // A board in a drawer stays out, whatever came before the window.
+  assert.equal(boardVitals({ events: [], fromMs: FROM, toMs: TO, before: 'disconnected' }).total.active, false);
+  assert.equal(firstConnectionOf([connected(FROM + DAY), disconnected(FROM + HOUR)], FROM, TO).what, 'disconnected');
+  assert.equal(firstConnectionOf([connected(FROM - HOUR)], FROM, TO), null);
 });
 
 test('a restart reported twice counts once; a stuck restart and its diary too', () => {
@@ -366,6 +404,38 @@ test('the vitals routes refuse what they cannot answer, and need a member', asyn
   assert.equal((await w.get(`/api/vitals/${A}`, w.outsider)).status, 403);
 });
 
+test('a board offline when the window began counts that time offline, from its last disconnect before it', async () => {
+  const w = fleetConsole({ startMs: NOW - 3 * DAY });
+  w.fake.addThing(C);
+  w.fake.device(C).connect();
+  w.fake.device(C).report(report('1.0.0+0'));
+  w.advance(HOUR);
+  w.fake.device(C).disconnect('MQTT_KEEP_ALIVE_TIMEOUT');
+  // Off for two and a half days, then back 12 hours before now, and online since.
+  w.clock.ms = NOW - 12 * HOUR;
+  w.fake.device(C).connect();
+  w.fake.device(C).report(report('1.0.0+0'));
+  w.clock.ms = NOW;
+  w.fake.device(C).report(report('1.0.0+0'));
+  const day = await w.call('GET', '/api/vitals?days=1', undefined, w.viewer);
+  assert.equal(day.status, 200);
+  assert.equal(day.body.vitals.connectivity.share, 0.5);
+  assert.deepEqual(day.body.vitals.connectivity, { onlineHours: 12, knownHours: 24, share: 0.5 });
+  const board = await w.call('GET', `/api/vitals/${C}?days=1`, undefined, w.viewer);
+  assert.equal(board.body.vitals.connectivity, 0.5);
+  // If that read fails, the time before the connect is unknown again, and the board still counts.
+  const query = w.fake.queryEvents;
+  w.fake.queryEvents = async (args) => {
+    if (args.limit === 1) throw new Error('throttled');
+    return query(args);
+  };
+  const unknown = await w.call('GET', '/api/vitals?days=1', undefined, w.viewer);
+  w.fake.queryEvents = query;
+  assert.equal(unknown.status, 200);
+  assert.deepEqual(unknown.body.vitals.connectivity, { onlineHours: 12, knownHours: 12, share: 1 });
+  assert.equal(unknown.body.unread, 0);
+});
+
 test('a board whose events cannot be read is left out and counted; a board without samples still answers', async () => {
   const w = await world();
   w.fake.failNext('queryEvents');
@@ -386,11 +456,21 @@ test('the reads are bounded: one Query per board, of the four kinds, with a limi
   const before = w.fake.calls.length;
   await w.get('/api/vitals?days=90');
   const queries = w.fake.calls.slice(before).filter((call) => call.method === 'queryEvents');
+  // At 90 days nothing older is kept, so no board's state before the window is read.
   assert.equal(queries.length, 2);
   for (const query of queries) {
     assert.deepEqual(query.args[0].kinds, ['connection', 'restart', 'firmware', 'health']);
     assert.equal(query.args[0].limit, 5000);
   }
+  // In 7 days A's first connection event is a connect: one more Query, of the last connection event before the window.
+  const week = w.fake.calls.length;
+  await w.get('/api/vitals');
+  const weekQueries = w.fake.calls.slice(week).filter((call) => call.method === 'queryEvents');
+  assert.equal(weekQueries.length, 3);
+  const [extra] = weekQueries.filter((call) => call.args[0].limit === 1);
+  assert.equal(extra.args[0].thing, A);
+  assert.deepEqual(extra.args[0].kinds, ['connection']);
+  assert.ok(extra.args[0].high < `E#${at(NOW - 7 * DAY)}`);
   // The fleet's samples are never read: one board's are, on its own page.
   assert.equal(w.fake.calls.slice(before).filter((call) => call.method === 'querySamples').length, 0);
 });

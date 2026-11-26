@@ -418,8 +418,8 @@ const HOW = {
   title: 'How vitals are made',
   text: [
     'From the events the boards already send: AWS IoT’s word that a board connected or disconnected, its restarts and why, its updates, and memory that ran low. Nothing new is asked of a board.',
-    'A board counts once it was seen in the days shown. Crash-free means no restart that our Issues count: the watchdog, a brownout, a lockup, a restart for being stuck. Connected is the share of the time we know about; time before a board first connected is not known. A drop is a disconnect the board did not ask for.',
-    'The newest release is the newest active one of each board type. A board’s own page adds its Wi-Fi signal, lowest free heap and longest uptime from the last 7 days, which is as long as those readings are kept.',
+    'A board counts once it was seen in the days shown. Crash-free means no restart that our Issues count: the watchdog, a brownout, a lockup, a restart for being stuck. Connected is the share of the time we know about: a board that disconnected before the days shown counts as offline until it connects, and time before a board’s first connection is otherwise not known. A drop is a disconnect the board did not ask for. Days are UTC days.',
+    'The newest release is the newest active one of each board type; its share is of every board whose version is known, seen in these days or not. A board’s own page adds its Wi-Fi signal, lowest free heap and longest uptime from the last 7 days, which is as long as those readings are kept.',
   ],
 };
 
@@ -530,7 +530,7 @@ export function vitalsView(ctx) {
       [
         'On the newest release',
         percent(vitals.newest.share),
-        `${vitals.newest.boards} of ${plural(vitals.newest.of, 'board', 'boards')}`,
+        `${vitals.newest.boards} of ${plural(vitals.newest.of, 'board', 'boards')} with a known version`,
       ],
       [
         'Restarts',
@@ -621,7 +621,7 @@ function daysTable(daily) {
     'days',
     'Vitals of each day',
     [
-      ['Day'],
+      ['Day (UTC)'],
       ['Connected', true],
       ['Restarts', true],
       ['Crashes', true],
