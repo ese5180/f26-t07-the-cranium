@@ -161,8 +161,11 @@ needs one, and the Database page, the backups and the permissions follow it with
   lowest since boot, and the uptime.
 - **Counting** (`cloud/api/src/lib/vitals.mjs`): connected time is the share of the known time between a connect and
   the next disconnect. Before a board's first connection event in the window it is online if that event is a
-  disconnect, unknown if it is a connect (the board may not have existed yet); with none, online all window if
-  online now, else unknown. Unknown time counts neither way. A restart reported twice (`restarted` without a cause, or
+  disconnect; if it is a connect, offline when the board's last connection event before the window was a disconnect
+  (read with one more Query, connection kind, limit 1, only then and only for a window under 90 days), else unknown
+  (the board may not have existed yet). With none, online all window if online now, else unknown. Unknown time
+  counts neither way. Time goes to the version the board runs: the diary's `boot` after an update's restart is
+  counted on the version the restart ran, but does not move the time back to it. A restart reported twice (`restarted` without a cause, or
   `stuck`, then the diary's `boot` within 15 minutes) counts once; a diary with several new boots counts each. A crash
   is what the Issues count (`occurrenceOf`). A drop is a disconnect the board did not ask for (not
   `CLIENT_INITIATED_DISCONNECT`). Each is counted by UTC day and by the version the board ran (`withVersions`), which
@@ -175,8 +178,8 @@ needs one, and the Database page, the backups and the permissions follow it with
 - **API**: `GET /api/vitals?days=1-90` (7 if not given) and `GET /api/vitals/{thing}?days=1-90`
   (`cloud/api/src/handlers/vitals.mjs`), reads for every member, never a customer. One Query per board of its
   connection, restart, firmware and health events, the newest 5,000 at most (a board with more is `cut` and its window
-  starts at the oldest read), at most 5 boards at once (`MAX_IN_FLIGHT`); a board that cannot be read is counted in
-  `unread`. Samples are read for one board's page only: about 2,900 a day each, too many to read for a fleet on
+  starts at the oldest read), and the one before the window where its first is a connect, at most 5 boards at once
+  (`MAX_IN_FLIGHT`); a board that cannot be read is counted in `unread`. Days are UTC days. Samples are read for one board's page only: about 2,900 a day each, too many to read for a fleet on
   each view.
 - **Console**: the Vitals page (`#/vitals`, `vitals-page.js`) under Monitoring, after Crashes: 7, 30 or 90 days, stat
   tiles (crash-free boards, connected, on the newest release, restarts, drops, memory ran low), daily charts with the

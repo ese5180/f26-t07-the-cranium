@@ -18,8 +18,10 @@
  * they are made of; neither goes on record. A customer's sign-in opens neither (app.mjs). Each board's events
  * are read with one Query of its key range (connection, restart, firmware and health kinds), the newest
  * EVENTS_READ at most, at most MAX_IN_FLIGHT boards at once. A board with more is `cut`: its window starts at
- * the oldest event read. A board whose events cannot be read is left out and counted in `unread`, so one board
- * never fails the page. Samples are read for one board's page only: about 2,900 a day at a report every 30 s.
+ * the oldest event read. A board whose first connection event in the window is a connect also has its last
+ * connection event before the window read (one more Query, connection kind, limit 1), so that the time it was
+ * offline before that connect counts; at 90 days nothing older is kept, and a cut board's window starts later. A
+ * board whose events cannot be read is left out and counted in `unread`, so one board never fails the page. Samples are read for one board's page only: about 2,900 a day at a report every 30 s.
  */
 
 import { badRequest, describeError, field, notFound } from '../http.mjs';
@@ -31,6 +33,7 @@ import {
   VITAL_KINDS,
   boardDetail,
   boardVitals,
+  firstConnectionOf,
   fleetVitals,
   samplesByDay,
 } from '../lib/vitals.mjs';
@@ -65,10 +68,35 @@ export function createVitalsHandlers({ aws, now, log }, { fleet }) {
       .filter((item) => !(Number.isFinite(item?.ttl) && item.ttl <= nowSec))
       .map(eventFromItem)
       .filter((event) => event !== null);
-    if (items.length < EVENTS_READ || events.length === 0) return { events, fromMs, cut: false };
-    // Newest first: the oldest read is where this board's window starts.
-    const oldest = Math.min(...events.map((event) => Date.parse(event.at)));
-    return { events, fromMs: Math.max(fromMs, oldest), cut: true };
+    if (items.length >= EVENTS_READ && events.length > 0) {
+      // Newest first: the oldest read is where this board's window starts.
+      const oldest = Math.min(...events.map((event) => Date.parse(event.at)));
+      return { events, fromMs: Math.max(fromMs, oldest), cut: true, before: null };
+    }
+    return { events, fromMs, cut: false, before: await connectionBefore(thing, events, fromMs, toMs) };
+  }
+
+  /**
+   * "connected" or "disconnected": the board's last connection event before the window, read only when its first in
+   * the window is a connect, and only within the 90 days events are kept. Null when not read or not there.
+   */
+  async function connectionBefore(thing, events, fromMs, toMs) {
+    const earliest = toMs - EVENT_DAYS * DAY_MS;
+    if (fromMs <= earliest || firstConnectionOf(events, fromMs, toMs)?.what !== 'connected') return null;
+    try {
+      const nowSec = now() / 1000;
+      const [last] = (
+        await aws.queryEvents({ thing, ...eventRange(earliest, fromMs - 1), kinds: ['connection'], limit: 1 })
+      )
+        .filter((item) => !(Number.isFinite(item?.ttl) && item.ttl <= nowSec))
+        .map(eventFromItem)
+        .filter((event) => event !== null);
+      return last?.what === 'connected' || last?.what === 'disconnected' ? last.what : null;
+    } catch (error) {
+      // Not knowing it leaves that time unknown, as before the read: the board still counts.
+      log({ level: 'warn', event: 'events_unreadable', thing, error: describeError(error).message });
+      return null;
+    }
   }
 
   async function newestByType() {
@@ -103,8 +131,15 @@ export function createVitalsHandlers({ aws, now, log }, { fleet }) {
         const row = rowOf(one);
         if (row.bluetoothOnly) return { ...row, vitals: null, cut: false };
         try {
-          const { events, fromMs: from, cut } = await eventsOf(row.thing, fromMs, toMs);
-          const vitals = boardVitals({ events, fromMs: from, toMs, onlineNow: row.online, current: row.version });
+          const { events, fromMs: from, cut, before } = await eventsOf(row.thing, fromMs, toMs);
+          const vitals = boardVitals({
+            events,
+            fromMs: from,
+            toMs,
+            onlineNow: row.online,
+            current: row.version,
+            before,
+          });
           // A cut board's days before its oldest event are left out of it, not counted as unknown.
           return { ...row, vitals, cut };
         } catch (error) {
@@ -142,7 +177,7 @@ export function createVitalsHandlers({ aws, now, log }, { fleet }) {
       const row = rowOf(loaded[0]);
       const samplesFromMs = Math.max(fromMs, toMs - SAMPLE_DAYS * DAY_MS);
       const [read, samples] = await Promise.all([
-        row.bluetoothOnly ? { events: [], fromMs, cut: false } : eventsOf(thing, fromMs, toMs),
+        row.bluetoothOnly ? { events: [], fromMs, cut: false, before: null } : eventsOf(thing, fromMs, toMs),
         row.bluetoothOnly
           ? []
           : Promise.resolve()
@@ -161,6 +196,7 @@ export function createVitalsHandlers({ aws, now, log }, { fleet }) {
         toMs,
         onlineNow: row.online,
         current: row.version,
+        before: read.before,
       });
       const detail = boardDetail(vitals, samples === null ? new Map() : samplesByDay(samples));
       const [board] = fleetVitals([{ ...row, vitals: row.bluetoothOnly ? null : vitals, cut: read.cut }], {

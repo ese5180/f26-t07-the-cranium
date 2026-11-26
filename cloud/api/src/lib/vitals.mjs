@@ -7,9 +7,10 @@
  *
  *   connected time   AWS IoT's own connected and disconnected events. Before a board's first connection
  *                    event in the window: online if that event is a disconnect (the connection began
- *                    earlier), unknown if it is a connect (the board may not have existed yet). With no
- *                    connection event at all, online the whole window if it is online now, else unknown.
- *                    Unknown time counts neither way.
+ *                    earlier); if it is a connect, offline when the board's last connection event before
+ *                    the window was a disconnect (`before`), else unknown (the board may not have existed
+ *                    yet). With no connection event at all, online the whole window if it is online now,
+ *                    else unknown: a board in a drawer. Unknown time counts neither way.
  *   restarts         `restarted` (the uptime went down) and `stuck`, and a `boot` from the diary for each
  *                    boot it adds (`newBoots`), less the one a `restarted` without a cause or a `stuck`
  *                    up to 15 minutes before it already counted: the same restart, reported twice
@@ -76,10 +77,12 @@ const share = (part, whole) => (whole > 0 ? Math.round((part / whole) * 10_000) 
  * @param {number} options.toMs
  * @param {boolean} [options.onlineNow]  online by its shadow now
  * @param {string|null} [options.current]  the version it runs now
+ * @param {string|null} [options.before]  what its last connection event before the window was: "connected",
+ *                                        "disconnected", or null when none was read
  * @returns {{ total, days: Map<string, object>, versions: Map<string, object> }} tallies of
  *   { knownMs, onlineMs, restarts, unexpected, drops, lowMemory, active }; days holds every day of the window
  */
-export function boardVitals({ events, fromMs, toMs, onlineNow = false, current = null }) {
+export function boardVitals({ events, fromMs, toMs, onlineNow = false, current = null, before = null }) {
   const total = tally();
   const days = new Map(daysBetween(fromMs, toMs).map((day) => [day, tally()]));
   const versions = new Map();
@@ -97,7 +100,9 @@ export function boardVitals({ events, fromMs, toMs, onlineNow = false, current =
   const firstConnection = placed.find(({ event }) => event.kind === 'connection')?.event ?? null;
   let online;
   if (firstConnection === null) online = onlineNow ? true : null;
-  else online = firstConnection.what === 'disconnected' ? true : null;
+  else if (firstConnection.what === 'disconnected') online = true;
+  // Offline from a disconnect before the window to its first connect; another connect before it says nothing.
+  else online = before === 'disconnected' ? false : null;
   let running = placed.length > 0 ? placed[0].version : current;
   let cursor = fromMs;
 
@@ -150,10 +155,23 @@ export function boardVitals({ events, fromMs, toMs, onlineNow = false, current =
     } else if (event.kind === 'health' && event.what === 'memory') {
       add('lowMemory');
     }
-    running = event.kind === 'firmware' && typeof event.version === 'string' ? event.version : (version ?? running);
+    // A diary's boot takes the version of the restart it follows (withVersions), not the one that runs after it.
+    if (event.kind === 'firmware' && typeof event.version === 'string') running = event.version;
+    else if (!(event.kind === 'restart' && event.what === 'boot')) running = version ?? running;
   }
   spend(toMs);
   return { total, days, versions };
+}
+
+/** The first connection event of a board's window, oldest first: whether the state before it needs reading. */
+export function firstConnectionOf(events, fromMs, toMs) {
+  let first = null;
+  for (const event of events) {
+    const ms = Date.parse(event?.at);
+    if (event?.kind !== 'connection' || !(ms >= fromMs && ms < toMs)) continue;
+    if (first === null || event.at < first.at) first = event;
+  }
+  return first;
 }
 
 /** A tally as the API returns it: hours, and the shares worked out. */
