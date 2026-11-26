@@ -91,8 +91,9 @@ What each page works out, the same for both:
 
 Export (the top bar) backs the journal up as JSON, which Import brings back, or writes every track as a CSV, where a
 cell that starts like a formula starts with a quote instead. In the app, a file goes to the phone's share sheet.
-**Connect device** says what is built (the board's reports and its updates) and what is not (the Pi and the board passing
-on what is played), how many boards are online, and offers Import and a sample file instead. Nothing rates a blend: an
+**Connect device** says what is built: the board's reports and its updates, and the Pi's tracks passed on by the board
+(Plays, console 2.29.0), which need firmware 1.20.1 on the board. It says what a board sends (each track's title,
+artist, BPM, key and when it played), how many boards are online, and offers Import and a sample file meanwhile. Nothing rates a blend: an
 overlap is only how long two tracks played at once.
 
 Also not built: a board's **location** (the fleet work's location by Wi-Fi, `docs/fleet.md`; the page says "Not reported"),

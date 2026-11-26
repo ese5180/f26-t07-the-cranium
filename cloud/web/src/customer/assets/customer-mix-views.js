@@ -11,7 +11,7 @@
 import { badge, button, empty, h, icon } from './views.js';
 import {
   MIXES_NOTE,
-  NOT_BUILT,
+  NEEDS_FIRMWARE,
   TEASER_EYEBROW,
   TEASER_MORE,
   TEASER_TEXT,
@@ -565,7 +565,7 @@ export function noSessions(ctx) {
     return h(
       'section',
       { class: 'cs-placeholder', key: 'empty-journal', 'aria-labelledby': 'empty-title' },
-      h('span', { class: 'tag is-warn cs-placeholder-tag' }, 'Your board: ', NOT_BUILT),
+      h('span', { class: 'tag is-warn cs-placeholder-tag' }, 'Your board: ', NEEDS_FIRMWARE),
       h('h2', { class: 'cs-placeholder-title', id: 'empty-title' }, 'Your journal is empty.'),
       h('p', { class: 'cs-placeholder-text' }, WHY_EMPTY),
       h(
@@ -992,8 +992,7 @@ function connectDialog(ctx) {
         'p',
         { key: 'what' },
         TEASER_TEXT,
-        ' Your board would send the name of each track, its deck, and when it started and stopped; ' +
-          'never the music.'
+        " Your board sends each track's title, artist, BPM and key, and when it played; never the music."
       ),
       h('h3', { class: 'cs-card-title', key: 'coming' }, TEASER_MORE),
       h(
@@ -1008,8 +1007,8 @@ function connectDialog(ctx) {
         h(
           'li',
           null,
-          h('strong', null, `${NOT_BUILT}: `),
-          'the Raspberry Pi recording the tracks Mixxx plays, and the board passing them on.'
+          h('strong', null, `${NEEDS_FIRMWARE}: `),
+          'the Raspberry Pi records the tracks Mixxx plays and the board passes them on; this site is ready for them.'
         ),
         h('li', null, h('strong', null, 'Meanwhile: '), 'import a session file, or explore the demo.')
       ),

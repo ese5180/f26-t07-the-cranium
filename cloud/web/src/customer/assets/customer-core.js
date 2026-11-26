@@ -94,17 +94,17 @@ export const MIX_TABS = Object.freeze(['sessions', 'transitions', 'library', 'li
 export const MIXES_EYEBROW = 'Your mixes, remembered';
 export const MIXES_TITLE = 'Find your next great mix.';
 export const MIXES_LEDE = 'A home for the tracks, transitions and happy accidents of every set.';
-export const NOT_BUILT = 'Not built yet';
+// What your board needs to send what you play (console 2.29.0, firmware 1.20.1).
+export const NEEDS_FIRMWARE = 'Needs firmware 1.20.1';
 export const WHY_EMPTY =
-  'Why it is empty: your board does not send what you play. That needs the Raspberry Pi to record the tracks Mixxx ' +
-  'plays and the board to pass them on, and neither is built yet. Nothing here is made up in the meantime.';
-export const MIXES_NOTE =
-  'When it is built, only what you played is kept: track names and times, never the music itself.';
+  'Why it is empty: your board has not sent what you played. The Raspberry Pi records the tracks Mixxx plays and ' +
+  'the board passes them on from firmware 1.20.1. Nothing here is made up in the meantime.';
+export const MIXES_NOTE = 'Only what you played is kept: track names and times, never the music itself.';
 export const TEASER_TITLE = 'Good mixes happen. Great ones get remembered.';
 export const TEASER_EYEBROW = 'After the last track';
 export const TEASER_TEXT =
-  'Your sessions, your transitions and the tracks you keep coming back to will live here, once your board ' +
-  'can tell this site what you played. That part is not built yet.';
+  'Your sessions, your transitions and the tracks you keep coming back to live here once your board tells this ' +
+  'site what you played. That needs firmware 1.20.1 on your board.';
 export const TEASER_MORE = 'What is coming';
 // The Overview's part about the boards, and the foot of every page.
 export const BOARDS_EYEBROW = 'Your boards, at a glance';

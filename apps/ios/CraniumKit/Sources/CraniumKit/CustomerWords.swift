@@ -231,8 +231,8 @@ public enum CustomerWords {
 
     public static let teaserEyebrow = "After the last track"
     public static let teaserTitle = "Good mixes happen. Great ones get remembered."
-    public static let teaserText = "Your sessions, your transitions and the tracks you keep coming back to will live here, once your board " +
-        "can tell this site what you played. That part is not built yet."
+    public static let teaserText = "Your sessions, your transitions and the tracks you keep coming back to live here once your board tells this " +
+        "site what you played. That needs firmware 1.20.1 on your board."
     public static let teaserLink = "What is coming"
 
     // MARK: The admin's overview
@@ -298,10 +298,10 @@ public enum CustomerWords {
     public static let mixesEyebrow = "Your mixes, remembered"
     public static let mixesTitle = "Find your next great mix."
     public static let mixesLede = "A home for the tracks, transitions and happy accidents of every set."
-    public static let notBuiltYet = "Not built yet"
-    public static let mixesWhy = "Why it is empty: your board does not send what you play. That needs the Raspberry Pi to record the tracks Mixxx " +
-        "plays and the board to pass them on, and neither is built yet. Nothing here is made up in the meantime."
-    public static let mixesNote = "When it is built, only what you played is kept: track names and times, never the music itself."
+    public static let needsFirmware = "Needs firmware 1.20.1"
+    public static let mixesWhy = "Why it is empty: your board has not sent what you played. The Raspberry Pi records the tracks Mixxx plays and " +
+        "the board passes them on from firmware 1.20.1. Nothing here is made up in the meantime."
+    public static let mixesNote = "Only what you played is kept: track names and times, never the music itself."
 
     // MARK: Account
 

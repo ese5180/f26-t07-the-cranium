@@ -1419,7 +1419,8 @@ test('a customer signs in, lands on the page they asked for, and sees their boar
   assert.match(tab.text(), /Copper Light → Low Tide Radio/);
   click(all(tab.app, 'button').find((button) => textOf(button) === 'My journal'));
   await until(() => /Your journal is empty\./.test(tab.text()), 'the empty journal');
-  assert.match(tab.text(), /Not built yet/);
+  assert.match(tab.text(), /Your board: Needs firmware 1\.20\.1/);
+  assert.doesNotMatch(tab.text(), /not built/i);
   assert.match(tab.text(), /Nothing here is made up in the meantime\./);
   // No admin mode for a customer.
   assert.equal(
@@ -2090,6 +2091,20 @@ test('on a narrow phone the top bar fits: Connect device is its icon, and keeps 
   assert.match(narrow, /\.btn\.cs-connect \{[^}]*width: 34px/);
   // After the 560 px block, whose padding would otherwise win.
   assert.ok(css.indexOf('.cs-connect-label {') > css.lastIndexOf('@media (max-width: 560px)'));
+});
+
+test('Connect device says the tracks from the Pi are built and need firmware 1.20.1 (Plays, console 2.29.0)', async (t) => {
+  const tab = await openSite(t);
+  await signInAsCustomer(tab);
+  await until(() => /Hello, Ada\./.test(tab.text()), 'the overview');
+  click(one(tab.app, 'button.cs-connect'));
+  await until(() => /A little more connected\./.test(tab.text()), 'the dialog');
+  const box = one(tab.app, 'dialog.cs-dialog');
+  const words = textOf(box);
+  assert.match(words, /Needs firmware 1\.20\.1: the Raspberry Pi records the tracks Mixxx plays/);
+  assert.match(words, /That needs firmware 1\.20\.1 on your board\./);
+  assert.match(words, /Only what you played is kept/);
+  assert.doesNotMatch(words, /not built|when it is built|would send/i);
 });
 
 test("on a 320 px phone the Overview's last set stays inside the page: its track table scrolls in its panel", () => {
