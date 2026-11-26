@@ -54,7 +54,7 @@ The customer website's pages on a phone, in its words (`core/CustomerText.kt`, h
 | --- | --- |
 | Overview | Online now, boards, firmware, last heard from; the boards; the last week of what they did; the mixes to come. With only an admin signed in: who, and Open admin mode |
 | Devices | Every board on the account, as it last reported. A board's page: its state, firmware (on trial or not), last report, update in plain words, Wi-Fi signal, uptime, location ("Not reported") and since when it is the customer's, and the last 30 days of what it did |
-| Mixes | Sessions, Transitions, Track library, Saved moments: each says "Not built yet", and why |
+| Mixes | Sessions, Transitions, Track library, Saved moments: each says "Needs firmware 1.20.1", and why |
 | Account | The address and name, a password change, two-step sign-in on or off (the setup key in groups of four, Copy the key, and an `otpauth://` link that opens an authenticator app), fingerprint unlock, Sign out |
 | Help | The website's questions and answers |
 

@@ -32,12 +32,15 @@
  * The version an occurrence happened on is the one the board ran just before it: the last
  * firmware event of the board before the occurrence, else the version the event carries (a
  * boot diary's), else the version the board's first firmware change came from, else the
- * version it runs now.
+ * version it runs now. A `boot` event that follows a `restarted` without a cause (its diary came
+ * in a later report) takes that restart's version: the diary's version is the boot after the
+ * crash, which is the older image when a trial image crashed and was swapped back.
  *
  * Regressions. An issue counts as fixed in a version when a newer version than one it happened
- * on ran on a board and never had it; it has regressed when it then happens on a version newer
- * than that fix. Versions are those any board was seen on in the window (firmware events and
- * what each board runs now). A fix that a person marks by hand is stage 2.
+ * on ran without it on a board that had it; it has regressed when it then happens on a version
+ * newer than that fix. Versions are those the boards with the issue were seen on in the window
+ * (firmware events and what each runs now): a version on a board that never had the issue fixes
+ * nothing. A fix that a person marks by hand is stage 2.
  *
  * No AWS here, and no clock: the caller passes the events and the time.
  */
@@ -52,6 +55,8 @@ export const ISSUE_ID = /^[0-9a-f]{12}$/;
 // The most occurrences an issue's page lists, newest first; the counts take them all.
 export const TIMELINE_MAX = 200;
 export const ISSUE_TYPES = Object.freeze(['stuck', 'reset', 'fault']);
+// How long after a restart without a cause its diary's `boot` event can come (the diary is sent on connecting).
+export const BOOT_AFTER_RESTART_MS = 15 * 60_000;
 
 const DETAIL = /^[a-z][a-z0-9_+]{0,63}$/;
 
@@ -120,11 +125,20 @@ export function withVersions(events, current = null) {
   const firstChange = ordered.find((event) => event.kind === 'firmware' && typeof event.from === 'string');
   let running = firstChange?.from ?? null;
   let seenFirmware = false;
+  // A restart seen before its diary: the `boot` event that follows gives its cause, but carries the
+  // version of the boot after it, which is another one when a trial image was swapped back.
+  let restarted = null;
   return ordered.map((event) => {
     const isFirmware = event.kind === 'firmware';
     // A firmware event happened on the version it changed from.
     const own = isFirmware ? (event.from ?? null) : (event.version ?? null);
-    const on = seenFirmware ? running : (own ?? running ?? current);
+    let on = seenFirmware ? running : (own ?? running ?? current);
+    if (event.kind === 'restart' && event.what === 'restarted' && event.cause === undefined) {
+      restarted = { at: Date.parse(event.at), version: on };
+    } else if (event.kind === 'restart' && event.what === 'boot' && restarted !== null) {
+      if (Date.parse(event.at) - restarted.at <= BOOT_AFTER_RESTART_MS) on = restarted.version ?? on;
+      restarted = null;
+    }
     if (isFirmware && typeof event.version === 'string') {
       running = event.version;
       seenFirmware = true;
@@ -163,8 +177,11 @@ export function versionStanding(affected, seen) {
  */
 export function groupIssues(boards) {
   const issues = new Map();
-  const seen = new Set();
+  // The versions each board was seen on: a fix counts only on the boards that had the issue.
+  const seenBy = new Map();
   for (const { thing, current, events } of boards) {
+    const seen = new Set();
+    seenBy.set(thing, seen);
     if (current) seen.add(current);
     for (const { event, version } of withVersions(events, current)) {
       if (event.kind === 'firmware') {
@@ -201,6 +218,7 @@ export function groupIssues(boards) {
       if (one.version) board.versions.add(one.version);
       perBoard.set(one.thing, board);
     }
+    const seen = new Set([...perBoard.keys()].flatMap((thing) => [...(seenBy.get(thing) ?? [])]));
     const standing = versionStanding(new Set(versions), seen);
     out.push({
       id: issue.id,

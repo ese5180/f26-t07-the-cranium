@@ -14,13 +14,14 @@
  *
  * Reads, for viewers and release managers alike, from the website, a phone app or an API token, as
  * the events they are made of; neither goes on record. Each board's restarts and firmware changes
- * are read with one Query of its key range; a board whose events cannot be read is left out and
- * counted in `unread`, so one board never fails the page.
+ * are read with one Query of its key range, at most MAX_IN_FLIGHT at once; a board whose events cannot
+ * be read is left out and counted in `unread`, so one board never fails the page.
  */
 
 import { badRequest, describeError, field, notFound } from '../http.mjs';
 import { EVENT_DAYS, eventFromItem, eventRange } from '../lib/events.mjs';
 import { groupIssues, issueDetail, issueSummary, parseIssueId } from '../lib/issues.mjs';
+import { MAX_IN_FLIGHT, mapLimit } from '../lib/jobs.mjs';
 
 const DAY_MS = 86_400_000;
 export const DEFAULT_ISSUE_DAYS = 30;
@@ -47,8 +48,14 @@ export function createIssueHandlers({ aws, now, log }, { devices }) {
     const range = eventRange(fromMs, nowMs + 60_000);
     const [current, parts] = await Promise.all([
       devices.loadDevices(things),
-      Promise.allSettled(
-        things.map((thing) => aws.queryEvents({ thing, ...range, kinds: ['restart', 'firmware'], limit: EVENTS_READ }))
+      // At most MAX_IN_FLIGHT Queries at once, as fleet.mjs and reports.mjs read the events.
+      mapLimit(things, MAX_IN_FLIGHT, (thing) =>
+        Promise.resolve()
+          .then(() => aws.queryEvents({ thing, ...range, kinds: ['restart', 'firmware'], limit: EVENTS_READ }))
+          .then(
+            (value) => ({ status: 'fulfilled', value }),
+            (reason) => ({ status: 'rejected', reason })
+          )
       ),
     ]);
     const nowSec = nowMs / 1000;
