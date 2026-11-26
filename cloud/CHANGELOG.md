@@ -7,6 +7,14 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.30.4
+
+Raspberry Pi image deployments work once deployed: AWS let the console make, read and cancel only firmware deployments' jobs, so a Pi image deployment (2.30.0) would have been refused by AWS, and a board could not have downloaded its package. Golden image promotions (2.27.7) were refused the same way.
+
+- Stack (`cloud/infra/template.yaml`): the API role's `CreateDeployments`, `CancelAndReadDeployments` and `ReadOneExecution` name every kind of job the console makes, by the prefix of its id: `cranium-*` (firmware deployments, `lib/jobs.mjs`), `gold-*` (golden promotions, `lib/golden.mjs`) and `pi-*` (Pi image deployments, `lib/pi-images.mjs`). They named `cranium-*` only, and AWS IoT checks the job's own ARN. The presign role, which AWS IoT assumes to sign a job's download URL, now trusts `pi-*` jobs beside `cranium-*`, still of this account only; a golden promotion has no URL.
+- Nothing else changes: no page, route or app. The fake AWS of the tests does not check IAM, which is why every test passed.
+- Tests: `cloud/api/test/infra.test.mjs` builds a job id of each kind with the code's own builders and checks that the API role's three job statements cover it, and that the presign role's trust covers a firmware and a Pi job and nothing else.
+
 ## 2.30.3
 
 Our own Issues, the first stage of doing what Memfault does on our own. The console groups the restarts that say something went wrong (the watchdog, a brownout, a lockup, a restart for being stuck) into issues by what went wrong, with how often and on which boards and versions, first and last seen, and whether an issue came back in a newer version after a fix. A new Issues page lists them under Crashes, as a tab beside Memfault's issues; an issue's page shows its boards and each time it happened. Memfault's issues are unchanged.
