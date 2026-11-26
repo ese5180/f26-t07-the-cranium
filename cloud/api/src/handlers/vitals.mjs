@@ -21,7 +21,8 @@
  * the oldest event read. A board whose first connection event in the window is a connect also has its last
  * connection event before the window read (one more Query, connection kind, limit 1), so that the time it was
  * offline before that connect counts; at 90 days nothing older is kept, and a cut board's window starts later. A
- * board whose events cannot be read is left out and counted in `unread`, so one board never fails the page. Samples are read for one board's page only: about 2,900 a day at a report every 30 s.
+ * board whose events cannot be read is left out and counted in `unread`, so one board never fails the page.
+ * Samples are read for one board's page only: about 2,900 a day at a report every 30 s.
  */
 
 import { badRequest, describeError, field, notFound } from '../http.mjs';

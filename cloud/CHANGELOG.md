@@ -18,6 +18,7 @@ Vitals, the second stage of doing what Memfault does on our own: how the boards 
 - What needs firmware for a later stage (`docs/own-observability.md`): the board's own Wi-Fi reconnects and MQTT connect attempts, CPU load and stack high-water marks, supply voltage and temperature, heap figures kept longer than 7 days, and a fault's reason and address.
 - Stack: nothing in `cloud/infra` changes. The routes go through `GET /api/{proxy+}`, and the API already reads the events table.
 - Tests: `cloud/api/test/vitals.test.mjs` (connected time, restarts reported twice, drops, days, versions, fleet vitals and cohorts, samples by day, both routes on the fake, refusals, auth, an unreadable board, bounded reads), `cloud/web/test/vitals-page.test.mjs` (addresses, Vitals current in the navigation, the client's allowlist, what the server says checked, both pages, the range switch), and the customer refusal and phone route lists.
+
 ## 2.30.4
 
 Golden image promotions and Raspberry Pi image deployments work once this version is deployed. AWS let the console make, read and cancel only firmware deployments' jobs, so **Make golden** has been refused by AWS on the live console since 2.27.7 (it still is in 2.28.0): no promotion could be made from the console. A Pi image deployment (2.30.0, not yet deployed) would have been refused the same way, and a board could not have downloaded its package.
