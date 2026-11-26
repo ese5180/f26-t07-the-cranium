@@ -8,7 +8,7 @@
  *   what "stuck"                     the board restarted itself for being stuck: { reason }
  *   what "restarted" or "boot"       a reset whose cause has a bad bit (BAD_CAUSES): the
  *                                    watchdog, a brownout, a lockup, ...
- *   what "fault"                     a fault the firmware reports with its reboot (stage 2)
+ *   what "fault"                     a fault the firmware reports with its reboot (stage 3)
  *
  * A restart by the reset pin, by software (an update, a command) or by a loss of power is
  * not an issue. The same restart can be reported twice, as "restarted" and then as "boot" when
@@ -40,7 +40,7 @@
  * on ran without it on a board that had it; it has regressed when it then happens on a version
  * newer than that fix. Versions are those the boards with the issue were seen on in the window
  * (firmware events and what each runs now): a version on a board that never had the issue fixes
- * nothing. A fix that a person marks by hand is stage 2.
+ * nothing. A fix that a person marks by hand is stage 3.
  *
  * No AWS here, and no clock: the caller passes the events and the time.
  */

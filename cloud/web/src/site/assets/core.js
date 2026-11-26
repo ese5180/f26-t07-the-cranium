@@ -160,6 +160,9 @@ const SECTIONS = [
   // Our own issues: the boards' crashes, faults and stuck restarts, grouped by signature (issues-page.js),
   // under Memfault in the sections (docs/own-observability.md).
   'issues',
+  // Our own vitals: crash-free, connected and up to date over time, for the fleet and a board (vitals-page.js),
+  // under Monitoring beside Crashes (docs/own-observability.md, stage 2).
+  'vitals',
   // The console's DynamoDB tables, read only, for release managers, under Developer (db-page.js).
   'database',
   // Two to four boards side by side, with their version timelines (compare.js): #/compare?boards=a,b.
@@ -226,6 +229,8 @@ function routeOf(section, item) {
   if (section === 'memfault' && /^[1-9]\d{0,15}$/.test(item)) return { view: 'issue', id: item };
   // One of our own issues: its boards and its timeline (issues-page.js).
   if (section === 'issues' && OWN_ISSUE.test(item)) return { view: 'own-issue', id: item };
+  // One board's vitals: its days, signal and memory (vitals-page.js).
+  if (section === 'vitals' && isThing(item)) return { view: 'board-vitals', thing: item };
   // One table of the Database page (db-page.js).
   if (section === 'database' && DB_TABLES.includes(item)) return { view: 'database', table: item };
   // One week's report (reports.js).
@@ -243,6 +248,7 @@ export function routeHash(route) {
   if (route?.view === 'rollout' && isRolloutId(route.id)) return `#/rollouts/${route.id}`;
   if (route?.view === 'issue' && /^[1-9]\d{0,15}$/.test(route.id ?? '')) return `#/memfault/${route.id}`;
   if (route?.view === 'own-issue' && OWN_ISSUE.test(route.id ?? '')) return `#/issues/${route.id}`;
+  if (route?.view === 'board-vitals' && isThing(route.thing)) return `#/vitals/${route.thing}`;
   if (route?.view === 'database' && DB_TABLES.includes(route.table)) return `#/database/${route.table}`;
   if (route?.view === 'report' && isReportWeek(route.week)) return `#/reports/${route.week}`;
   if (route?.view === 'release-notes' && RELEASE_PRODUCTS.includes(route.product)) {
@@ -3475,6 +3481,13 @@ export function createApi({
      * The Apps page's reads (apps.js reads its own answers): the apps, their configuration, and a link
      * to download an Android release, which the console puts on record. Tried once: a link is for now.
      */
+    // Our own vitals (vitals-page.js): reads only, of the fleet's and of one board's, over a number of days.
+    async vitalsRequest(path) {
+      const read =
+        typeof path === 'string' && /^\/api\/vitals(?:\/cranium-[0-9a-f]{16})?(?:\?days=[1-9]\d?)?$/.test(path);
+      if (!read) throw new ApiError(0, 'bad_request', 'That is not a request of the Vitals pages.');
+      return record(await request('GET', path));
+    },
     // What Memfault knows (memfault-page.js): reads only, of these four routes: the fleet, the issues, an
     // issue and a board.
     async memfaultRequest(path) {

@@ -13802,3 +13802,17 @@ button.back {
 .crash-tabs .nav-link {
   flex: 0 0 auto;
 }
+
+/* Our own vitals (vitals-page.js): the charts two to a row where there is room, one on a phone. */
+@media (min-width: 861px) {
+  .vitals-charts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.vitals-table .ui-badge {
+  flex: none;
+  white-space: nowrap;
+}
+.vitals-range {
+  flex: none;
+}

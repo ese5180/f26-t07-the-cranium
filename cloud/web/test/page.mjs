@@ -87,6 +87,12 @@ export const MEMFAULT = scriptAddress('memfault-page.js', {
 });
 // Our own issues (docs/own-observability.md).
 export const ISSUES = scriptAddress('issues-page.js', { 'core.js': CORE, 'views.js': VIEWS });
+// Our own vitals (docs/own-observability.md, stage 2).
+export const VITALS = scriptAddress('vitals-page.js', {
+  'core.js': CORE,
+  'views.js': VIEWS,
+  'telemetry.js': TELEMETRY,
+});
 // A board's version timeline and the Compare page (docs/compare.md).
 export const COMPARE = scriptAddress('compare.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const PLAYS = scriptAddress('plays.js', { 'core.js': CORE, 'views.js': VIEWS });
