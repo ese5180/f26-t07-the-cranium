@@ -395,6 +395,8 @@ object AuditText {
         "unauthorized" to "The sign-in was not accepted",
         "unknown_deployment" to "There is no such deployment",
         "unknown_device" to "A board is not registered",
+        "unknown_issue" to "No such issue in this window",
+        "invalid_issue" to "Not a valid issue id",
         "unknown_version" to "There is no such release",
         "image_unavailable" to "The image could not be read; it may have been revoked",
         "image_mismatch" to "The stored image is not the one that was verified",

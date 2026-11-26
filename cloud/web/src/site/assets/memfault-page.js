@@ -18,6 +18,7 @@ import { lineChart } from './telemetry.js';
 import {
   badge,
   card,
+  crashTabs,
   empty,
   filterBar,
   filterSelect,
@@ -589,17 +590,21 @@ function issuesFiltered(ctx, issues) {
 export function memfaultView(ctx) {
   const { state } = ctx;
   const target = state.memfault?.issues ?? resource();
-  const head = pageHead({
-    title: 'Crashes',
-    lede: 'Crashes and traces the boards sent to Memfault, grouped into issues.',
-    how: {
-      title: 'How Memfault works',
-      text: [
-        'Below the issues is the fleet as Memfault sees it: reboots by reason, versions and the latest metrics.',
-        'The console reads all of it from Memfault.',
-      ],
-    },
-  });
+  // Memfault's issues and ours, side by side under Crashes (views.js crashTabs).
+  const head = [
+    crashTabs('memfault'),
+    pageHead({
+      title: 'Crashes',
+      lede: 'Crashes and traces the boards sent to Memfault, grouped into issues.',
+      how: {
+        title: 'How Memfault works',
+        text: [
+          'Below the issues is the fleet as Memfault sees it: reboots by reason, versions and the latest metrics.',
+          'The console reads all of it from Memfault.',
+        ],
+      },
+    }),
+  ];
   const data = target.value;
   if (!data)
     return h(
