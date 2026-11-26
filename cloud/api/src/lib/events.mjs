@@ -68,6 +68,8 @@ const REASON = /^[A-Z][A-Z_]{0,47}$/;
 const SHORT_ASCII = /^[\x20-\x7e]{0,64}$/;
 const PRINTABLE = /^[\x20-\x7e]{1,200}$/;
 const HEX = /^[0-9a-f]{1,8}$/;
+const FAULT_PC = /^0x[0-9a-f]{1,8}$/;
+const FAULT_FRAME = /^[A-Za-z_][A-Za-z0-9_.]{0,63}$/;
 const OTA_STATES = Object.freeze([
   'idle',
   'awaiting_user',
@@ -104,6 +106,10 @@ const FIELDS = Object.freeze({
   heapSize: int(1, 2 ** 31),
   name: (value) => typeof value === 'string' && BOARD_NAME.test(value),
   nameBefore: (value) => typeof value === 'string' && BOARD_NAME.test(value),
+  // Where a fault happened, once the firmware reports it with a reboot (docs/own-observability.md, stage 2):
+  // the program counter in hex, and the function it was in. Read back and grouped now; sent later.
+  pc: (value) => typeof value === 'string' && FAULT_PC.test(value),
+  frame: (value) => typeof value === 'string' && FAULT_FRAME.test(value),
 });
 
 /** An own property of a plain object, or undefined. */
@@ -179,7 +185,7 @@ const STAGE_WORDS = Object.freeze({
   4: 'reached the cloud',
 });
 
-const STUCK_WORDS = Object.freeze({
+export const STUCK_WORDS = Object.freeze({
   wifi_silent: 'the Wi-Fi chip stopped answering',
   no_cloud: 'no connection to the cloud for 15 minutes',
   update_stall: 'an update stopped moving',
