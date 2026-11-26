@@ -44,7 +44,7 @@ Newest first. The ordered work list is the pinned issue #128.
 
 Draft pull requests.
 
-- **Our own Vitals under Monitoring** (#303, console 2.31.0, apps 0.9.5, desktop 0.1.19): stage 2 of our own
+- **Our own Vitals under Monitoring** (#304, console 2.31.0, apps 0.9.5, desktop 0.1.19): stage 2 of our own
   Memfault. Crash-free boards, connected time and the newest release by day, board and version, from what the boards
   already send ([`own-observability.md`](own-observability.md)).
 - **A redesign of the customer site** (#257).
