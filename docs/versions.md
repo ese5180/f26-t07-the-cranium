@@ -59,7 +59,7 @@ what the apps show without a new app version, and the app's settings say which c
 | 2026-11-25 | 2.30.1 | 0.9.3 | 0.1.17 | A canary's time limit; a deployment to several boards goes to a canary first |
 | 2026-11-25 | | | | Mac app 0.4.1: Disconnect frees the board's serial port for other programs and the app (#289) |
 | 2026-11-25 | 2.30.3 | 0.9.4 | 0.1.18 | Our own Issues under Crashes, stage 1 of our own Memfault (#236); Connect device says the Pi's tracks need firmware 1.20.1 |
-| 2026-11-25 | 2.30.4 | | | AWS lets the console make Pi image deployments and golden promotions (their jobs were refused) |
+| 2026-11-25 | 2.30.4 | | | AWS lets the console make Pi image deployments and golden promotions (their jobs were refused; Make golden on the live console since 2.27.7) |
 
 The console's 2.18.0 to 2.28.0 are tagged `console-v<version>`, except 2.25.7 and 2.27.4, which have no tag (2.27.1 to 2.27.3 have no entry). The apps' 0.8.17 to 0.8.20 and
 the desktop app's 0.1.1 to 0.1.15 have no tags (the app tags are `ios-v0.8.21`, `ios-v0.9.0`, `ios-v0.9.1` and the same for

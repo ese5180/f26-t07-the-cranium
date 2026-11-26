@@ -5,7 +5,7 @@
 // deployment to say.
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { buildGoldenJobId } from '../src/lib/golden.mjs';
@@ -1336,6 +1336,8 @@ test('the API role may make, read and cancel every kind of job the console makes
   const role = block(template, 'ApiRole');
   for (const sid of ['CreateDeployments', 'CancelAndReadDeployments', 'ReadOneExecution']) {
     const patterns = jobPatterns(statement(role, sid));
+    // These three kinds and nothing wider: job/* would cover every id below and still pass.
+    assert.deepEqual([...patterns].sort(), ['cranium-*', 'gold-*', 'pi-*'], `${sid} names other jobs`);
     for (const [kind, id] of Object.entries(ids)) {
       assert.ok(matchesJob(patterns, id), `${sid} does not cover a ${kind} job (${id})`);
     }
@@ -1352,5 +1354,16 @@ test('AWS IoT may sign the download URL of a firmware deployment and of a Pi ima
   assert.ok(matchesJob(patterns, buildPiJobId('2026.11.24-1', at, 'a1b2')), 'a Pi job cannot have its URL signed');
   // Still only this account's own jobs, and nothing else of AWS IoT.
   assert.ok(trust.includes('aws:SourceAccount: !Ref AWS::AccountId'));
-  assert.equal(matchesJob(patterns, 'other-job'), false);
+  assert.deepEqual([...patterns].sort(), ['cranium-*', 'pi-*']);
+  // A golden promotion has no URL to sign, so its jobs stay out.
+  assert.equal(matchesJob(patterns, buildGoldenJobId('1.19.3+0', 1, at, 'a1b2')), false);
+});
+
+// A new kind of job comes with a new caller of createJob: it has to join the ids above, and the roles.
+test('only the three kinds of job above are created', () => {
+  const src = new URL('../src/', import.meta.url);
+  const creators = readdirSync(src, { recursive: true }).filter(
+    (name) => name.endsWith('.mjs') && readFileSync(new URL(name, src), 'utf8').includes('.createJob(')
+  );
+  assert.deepEqual(creators.sort(), ['handlers/deployments.mjs', 'handlers/golden.mjs', 'handlers/pi-images.mjs']);
 });
