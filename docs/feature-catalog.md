@@ -185,7 +185,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
-| 2026-11-25 | Our own Vitals: crash-free boards, connected time and the newest release, by day, board and version, from the events boards already send | console 2.31.0, apps 0.9.5, desktop 0.1.19 | PR_NUMBER |
+| 2026-11-25 | Our own Vitals: crash-free boards, connected time and the newest release, by day, board and version, from the events boards already send | console 2.31.0, apps 0.9.5, desktop 0.1.19 | #303 |
 | 2026-11-25 | Our own Issues: crashes, faults and stuck restarts grouped by signature, with boards, versions and regressions | console 2.30.3 | #298 |
 | 2026-11-25 | Canary time limit: a canary that has not confirmed in time halts the rest, unless visibly still at work; a deployment of several boards gets a canary | console 2.30.1, apps 0.9.3, desktop 0.1.17 | #293 |
 | 2026-11-24 | Raspberry Pi images on the Firmware page: upload checked as a board checks it, deploy as `pi_delta` jobs, download estimates, each board's progress, Pi marks (boards need #279) | console 2.30.0, apps 0.9.2, desktop 0.1.16 | #288 |
