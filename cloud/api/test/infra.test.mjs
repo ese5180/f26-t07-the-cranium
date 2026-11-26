@@ -8,6 +8,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
+import { buildGoldenJobId } from '../src/lib/golden.mjs';
+import { buildJobId } from '../src/lib/jobs.mjs';
+import { buildPiJobId } from '../src/lib/pi-images.mjs';
+
 const read = (name) => readFileSync(new URL(`../../${name}`, import.meta.url), 'utf8');
 const template = read('infra/template.yaml');
 const trail = read('infra/trail.yaml');
@@ -1308,4 +1312,45 @@ test('provisioning through the console: the IoT actions it needs, on the boards,
   assert.ok(variables.includes(`FIRMWARE_DOWNLOAD_PREFIX: ${prefix}`));
   // The same prefix as the output provision_device.py reads.
   assert.ok(block(template, 'FirmwareDownloadPrefix').includes(prefix));
+});
+
+/** The job ARNs a statement or a condition names, as patterns: "job/cranium-*" matches job/cranium-1-2-... */
+function jobPatterns(text) {
+  return [...text.matchAll(/:job\/([A-Za-z0-9_*-]+)'/g)].map((match) => match[1]);
+}
+
+const matchesJob = (patterns, id) =>
+  patterns.some((pattern) => new RegExp(`^${pattern.replace(/[-]/g, '\\-').replaceAll('*', '.*')}$`).test(id));
+
+// Every kind of job the console makes (console 2.30.4): a firmware deployment (cranium-), a golden image
+// promotion (gold-, console 2.27.7) and a Raspberry Pi image deployment (pi-, console 2.30.0). AWS IoT checks
+// the job's own ARN for CreateJob, DescribeJob, CancelJob and the reads of its executions, so a kind the API
+// role does not name is refused with AccessDenied once deployed, though every test with the fake AWS passes.
+test('the API role may make, read and cancel every kind of job the console makes', () => {
+  const at = Date.UTC(2026, 10, 25, 12, 0, 0);
+  const ids = {
+    firmware: buildJobId({ major: 1, minor: 20, revision: 1, build: 0 }, at, 'a1b2'),
+    golden: buildGoldenJobId('1.19.3+0', 1, at, 'a1b2'),
+    pi: buildPiJobId('2026.11.24-1', at, 'a1b2'),
+  };
+  const role = block(template, 'ApiRole');
+  for (const sid of ['CreateDeployments', 'CancelAndReadDeployments', 'ReadOneExecution']) {
+    const patterns = jobPatterns(statement(role, sid));
+    for (const [kind, id] of Object.entries(ids)) {
+      assert.ok(matchesJob(patterns, id), `${sid} does not cover a ${kind} job (${id})`);
+    }
+  }
+});
+
+// A Pi image deployment's document has a download URL that AWS IoT signs with the presign role, as a firmware
+// deployment's does; the role's trust names the jobs it may sign for. A golden promotion has no URL.
+test('AWS IoT may sign the download URL of a firmware deployment and of a Pi image deployment', () => {
+  const at = Date.UTC(2026, 10, 25, 12, 0, 0);
+  const trust = block(block(template, 'PresignRole'), 'AssumeRolePolicyDocument', 6);
+  const patterns = jobPatterns(trust);
+  assert.ok(matchesJob(patterns, buildJobId({ major: 1, minor: 20, revision: 1, build: 0 }, at, 'a1b2')));
+  assert.ok(matchesJob(patterns, buildPiJobId('2026.11.24-1', at, 'a1b2')), 'a Pi job cannot have its URL signed');
+  // Still only this account's own jobs, and nothing else of AWS IoT.
+  assert.ok(trust.includes('aws:SourceAccount: !Ref AWS::AccountId'));
+  assert.equal(matchesJob(patterns, 'other-job'), false);
 });

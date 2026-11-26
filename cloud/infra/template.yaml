@@ -1344,7 +1344,9 @@ Resources:
 
   # AWS IoT Jobs assumes this role to sign the short-lived download URL it puts into
   # a job document. It can read firmware and nothing else, and only AWS IoT acting for
-  # one of this account's cranium-* jobs can assume it.
+  # one of this account's jobs with a download can assume it: a firmware deployment
+  # (cranium-*) or, from console 2.30.0, a Raspberry Pi image deployment (pi-*,
+  # cloud/api/src/lib/pi-images.mjs), whose package is under firmware/ too.
   PresignRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1359,7 +1361,9 @@ Resources:
               StringEquals:
                 aws:SourceAccount: !Ref AWS::AccountId
               ArnLike:
-                aws:SourceArn: !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/cranium-*'
+                aws:SourceArn:
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/cranium-*'
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/pi-*'
       Policies:
         - PolicyName: read-firmware
           PolicyDocument:
@@ -1855,11 +1859,16 @@ Resources:
                   - dynamodb:UpdateItem
                   - dynamodb:UpdateTable
                 Resource: !GetAtt AuditTable.Arn
+              # Every kind of job the console makes, by the prefix of its id: a firmware deployment
+              # (cranium-*, lib/jobs.mjs), a golden image promotion (gold-*, lib/golden.mjs) and a
+              # Raspberry Pi image deployment (pi-*, lib/pi-images.mjs). AWS IoT checks the job's own ARN.
               - Sid: CreateDeployments
                 Effect: Allow
                 Action: iot:CreateJob
                 Resource:
                   - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/cranium-*'
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/gold-*'
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/pi-*'
                   - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'
               - Sid: CancelAndReadDeployments
                 Effect: Allow
@@ -1867,12 +1876,17 @@ Resources:
                   - iot:CancelJob
                   - iot:DescribeJob
                   - iot:ListJobExecutionsForJob
-                Resource: !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/cranium-*'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/cranium-*'
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/gold-*'
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/pi-*'
               - Sid: ReadOneExecution
                 Effect: Allow
                 Action: iot:DescribeJobExecution
                 Resource:
                   - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/cranium-*'
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/gold-*'
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/pi-*'
                   - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'
               # DescribeThing: a board's attribute `board`, for its type (docs/fleet.md).
               - Sid: ReadBoards
