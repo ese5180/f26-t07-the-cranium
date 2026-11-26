@@ -4,6 +4,12 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.9.5
+
+Vitals (console 2.31.0 and later): a new page under Monitoring shows how the boards are doing over 7, 30 or 90 days, from what they already send: the share of boards with no crash, the share of the time they were connected, the share on the newest release, restarts, connection drops and memory that ran low, by day, by board and by version. A board's vitals add its Wi-Fi signal, lowest free heap and longest uptime of the last 7 days. (build 44)
+
+`apps/shared/pages.json` lists the two pages; nothing else of the app changed. The pages are the console's.
+
 ## 0.9.4
 
 Our own Issues (console 2.30.3 and later): under Crashes, a tab beside Memfault's issues lists the boards' crashes, faults and stuck restarts grouped by what went wrong, with how often, on which boards and versions, and whether one came back after a fix. The customer pages' Connect device and empty journal now say that the tracks from the Raspberry Pi are built and need firmware 1.20.1 on the board. (build 43)

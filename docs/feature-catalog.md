@@ -68,6 +68,7 @@ The cloud is one AWS SAM stack (`cloud/infra/template.yaml`): an HTTP API, AWS I
 | Map | Boards placed by the Wi-Fi they hear | 2.x | `map` | Needs no GPS on the board |
 | Memfault page | Crashes and metrics from Memfault inside the console | 2.x | `memfault`, `docs/memfault.md` | Nav label: Crashes |
 | Issues (our own) | Crashes, faults and stuck restarts grouped by signature from the boards' own events: counts, boards, versions, fixed and regressed | 2.30.3 | `cloud/api/src/lib/issues.mjs`, `handlers/issues.mjs`, `issues-page.js`, `docs/own-observability.md` | Needs only restart events with a reason; a fault's function or address joins the signature when the firmware sends it |
+| Vitals (our own) | Crash-free boards, connected time and the share on the newest release over 7, 30 or 90 days, by day, board and version (cohorts); a board's days with its signal, lowest free heap and longest uptime | 2.31.0 | `cloud/api/src/lib/vitals.mjs`, `handlers/vitals.mjs`, `vitals-page.js`, `docs/own-observability.md` | From the events and samples boards already send; samples are kept 7 days, so signal and memory reach back a week |
 | Diagnostics and serial console | Read a board's diagnostics; talk to it over USB from the browser | 2.x | `diagnostics`, `serial` | Web Serial in Chrome, native serial in apps |
 | Board setup | First-time setup of an nRF7002 DK or nRF5340 DK over USB | 2.x | `setup`, `docs/new-board-setup.md` | Guided, step by step |
 | Bluetooth update | Send a release to a board from a phone or laptop over BLE | 2.x | `bluetooth` | Passkey relayed through the console |
@@ -184,6 +185,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-25 | Our own Vitals: crash-free boards, connected time and the newest release, by day, board and version, from the events boards already send | console 2.31.0, apps 0.9.5, desktop 0.1.19 | PR_NUMBER |
 | 2026-11-25 | Our own Issues: crashes, faults and stuck restarts grouped by signature, with boards, versions and regressions | console 2.30.3 | #298 |
 | 2026-11-25 | Canary time limit: a canary that has not confirmed in time halts the rest, unless visibly still at work; a deployment of several boards gets a canary | console 2.30.1, apps 0.9.3, desktop 0.1.17 | #293 |
 | 2026-11-24 | Raspberry Pi images on the Firmware page: upload checked as a board checks it, deploy as `pi_delta` jobs, download estimates, each board's progress, Pi marks (boards need #279) | console 2.30.0, apps 0.9.2, desktop 0.1.16 | #288 |
