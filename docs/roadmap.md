@@ -8,6 +8,9 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 
 Newest first. The ordered work list is the pinned issue #128.
 
+- **Our own Issues under Crashes** (#298, console 2.30.3, apps 0.9.4, desktop 0.1.18; not deployed yet): stage 1 of our
+  own Memfault. The boards' crashes, faults and stuck restarts grouped by what went wrong, with the boards and versions
+  they hit and whether one came back after a fix ([`own-observability.md`](own-observability.md)).
 - **A time limit for a canary** (console 2.30.1, apps 0.9.3, desktop 0.1.17; not deployed yet): a canary that has not
   confirmed within 6 minutes (3 to 30, chosen per rollout) halts the rest, unless it is visibly still downloading or
   restarting, and a deployment of several boards from the API goes to a canary first ([`fleet.md`](fleet.md)).
@@ -41,7 +44,9 @@ Newest first. The ordered work list is the pinned issue #128.
 
 Draft pull requests.
 
-- **Our own Issues under Crashes** (#298, console 2.30.3): stage 1 of our own Memfault, built into the console.
+- **Our own Vitals under Monitoring** (PR_NUMBER, console 2.31.0, apps 0.9.5, desktop 0.1.19): stage 2 of our own
+  Memfault. Crash-free boards, connected time and the newest release by day, board and version, from what the boards
+  already send ([`own-observability.md`](own-observability.md)).
 - **A redesign of the customer site** (#257).
 - **Board setup and the Bluetooth update on a real board, in the Mac and desktop apps** (#220).
 - **Raspberry Pi updates through the board** (#196): the nRF7002 DK hands an update to the Pi over SPI. A teammate's Pi link
@@ -53,7 +58,7 @@ Draft pull requests.
 1. Console fixes from the third bug hunt (console 2.28.3).
 2. Board setup detection for both boards (console 2.28.4).
 3. More page redesign on top of 2.28.0's, which closed #116 to #121 (console 2.28.5).
-4. Our own Memfault, stage 2: metrics, vitals and a device timeline (console 2.28.6).
+4. Our own Memfault, stage 3: coredumps, symbol files and a crash log, which need firmware with a hardware test.
 5. Push notifications for board events, then home-screen widgets and Live Activities (needs the Apple and Firebase keys).
 6. Sessions and tracks sent from the board, so that Now playing and the play times are real, replacing the customer site's
    demo and its import journal ([`customer-data.md`](customer-data.md)).
