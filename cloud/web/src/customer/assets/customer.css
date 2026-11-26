@@ -2533,10 +2533,6 @@ a.cs-panel-foot:hover {
     width: auto;
   }
 
-  :root {
-    --tabbar: 62px;
-  }
-
   /* The page runs on under the floating bar, to the foot of the screen; its foot is clear of the bar. */
   .cs-body {
     padding-bottom: calc(var(--tabbar) + var(--edge-gap) + var(--space-4));
@@ -2630,15 +2626,6 @@ a.cs-panel-foot:hover {
   .cs-tab .icon {
     width: 24px;
     height: 24px;
-  }
-
-  /* A message over the tab bar, as wide as it is. */
-  .toasts {
-    bottom: calc(var(--tabbar) + var(--edge-gap) + var(--space-3));
-  }
-
-  html {
-    scroll-padding-bottom: calc(var(--tabbar) + var(--edge-gap) + 0.5rem);
   }
 
   .cs-help,
@@ -2807,13 +2794,6 @@ a.cs-panel-foot:hover {
  * than the screen (an iPhone 17 Pro's 402 points by 15 px, 375 px by 13, 320 px by 68): the button is its icon alone
  * there, like the two beside it, and keeps its words for a screen reader and as its tooltip.
  */
-/* A phone narrower than 360 px: five equal tabs again, a long word cut short rather than a bar wider than the screen. */
-@media (max-width: 359px) {
-  .cs-tabbar ul {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 460px) {
   .btn.cs-connect {
     flex: none;
@@ -2829,6 +2809,13 @@ a.cs-panel-foot:hover {
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+}
+
+/* A phone narrower than 360 px: five equal tabs again, a long word cut short rather than a bar wider than the screen. */
+@media (max-width: 359px) {
+  .cs-tabbar ul {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 
