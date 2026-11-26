@@ -494,7 +494,7 @@ of 0.6 to 0.8.1 are no longer the way in. How the site's features work in a shel
 
 | Feature | In the app |
 | --- | --- |
-| Tabs, safe areas | The site's phone layout and tab bar (Overview, Sessions, Transitions, Library, Devices); the web view keeps clear of the top, the site draws to the bottom as on a phone browser |
+| Tabs, safe areas | The site's phone layout and its floating tab bar (Overview, Devices, Sessions, Transitions, Library); the web view keeps clear of the top, the site draws to the bottom as on a phone browser |
 | Import session | The file picker: iPhone, the web view's own; Android, `ACTION_GET_CONTENT` with the MIME types the `accept` list names (`.csv`, `.json`, `.bin`), any file when a name is unknown |
 | Export, Back up, CSV | `file.share` through the share sheet (Save to Files, AirDrop, mail). A backup over about 3 MB passes the bridge's 4 MiB request limit and is refused |
 | Explore demo, My journal, saved moments, range | Kept by the app (`storage.*`), so they last across launches on both phones; what an older app left in the page's `localStorage` is moved over once. An app without `storage` says "This app cannot keep the journal" |

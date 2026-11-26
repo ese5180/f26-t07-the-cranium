@@ -182,7 +182,9 @@ test("the customer site's tab bar and sheets are concentric with the screen's 55
 
 test("the customer site's tabs are words at the 13px floor with a 44px target, and nothing is read smaller", () => {
   const phone = CUSTOMER.slice(CUSTOMER.indexOf('@media (max-width: 860px)'));
-  assert.match(phone, /--tabbar: 62px;/);
+  // The bar's height is app.css's, from the same 860px query (app.css loads first); customer.css has no copy.
+  assert.match(APP.slice(APP.indexOf('@media (max-width: 860px)')), /--tabbar: 62px;/);
+  assert.doesNotMatch(CUSTOMER, /--tabbar: /);
   const tab = rules(phone, '.cs-tab').find((body) => /min-height/.test(body));
   assert.match(tab, /font-size: var\(--type-small\)/);
   // 62px bar, 4px padding and a 1px border each side: 52px tabs.
