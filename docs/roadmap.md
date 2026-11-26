@@ -41,7 +41,7 @@ Newest first. The ordered work list is the pinned issue #128.
 
 Draft pull requests.
 
-- **Our own Issues under Crashes** (#259): stage 1 of our own Memfault, built into the console.
+- **Our own Issues under Crashes** (#298, console 2.30.3): stage 1 of our own Memfault, built into the console.
 - **A redesign of the customer site** (#257).
 - **Board setup and the Bluetooth update on a real board, in the Mac and desktop apps** (#220).
 - **Raspberry Pi updates through the board** (#196): the nRF7002 DK hands an update to the Pi over SPI. A teammate's Pi link
