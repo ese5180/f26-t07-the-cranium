@@ -106,7 +106,7 @@ const FIELDS = Object.freeze({
   heapSize: int(1, 2 ** 31),
   name: (value) => typeof value === 'string' && BOARD_NAME.test(value),
   nameBefore: (value) => typeof value === 'string' && BOARD_NAME.test(value),
-  // Where a fault happened, once the firmware reports it with a reboot (docs/own-observability.md, stage 2):
+  // Where a fault happened, once the firmware reports it with a reboot (docs/own-observability.md, stage 3):
   // the program counter in hex, and the function it was in. Read back and grouped now; sent later.
   pc: (value) => typeof value === 'string' && FAULT_PC.test(value),
   frame: (value) => typeof value === 'string' && FAULT_FRAME.test(value),

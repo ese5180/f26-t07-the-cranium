@@ -97,6 +97,7 @@ import { createGoldenHandlers } from './handlers/golden.mjs';
 import { createFleetHandlers } from './handlers/fleet.mjs';
 import { createGroupHandlers } from './handlers/groups.mjs';
 import { createIssueHandlers } from './handlers/issues.mjs';
+import { createVitalsHandlers } from './handlers/vitals.mjs';
 import { createLocationHandlers } from './handlers/location.mjs';
 import { createMemfaultHandlers } from './handlers/memfault.mjs';
 import { createMeHandlers } from './handlers/me.mjs';
@@ -356,6 +357,8 @@ export function createApp({
   const plays = createPlaysHandlers(context, { devices });
   // Our own issues (handlers/issues.mjs): the boards' crashes, faults and stuck restarts, grouped by signature.
   const issues = createIssueHandlers(context, { devices });
+  // Our own vitals (handlers/vitals.mjs): connected time, restarts and drops over time, for the fleet and a board.
+  const vitals = createVitalsHandlers(context, { fleet });
   const firmware = createFirmwareHandlers(context, { deployments, fleet });
   // Golden image promotion (console 2.27.7, firmware 1.19.3): a release's signed record, and its jobs.
   const golden = createGoldenHandlers(context, { devices, fleet });
@@ -450,6 +453,8 @@ export function createApp({
     route('GET', '/api/memfault/issues/{id}', memfault.issue),
     route('GET', '/api/issues', issues.list),
     route('GET', '/api/issues/{id}', issues.get),
+    route('GET', '/api/vitals', vitals.list),
+    route('GET', '/api/vitals/{thing}', vitals.get),
     route('GET', '/api/events', events.list),
     // What the boards printed on their serial consoles, from firmware 1.12.0 (lib/lines.mjs).
     route('GET', '/api/events/log', events.log),

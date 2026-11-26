@@ -31,7 +31,7 @@ import {
 } from './views.js';
 
 // Each read Queries every board's events in the window (and is billed for all of them, as the kinds are a
-// filter), so the page reads as often as the weekly report, until stage 3 keeps a summary per issue.
+// filter), so the page reads as often as the weekly report, until stage 4 keeps a summary per issue.
 export const ISSUES_REFRESH_MS = 5 * 60_000;
 // The API's own default window (cloud/api/src/handlers/issues.mjs DEFAULT_ISSUE_DAYS), not all 90 days the
 // events table keeps.

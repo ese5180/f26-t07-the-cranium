@@ -80,6 +80,7 @@ const ON_DEMAND = [
   'setup.js',
   'team.js',
   'telemetry.js',
+  'vitals-page.js',
 ];
 // Imported by a page's script, so fetched with it and never on a cold load: the Apps page's QR encoder, and
 // the steps after a Bluetooth send, which the Bluetooth page imports.

@@ -891,6 +891,29 @@ const pages = {
     },
     interval: () => (issuesScript ? issuesScript.ISSUES_REFRESH_MS : 0),
   },
+  // Our own vitals (vitals-page.js, docs/own-observability.md stage 2): the fleet's over time, and one board's.
+  vitals: {
+    title: 'Vitals',
+    view: (ctx) =>
+      vitalsScript ? vitalsScript.vitalsView(ctx) : scriptPending(ctx, 'vitals', 'Vitals', { tabs: false }),
+    resources: () => vitalsScript?.vitalsResources(state) ?? [],
+    async refresh() {
+      if (await vitalsReady()) await vitalsScript.refreshVitals();
+      draw();
+    },
+    interval: () => (vitalsScript ? vitalsScript.VITALS_REFRESH_MS : 0),
+  },
+  'board-vitals': {
+    title: () => 'Vitals',
+    view: (ctx) =>
+      vitalsScript ? vitalsScript.boardVitalsView(ctx) : scriptPending(ctx, 'vitals', 'Vitals', { tabs: false }),
+    resources: () => vitalsScript?.boardVitalsResources(state) ?? [],
+    async refresh() {
+      if (await vitalsReady()) await vitalsScript.refreshBoardVitals();
+      draw();
+    },
+    interval: () => (vitalsScript ? vitalsScript.VITALS_REFRESH_MS : 0),
+  },
   // The weekly fleet report (reports.js, docs/reports.md): the weeks, and a week's printable page.
   reports: {
     title: 'Reports',
@@ -1234,6 +1257,7 @@ let teamScript = null;
 let dbScript = null;
 let memfaultScript = null;
 let issuesScript = null;
+let vitalsScript = null;
 let labelsScript = null;
 let compareScript = null;
 let playsScript = null;
@@ -1385,6 +1409,15 @@ async function issuesReady() {
     issuesScript?.connect({ state, api, load, draw, now: () => clock.now() });
   }
   return issuesScript;
+}
+
+/** vitals-page.js, fetched once, when the Vitals page or a board's vitals are first opened. */
+async function vitalsReady() {
+  if (!vitalsScript) {
+    vitalsScript = await pageScript(() => import('./vitals-page.js'));
+    vitalsScript?.connect({ state, api, load, draw, now: () => clock.now() });
+  }
+  return vitalsScript;
 }
 
 /** The script of Events and Diagnostics, fetched once and handed what it needs to load and draw. */
