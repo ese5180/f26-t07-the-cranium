@@ -30,6 +30,13 @@
       "script": "issues-page.js",
       "api": ["GET /api/issues/{id}"]
     },
+    { "route": "#/vitals", "nav": "vitals", "script": "vitals-page.js", "api": ["GET /api/vitals"] },
+    {
+      "route": "#/vitals/cranium-0123456789abcdef",
+      "nav": "vitals",
+      "script": "vitals-page.js",
+      "api": ["GET /api/vitals/{thing}"]
+    },
     { "route": "#/alerts", "nav": "alerts", "script": "account.js", "api": ["GET /api/alerts"] },
     { "route": "#/reports", "nav": "reports", "script": "reports.js", "api": ["GET /api/reports"] },
     { "route": "#/reports/2026-11-02", "nav": "reports", "script": "reports.js", "api": ["GET /api/reports/{week}"] },

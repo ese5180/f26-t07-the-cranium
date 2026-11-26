@@ -1980,6 +1980,8 @@ const SECTIONS = [
   ['alerts', 'Alerts', 'bell', true, 'watch'],
   // What Memfault knows of the boards: issues, traces and backtraces (memfault-page.js).
   ['memfault', 'Crashes', 'alert', false, 'watch'],
+  // Our own vitals: crash-free, connected and up to date over time (vitals-page.js, console 2.31.0).
+  ['vitals', 'Vitals', 'pulse', false, 'watch'],
   ['diagnostics', 'Diagnostics', 'chart', false, 'watch'],
   ['events', 'Events', 'list', false, 'watch'],
   // The weekly fleet report: a page a week, printable, and its CSV (reports.js, docs/reports.md).
@@ -2017,6 +2019,8 @@ const SECTION_OF = {
   // Our own issues belong with Memfault's: the crashes (issues-page.js).
   issues: 'memfault',
   'own-issue': 'memfault',
+  // A board's vitals belong with the fleet's (vitals-page.js).
+  'board-vitals': 'vitals',
   compare: 'devices',
   report: 'reports',
 };

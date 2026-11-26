@@ -246,6 +246,9 @@ const ROUTES = [
   // Our own issues: an id no board has is a 404, which is still an answer to the session.
   { route: 'GET /api/issues', status: 200, phone: true },
   { route: 'GET /api/issues/{id}', path: '/api/issues/0123456789ab', status: 404, phone: true },
+  // Our own vitals: the fleet's, and one board's.
+  { route: 'GET /api/vitals', status: 200, phone: true },
+  { route: 'GET /api/vitals/{thing}', path: `/api/vitals/${THING}`, status: 200, phone: true },
   { route: 'GET /api/events', status: 200, phone: true },
   { route: 'GET /api/events/log', status: 200, phone: true },
   { route: 'GET /api/firmware', status: 200, phone: true },
