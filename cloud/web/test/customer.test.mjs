@@ -664,6 +664,9 @@ test("the week's restarts in plain words, under the strip that draws them (#122)
   assert.equal(site.restartSummary(restarts(false, false)), '2 restarts this week, all expected');
   assert.equal(site.restartSummary(restarts(true, true)), '2 restarts this week, all unexpected');
   assert.equal(site.restartSummary(BOARD.health), '3 restarts this week: 2 unexpected');
+  // A boot loop: the list stops at 50 (health.mjs LISTED), the count of unexpected restarts does not.
+  const looping = { ...restarts(...Array.from({ length: 50 }, () => true)), unexpectedRestarts7d: 120 };
+  assert.equal(site.restartSummary(looping), '120 restarts this week, all unexpected');
 });
 
 test('what a board is doing, in plain words, for every state and every result', () => {

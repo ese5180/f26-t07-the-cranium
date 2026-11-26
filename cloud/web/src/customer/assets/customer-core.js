@@ -768,19 +768,20 @@ export function restartWeek(health, nowMs) {
 }
 
 /**
- * The week's restarts in one line of plain words, under the strip that draws them (console 2.27.10): "No restarts
+ * The week's restarts in one line of plain words, under the strip that draws them (console 2.30.2): "No restarts
  * this week", "1 restart this week, expected", "3 restarts this week: 2 unexpected". Expected and unexpected only, as
  * the strip; no cause.
  */
 export function restartSummary(health) {
   const restarts = health?.restarts7d ?? [];
   if (restarts.length === 0) return 'No restarts this week';
-  const unexpected = restarts.filter((restart) => restart.unexpected).length;
-  const count = plural(restarts.length, 'restart');
-  if (unexpected === 0) return `${count} this week, ${restarts.length === 1 ? 'expected' : 'all expected'}`;
-  if (unexpected === restarts.length) {
-    return `${count} this week, ${restarts.length === 1 ? 'unexpected' : 'all unexpected'}`;
-  }
+  // The list stops at 50 (health.mjs LISTED); the count of unexpected restarts does not.
+  const listed = restarts.filter((restart) => restart.unexpected).length;
+  const unexpected = Math.max(listed, health.unexpectedRestarts7d ?? 0);
+  const total = restarts.length - listed + unexpected;
+  const count = plural(total, 'restart');
+  if (unexpected === 0) return `${count} this week, ${total === 1 ? 'expected' : 'all expected'}`;
+  if (unexpected === total) return `${count} this week, ${total === 1 ? 'unexpected' : 'all unexpected'}`;
   return `${count} this week: ${unexpected} unexpected`;
 }
 

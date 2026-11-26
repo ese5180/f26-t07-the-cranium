@@ -20,7 +20,7 @@ Below, `example.com` stands for the customer site's name, so that the steps fit 
 | `https://example.com/` | anybody | The site's own front page: what Cranium is, what an account shows, how updates work, what is coming, where the project stands. Plain HTML, readable without JavaScript |
 | `#/sign-in` | everybody | One form: e-mail and password; then the code of an authenticator app, in six boxes, when the account asks for one (a team account always); a new password at a customer's first sign-in. A team account lands in admin mode at `/admin` |
 | `#/forgot` | everybody | A password reset with a code e-mailed by Cognito |
-| `#/overview` | a customer | The boards first (console 2.27.10): each with its label and its own name, its health in a sentence and its week of restarts by day and in words, what they did in the last week, and four figures; then the mixes as the mockup has them (the card "After the last track", four figures, the last set with its shape and tracks, On repeat, a moment to come back to) |
+| `#/overview` | a customer | The boards first (console 2.30.2): each with its label and its own name, its health in a sentence and its week of restarts by day and in words, what they did in the last week, and four figures; then the mixes as the mockup has them (the card "After the last track", four figures, the last set with its shape and tracks, On repeat, a moment to come back to) |
 | `#/overview` | an admin | Who is signed in, and **Open admin mode**; then the mixes |
 | `#/devices`, `#/devices/<id>` | a customer | The boards as a table, each with a health dot; one board's health this week (a sentence and its restarts by day), state, firmware, last report, update, Wi-Fi signal, uptime and the last 30 days of what it did |
 | `#/mixes/<tab>` | signed in | Sessions, Transitions, Track library, Your listening, Saved moments, of the demo or of the customer's own journal (below) |
@@ -32,7 +32,7 @@ Below, `example.com` stands for the customer site's name, so that the steps fit 
 | `https://www.example.com/...` | anybody | Sent to `https://example.com/` (or `/admin`), so that there is one origin |
 
 The pages follow the mockup the owner chose, in the console's colours for light and dark, on the console's grouped
-canvas with its shared cards (console 2.27.10, #122): a dark sidebar in three groups, Your Cranium (Overview, Devices),
+canvas with its shared cards (console 2.30.2, #122): a dark sidebar in three groups, Your Cranium (Overview, Devices),
 Your mixes (Sessions, Transitions, Track library, Your listening, Saved moments with how many are kept) and Your account
 (Account, Help, About), with "Your deck, a little more connected" and Connect your board at its foot; a top bar with
 how many boards are online, Export, and **Connect device**; each page of mixes' title with the range (all time, 7 or 30
@@ -223,7 +223,7 @@ console's own text, a job id, an error string, a MAC address, memory figures or 
 Every board a customer sees has a health line in plain words, a dot (green for running normally, amber for attention,
 an empty ring for offline) and a strip of the last seven days with its restarts by day, the unexpected ones in amber,
 said beside it in words ("No restarts this week", "3 restarts this week: 2 unexpected"; `restartSummary` in
-`customer-core.js`, console 2.27.10). The Overview shows the line, the strip and its words under each board, before the
+`customer-core.js`, console 2.30.2). The Overview shows the line, the strip and its words under each board, before the
 mixes; the Devices table the dot and the line, and a board's page a "This week" card. The customer API works it out (`cloud/api/src/customer/health.mjs`) from the restart, firmware and
 update events of the last 7 days, which its role already reads; it reads them at most once a minute per board, while
 offline comes from the shadow at every request. Restarts are only expected or unexpected: no fault name, reset cause,
