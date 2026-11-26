@@ -7,6 +7,19 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.30.3
+
+Our own Issues, the first stage of doing what Memfault does on our own. The console groups the restarts that say something went wrong (the watchdog, a brownout, a lockup, a restart for being stuck) into issues by what went wrong, with how often and on which boards and versions, first and last seen, and whether an issue came back in a newer version after a fix. A new Issues page lists them under Crashes, as a tab beside Memfault's issues; an issue's page shows its boards and each time it happened. Memfault's issues are unchanged.
+
+- Grouping (`cloud/api/src/lib/issues.mjs`): signature `<type>:<detail>[@<where>]`, id the first 12 hex digits of its SHA-256; the version an occurrence happened on is the board's last firmware event before it; fixed in a newer version that ran without it, regressed when it comes back after that. `lib/events.mjs` reads `pc` and `frame` on an event, for the faults the firmware will report (stage 2).
+- API (`handlers/issues.mjs`): `GET /api/issues?days=1-90` and `GET /api/issues/{id}`, reads for every member, made from each board's restart and firmware events; a board that cannot be read is counted in `unread`.
+- Console (`issues-page.js`): `#/issues` and `#/issues/<id>` under Crashes in the navigation, with the Crashes tabs (`views.js` `crashTabs`, on the Crashes page too), the shared stat tiles, a shared table for an issue's boards (stacked on a phone, each a `ui-board`), search and a status filter; `core.js` `issuesRequest` asks for nothing else. The apps list both pages (`apps/shared/pages.json`).
+- Design for the rest (`docs/own-observability.md`): coredumps, symbol files, metrics, vitals, logs, timeline, rollout cohorts and abort, alert integrations, sampling and recordings, stage by stage (#236).
+- Connect device on the customer site no longer says that the Raspberry Pi's tracks are not built: Plays built them in 2.29.0 (#283), and a board needs firmware 1.20.1 to send them. `customer-core.js` `NEEDS_FIRMWARE` (was `NOT_BUILT`), `TEASER_TEXT`, `WHY_EMPTY` and `MIXES_NOTE` say so, and the dialog lists what a board sends (title, artist, BPM, key, when it played). The empty journal's tag reads "Your board: Needs firmware 1.20.1". The same words in the iPhone and Android apps (`CustomerWords.swift`, `CustomerText.kt`).
+- Apps 0.9.4 (iPhone build 43, Android 41): the issue routes' two refusals in `Words.swift` and `Audit.kt`, and the customer words above; desktop 0.1.18 changes only its version.
+- Stack: nothing in `cloud/infra` changes. The routes go through `GET /api/{proxy+}`, and the API already reads the events table.
+- Tests: `cloud/api/test/issues.test.mjs` (grouping, signatures, versions, regressions, routes, refusals, auth, an unreadable board), `cloud/web/test/issues-page.test.mjs` (addresses, Crashes current in the navigation, the client's allowlist, both pages with tiles and the stacked table, the Crashes tabs on both pages), and in `customer.test.mjs` the Connect device dialog's words and the empty journal's.
+
 ## 2.30.1
 
 A canary now has a time limit. If a rollout's canary has not confirmed within 6 minutes (3 to 30, chosen in the Roll out, New deployment, Update everything and Roll back to last good dialogs), the rest is not sent: the rollout stops and says what the canary was doing, such as "has not started it" or "stopped downloading at 50%". A canary that is visibly still at work gets longer: while its download keeps going up, and while its restart and trial run. A deployment to more than one board from the API now goes to one canary first too, as the console's New deployment already did.

@@ -67,6 +67,7 @@ The cloud is one AWS SAM stack (`cloud/infra/template.yaml`): an HTTP API, AWS I
 | Weekly reports | One page per week: how the fleet did, what was sent, what changed | 2.19.0 | `reports`, `docs/reports.md` | Generated, not hand-written |
 | Map | Boards placed by the Wi-Fi they hear | 2.x | `map` | Needs no GPS on the board |
 | Memfault page | Crashes and metrics from Memfault inside the console | 2.x | `memfault`, `docs/memfault.md` | Nav label: Crashes |
+| Issues (our own) | Crashes, faults and stuck restarts grouped by signature from the boards' own events: counts, boards, versions, fixed and regressed | 2.30.3 | `cloud/api/src/lib/issues.mjs`, `handlers/issues.mjs`, `issues-page.js`, `docs/own-observability.md` | Needs only restart events with a reason; a fault's function or address joins the signature when the firmware sends it |
 | Diagnostics and serial console | Read a board's diagnostics; talk to it over USB from the browser | 2.x | `diagnostics`, `serial` | Web Serial in Chrome, native serial in apps |
 | Board setup | First-time setup of an nRF7002 DK or nRF5340 DK over USB | 2.x | `setup`, `docs/new-board-setup.md` | Guided, step by step |
 | Bluetooth update | Send a release to a board from a phone or laptop over BLE | 2.x | `bluetooth` | Passkey relayed through the console |
@@ -183,6 +184,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-25 | Our own Issues: crashes, faults and stuck restarts grouped by signature, with boards, versions and regressions | console 2.30.3 | #259 |
 | 2026-11-25 | Canary time limit: a canary that has not confirmed in time halts the rest, unless visibly still at work; a deployment of several boards gets a canary | console 2.30.1, apps 0.9.3, desktop 0.1.17 | #293 |
 | 2026-11-24 | Raspberry Pi images on the Firmware page: upload checked as a board checks it, deploy as `pi_delta` jobs, download estimates, each board's progress, Pi marks (boards need #279) | console 2.30.0, apps 0.9.2, desktop 0.1.16 | #288 |
 | 2026-11-24 | Plays: what each board played from its Pi, in order with BPM, key and time played, on its page and the customer's Mixes | console 2.29.0 | #283 |

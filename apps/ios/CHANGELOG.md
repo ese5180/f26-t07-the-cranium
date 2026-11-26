@@ -4,6 +4,12 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.9.4
+
+Our own Issues (console 2.30.3 and later): under Crashes, a tab beside Memfault's issues lists the boards' crashes, faults and stuck restarts grouped by what went wrong, with how often, on which boards and versions, and whether one came back after a fix. The customer pages' Connect device and empty journal now say that the tracks from the Raspberry Pi are built and need firmware 1.20.1 on the board. (build 43)
+
+`CraniumKit/Sources/CraniumKit/Words.swift`: the issue routes' refusals; `CustomerWords.swift` and `App/Views/CustomerScreens.swift`: `needsFirmware` (was `notBuiltYet`), `teaserText`, `mixesWhy` and `mixesNote`, the site's words. The pages are the console's.
+
 ## 0.9.3
 
 A canary's time limit (console 2.30.1 and later): the rollout dialogs and New deployment have a Canary time limit, and a rollout whose canary has not confirmed in time stops and says why. The console's refusal of a limit out of its bounds reads in the same words. In Classic mode, a New deployment of more than one board says that one board goes first and the rest once it has confirmed. (build 42)
