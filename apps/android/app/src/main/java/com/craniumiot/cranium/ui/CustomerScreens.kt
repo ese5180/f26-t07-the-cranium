@@ -618,7 +618,7 @@ private fun MixesPage(vm: CustomerViewModel, tab: String) {
                     .padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Tag(CustomerText.NOT_BUILT, tone = Tone.WARN)
+                Tag(CustomerText.NEEDS_FIRMWARE, tone = Tone.WARN)
                 Text(words.title, Modifier.semantics { heading() }, style = ConsoleType.sectionTitle.copy(fontSize = 20.sp), color = colors.ink)
                 Text(words.text, style = ConsoleType.small, color = colors.ink2)
                 Lanes()

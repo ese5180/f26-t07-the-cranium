@@ -62,7 +62,7 @@ import Testing
             w.devicesLede, w.boardColumn, w.stateColumn, w.updateColumn, w.theBoard, w.notYoursTitle, w.notYoursText, w.howItIs,
             w.onTrial, w.notReportedYet, w.notYet, w.wifiSignal, w.notReported, w.runningFor, w.location, w.locationNotReported,
             w.yoursSince, w.updatesNote, w.whatItDid, w.nothingThisMonth,
-            w.mixesEyebrow, w.mixesTitle, w.mixesLede, w.notBuiltYet, w.mixesWhy, w.mixesNote,
+            w.mixesEyebrow, w.mixesTitle, w.mixesLede, w.needsFirmware, w.mixesWhy, w.mixesNote,
             w.accountTitle, w.accountLede, w.yourAccount, w.signedInAs, w.email, w.name, w.notGiven, w.session, w.emailNote,
             w.password, w.currentPassword, w.newPassword, w.newPasswordAgain, w.changePassword, w.saving,
             w.passwordChanged, w.twoStep, w.on, w.off, w.twoStepOnText, w.twoStepOffText, w.turnOn, w.starting, w.turnOff,

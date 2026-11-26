@@ -45,8 +45,8 @@ object CustomerText {
     const val NOTHING_WEEK = "Nothing in the last week."
     const val TEASER_EYEBROW = "After the last track"
     const val TEASER_TITLE = "Good mixes happen. Great ones get remembered."
-    const val TEASER_TEXT = "Your sessions, your transitions and the tracks you keep coming back to will live here, once your board " +
-        "can tell this site what you played. That part is not built yet."
+    const val TEASER_TEXT = "Your sessions, your transitions and the tracks you keep coming back to live here once your board tells this " +
+        "site what you played. That needs firmware 1.20.1 on your board."
     const val WHAT_IS_COMING = "What is coming"
     const val WHAT_YOUR_BOARDS_DID = "what your boards did"
     const val THE_BOARDS = "your boards"
@@ -91,10 +91,10 @@ object CustomerText {
     const val MIXES_EYEBROW = "Your mixes, remembered"
     const val MIXES_TITLE = "Find your next great mix."
     const val MIXES_LEDE = "A home for the tracks, transitions and happy accidents of every set."
-    const val NOT_BUILT = "Not built yet"
-    const val WHY_EMPTY = "Why it is empty: your board does not send what you play. That needs the Raspberry Pi to record the tracks Mixxx " +
-        "plays and the board to pass them on, and neither is built yet. Nothing here is made up in the meantime."
-    const val MIXES_NOTE = "When it is built, only what you played is kept: track names and times, never the music itself."
+    const val NEEDS_FIRMWARE = "Needs firmware 1.20.1"
+    const val WHY_EMPTY = "Why it is empty: your board has not sent what you played. The Raspberry Pi records the tracks Mixxx plays and " +
+        "the board passes them on from firmware 1.20.1. Nothing here is made up in the meantime."
+    const val MIXES_NOTE = "Only what you played is kept: track names and times, never the music itself."
 
     /** A tab of Mixes: its label, its title and what it will hold. */
     data class MixTab(val id: String, val label: String, val title: String, val text: String)
@@ -302,7 +302,7 @@ object CustomerText {
         ADMIN, ADMIN_PANEL_TITLE, OPEN_ADMIN_MODE,
         DEVICES_LEDE, BOARD, STATE, UPDATE, THE_BOARD, NO_BOARD_HERE, NO_BOARD_HERE_TEXT, HOW_IT_IS, ON_TRIAL, NOT_REPORTED_YET, NOT_YET,
         WIFI_SIGNAL, NOT_REPORTED, RUNNING_FOR, LOCATION, LOCATION_NOT_REPORTED, YOURS_SINCE, UPDATES_NOTE, WHAT_IT_DID, NOTHING_30_DAYS,
-        MIXES_EYEBROW, MIXES_TITLE, MIXES_LEDE, NOT_BUILT, WHY_EMPTY, MIXES_NOTE,
+        MIXES_EYEBROW, MIXES_TITLE, MIXES_LEDE, NEEDS_FIRMWARE, WHY_EMPTY, MIXES_NOTE,
         ACCOUNT_LEDE, YOUR_ACCOUNT, THE_ACCOUNT, SIGNED_IN_AS, EMAIL, NAME, NOT_GIVEN, SESSION, EMAIL_NOTE, PASSWORD, CURRENT_PASSWORD,
         NEW_PASSWORD, NEW_PASSWORD_HINT, NEW_PASSWORD_AGAIN, PASSWORD_CHANGED, CHANGE_PASSWORD, SAVING, TWO_STEP, ON, OFF,
         TWO_STEP_ON_TEXT, TWO_STEP_OFF_TEXT, TURN_ON, STARTING, TURN_OFF, STEP_APP, STEP_KEY, COPY_KEY, OPEN_IN_APP, STEP_CODE,

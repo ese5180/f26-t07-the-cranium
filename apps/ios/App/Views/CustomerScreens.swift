@@ -498,7 +498,7 @@ struct CustomerMixesView: View {
             }
             .pickerStyle(.segmented)
             VStack(alignment: .leading, spacing: 12) {
-                Tag(text: CustomerWords.notBuiltYet, tone: .warn)
+                Tag(text: CustomerWords.needsFirmware, tone: .warn)
                 Text(words.title).font(Typeface.heading).accessibilityAddTraits(.isHeader)
                 Text(words.text).font(Typeface.body).foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
                 Lanes().frame(height: 64)
