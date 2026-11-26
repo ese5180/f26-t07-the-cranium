@@ -93,6 +93,32 @@ test('each occurrence happened on the version the board ran just before it', () 
   // With no firmware event at all, what the event says, then what the board runs now.
   assert.equal(withVersions([stuck(NOW)], '1.12.0+0')[0].version, '1.12.0+0');
   assert.equal(withVersions([stuck(NOW)])[0].version, null);
+  // A trial image that crashed and was swapped back: the diary's boot event comes after the firmware went
+  // back and carries the version booted after the crash, but the crash was the trial image's.
+  const trial = withVersions(
+    [
+      firmware(NOW - 3 * HOUR, '1.14.0+0', '1.13.0+0'),
+      event({ what: 'restarted', level: 'info' }, NOW - 2 * HOUR),
+      firmware(NOW - 2 * HOUR + 1, '1.13.0+0', '1.14.0+0'),
+      watchdog(NOW - 2 * HOUR + 30_000, { version: '1.13.0+0' }),
+    ],
+    '1.13.0+0'
+  );
+  assert.equal(trial[3].version, '1.14.0+0');
+  // Through the grouping, the trial crash is open on the trial image, not fixed by it.
+  const [onTrial] = groupIssues([{ thing: A, current: '1.13.0+0', events: trial.map(({ event: one }) => one) }]);
+  assert.deepEqual([onTrial.versions, onTrial.status, onTrial.fixedIn], [['1.14.0+0'], 'open', null]);
+  // A boot long after the restart is not its diary: it keeps its own version.
+  const late = withVersions(
+    [
+      firmware(NOW - 3 * HOUR, '1.14.0+0', '1.13.0+0'),
+      event({ what: 'restarted', level: 'info' }, NOW - 2 * HOUR),
+      firmware(NOW - 2 * HOUR + 1, '1.13.0+0', '1.14.0+0'),
+      watchdog(NOW - HOUR, { version: '1.13.0+0' }),
+    ],
+    '1.13.0+0'
+  );
+  assert.equal(late[3].version, '1.13.0+0');
 });
 
 test('issues group across boards, with counts, first and last seen, boards and versions', () => {
@@ -162,6 +188,12 @@ test('a fix is a newer version that never had it; a regression is the issue agai
     [issue.status, issue.regressed, issue.fixedIn, issue.regressedIn],
     ['regressed', true, '1.14.0+0', '1.15.0+0']
   );
+  // A newer version on a board that never had the issue fixes nothing on the boards that did.
+  const [kept] = groupIssues([
+    { thing: A, current: '1.13.0+0', events: [watchdog(NOW - DAY, { version: '1.13.0+0' })] },
+    { thing: B, current: '1.14.0+0', events: [] },
+  ]);
+  assert.deepEqual([kept.status, kept.fixedIn], ['open', null]);
 });
 
 // The routes.

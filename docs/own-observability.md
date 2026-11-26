@@ -65,20 +65,24 @@ needs one, and the Database page, the backups and the permissions follow it with
   the same crash in a newer version is the same issue and can be seen to come back. The issue id is the first
   12 hex digits of the signature's SHA-256.
 - **Version**: the one the board ran just before the occurrence (its last firmware event before it, else the
-  version on the event, else what it runs now).
-- **Regression**: an issue is fixed in a newer version that ran on a board without it, and regressed when it
-  happens again in a version after that fix. Stage 2 adds a fix marked by hand (`ISSUE#<id>` in the state
+  version on the event, else what it runs now). A `boot` event within 15 minutes of a `restarted` without a cause
+  (the diary came in a later report, the usual case) takes that restart's version: the diary's version is the
+  boot after the crash, which is the older image when a trial image crashed and MCUboot swapped it back.
+- **Regression**: an issue is fixed in a newer version that ran without it on the boards that had it (a version
+  on a board that never had it fixes nothing), and regressed when it happens again in a version after that fix. Stage 2 adds a fix marked by hand (`ISSUE#<id>` in the state
   table: `{ status, fixedIn, by, at }`, on record in the activity log), which then wins over the computed one.
 - **API**: `GET /api/issues?days=1-90` and `GET /api/issues/{id}` (`cloud/api/src/handlers/issues.mjs`), reads
   for every member, from the website, an app or an API token, like the events. Made on each read from each
-  board's restart and firmware events in the window: one Query per board. A board whose events cannot be
-  read is counted in `unread`.
+  board's restart and firmware events in the window: one Query per board, at most 5 at once (`MAX_IN_FLIGHT`).
+  A board whose events cannot be read is counted in `unread`. The newest 5,000 events per board are read.
 - **Console**: the Issues page (`#/issues`, `issues-page.js`) under Crashes in the navigation (Monitoring), a tab
   beside Memfault's issues on the Crashes page (`views.js` `crashTabs`): stat tiles, status (Open, Fixed in,
   Regressed in), search and a status filter; an issue's page with stat tiles, its boards in a shared table that
-  stacks on a phone, and its timeline. Memfault's own issues stay on the Crashes page.
-- **Cost**: reads only. At 25 boards and a few hundred restarts each in 90 days, one page load reads under
-  1 MB from DynamoDB, well inside the free tier at the team's use. When the fleet grows past a few hundred
+  stacks on a phone, and its timeline. Memfault's own issues stay on the Crashes page. The pages read the last
+  30 days (the API's default) every 5 minutes.
+- **Cost**: reads only. The kinds are a filter, so each Query reads (and is billed for) every event of the
+  board in the window, not only restarts and firmware changes. At 25 boards in 30 days, one page load reads a
+  few MB at most, every 5 minutes while the page is open: well inside the free tier at the team's use. When the fleet grows past a few hundred
   boards, stage 3 keeps a summary item per issue (`ISS#<id>`, updated by the recorder) instead of reading every
   board.
 

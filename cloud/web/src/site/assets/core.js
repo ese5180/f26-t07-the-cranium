@@ -3464,15 +3464,17 @@ export function createApi({
       return record(await request(method, path, body));
     },
     /**
-     * The Apps page's reads (apps.js reads its own answers): the apps, their configuration, and a link
-     * to download an Android release, which the console puts on record. Tried once: a link is for now.
+     * Our own issues (issues-page.js): reads only, of the list and of one issue, over a number of days.
      */
-    // Our own issues (issues-page.js): reads only, of the list and of one issue, over a number of days.
     async issuesRequest(path) {
       const read = typeof path === 'string' && /^\/api\/issues(?:\/[0-9a-f]{12})?(?:\?days=[1-9]\d?)?$/.test(path);
       if (!read) throw new ApiError(0, 'bad_request', 'That is not a request of the Issues pages.');
       return record(await request('GET', path));
     },
+    /**
+     * The Apps page's reads (apps.js reads its own answers): the apps, their configuration, and a link
+     * to download an Android release, which the console puts on record. Tried once: a link is for now.
+     */
     // What Memfault knows (memfault-page.js): reads only, of these four routes: the fleet, the issues, an
     // issue and a board.
     async memfaultRequest(path) {

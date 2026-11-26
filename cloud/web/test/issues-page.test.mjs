@@ -110,6 +110,12 @@ test('the client asks only for the issue routes, and only with GET', async () =>
   }
 });
 
+test("the pages read the API's default 30 days, every 5 minutes, as the weekly report does", () => {
+  // Each read Queries every board's events in the window; 90 days every minute read and billed far more.
+  assert.equal(issues.ISSUE_DAYS, 30);
+  assert.equal(issues.ISSUES_REFRESH_MS, 5 * 60_000);
+});
+
 test('what the server says is checked before it is drawn', () => {
   const read = issues.readOwnIssues({
     issues: [

@@ -30,10 +30,12 @@ import {
   whenAt,
 } from './views.js';
 
-// The events are written as the boards report; a minute between reads is plenty.
-export const ISSUES_REFRESH_MS = 60_000;
-// Every day the events table keeps (cloud/api/src/lib/events.mjs EVENT_DAYS).
-export const ISSUE_DAYS = 90;
+// Each read Queries every board's events in the window (and is billed for all of them, as the kinds are a
+// filter), so the page reads as often as the weekly report, until stage 3 keeps a summary per issue.
+export const ISSUES_REFRESH_MS = 5 * 60_000;
+// The API's own default window (cloud/api/src/handlers/issues.mjs DEFAULT_ISSUE_DAYS), not all 90 days the
+// events table keeps.
+export const ISSUE_DAYS = 30;
 const TYPES = ['stuck', 'reset', 'fault'];
 const STATUSES = ['open', 'regressed', 'fixed'];
 const VERSION = /^\d{1,3}\.\d{1,3}\.\d{1,5}\+\d{1,10}$/;
@@ -350,7 +352,7 @@ const HOW = {
   title: 'How issues are made',
   text: [
     'Each restart a board reports that says something went wrong is counted: the watchdog, a brownout, a lockup, a restart for being stuck. A restart by the reset pin, by an update or by a loss of power is not.',
-    'Restarts with the same reason, and later the same place in the code, are one issue. An issue is fixed in a newer version that ran without it, and regressed when it comes back in a version after that.',
+    'Restarts with the same reason, and later the same place in the code, are one issue. An issue is fixed in a newer version that ran without it on the boards that had it, and regressed when it comes back in a version after that.',
     `The console makes them from the events of the last ${ISSUE_DAYS} days. Memfault's own issues stay on the Crashes page.`,
   ],
 };
