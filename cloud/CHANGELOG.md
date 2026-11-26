@@ -9,7 +9,7 @@ were given later, from the history; each names its commit.
 
 ## 2.30.4
 
-Raspberry Pi image deployments work once deployed: AWS let the console make, read and cancel only firmware deployments' jobs, so a Pi image deployment (2.30.0) would have been refused by AWS, and a board could not have downloaded its package. Golden image promotions (2.27.7) were refused the same way.
+Golden image promotions and Raspberry Pi image deployments work once this version is deployed. AWS let the console make, read and cancel only firmware deployments' jobs, so **Make golden** has been refused by AWS on the live console since 2.27.7 (it still is in 2.28.0): no promotion could be made from the console. A Pi image deployment (2.30.0, not yet deployed) would have been refused the same way, and a board could not have downloaded its package.
 
 - Stack (`cloud/infra/template.yaml`): the API role's `CreateDeployments`, `CancelAndReadDeployments` and `ReadOneExecution` name every kind of job the console makes, by the prefix of its id: `cranium-*` (firmware deployments, `lib/jobs.mjs`), `gold-*` (golden promotions, `lib/golden.mjs`) and `pi-*` (Pi image deployments, `lib/pi-images.mjs`). They named `cranium-*` only, and AWS IoT checks the job's own ARN. The presign role, which AWS IoT assumes to sign a job's download URL, now trusts `pi-*` jobs beside `cranium-*`, still of this account only; a golden promotion has no URL.
 - Nothing else changes: no page, route or app. The fake AWS of the tests does not check IAM, which is why every test passed.
