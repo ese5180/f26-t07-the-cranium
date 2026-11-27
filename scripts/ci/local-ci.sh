@@ -5,7 +5,7 @@
 #
 #   scripts/ci/local-ci.sh                 the jobs that the changes against origin/main call for
 #   scripts/ci/local-ci.sh --all           every job
-#   scripts/ci/local-ci.sh --job NAME      that job only; repeat it for more ("firmware" is all three builds)
+#   scripts/ci/local-ci.sh --job NAME      that job only; repeat it for more ("firmware" is all four builds)
 #   scripts/ci/local-ci.sh --list          which jobs would run, and why, without running any
 #   scripts/ci/local-ci.sh --doctor        what this computer can run, and what to install for the rest
 #   scripts/ci/local-ci.sh --post          after the run, set the commit status "local-ci" on HEAD on GitHub
@@ -94,7 +94,8 @@ job_workflow() {
 
 # The changed paths that call for a job (shell patterns, where * crosses folders). ci.yml itself has no
 # path filters: these are the folders each job builds or reads, with the files its tests read from
-# elsewhere (the cloud tests read apps/, firmware/ and docs/, and every app carries cloud/web's pages).
+# elsewhere (the cloud tests read apps/, firmware/, tools/, scripts/, docs/ and deploy-console.yml, and every
+# app carries cloud/web's pages).
 # The other workflows' filters are copied as they are.
 job_paths() {
   local bundle="apps/shared/* apps/config/* cloud/web/* cloud/VERSION"
@@ -106,8 +107,8 @@ job_paths() {
     python-tests) echo "firmware/* tools/* scripts/board/* scripts/firmware/* pi/* .github/workflows/ci.yml" ;;
     closed-loop) echo "closed-loop/* .github/workflows/ci.yml" ;;
     cloud-tests)
-      echo "cloud/* apps/* firmware/app/* firmware/certs/* firmware/keys/* firmware/golden.json"
-      echo "scripts/firmware/* binaries/golden/* docs/* .prettierrc* .prettierignore .github/workflows/ci.yml"
+      echo "cloud/* apps/* firmware/* tools/* scripts/* binaries/golden/* docs/* .prettierrc* .prettierignore"
+      echo ".github/workflows/ci.yml .github/workflows/deploy-console.yml"
       ;;
     desktop-core) echo "apps/desktop/* $bundle .github/workflows/ci.yml" ;;
     android) echo "apps/android/* $bundle .github/workflows/ci.yml" ;;
@@ -272,7 +273,36 @@ find_android_sdk() {
   return 0
 }
 
+# True when this run already holds a gate's turn: under scripts/ci/heavy.sh, which says so in
+# CRANIUM_HEAVY_HELD, or under any other heavy.sh among this process's parents. A second turn from the
+# same gate would wait for ever for the one this run is inside.
+under_gate() {
+  [ -n "${CRANIUM_HEAVY_HELD:-}" ] && return 0
+  local pid=$$ parent command hops=0
+  while [ "$pid" -gt 1 ] && [ "$hops" -lt 30 ]; do
+    parent="$(ps -o ppid= -p "$pid" 2> /dev/null | tr -d ' ')"
+    [ -n "$parent" ] || return 1
+    command="$(ps -o command= -p "$parent" 2> /dev/null)"
+    # heavy.sh as the program, or as the script a shell runs; not a command line that only names it.
+    set -f
+    # shellcheck disable=SC2086 # split into words on purpose
+    set -- $command
+    set +f
+    case "${1:-}" in
+      heavy.sh | */heavy.sh) return 0 ;;
+      bash | sh | zsh | */bash | */sh | */zsh) case "${2:-}" in heavy.sh | */heavy.sh) return 0 ;; esac ;;
+    esac
+    pid="$parent"
+    hops=$((hops + 1))
+  done
+  return 1
+}
+
 find_gate() {
+  if under_gate; then
+    echo ""
+    return 0
+  fi
   case "${CRANIUM_HEAVY:-}" in
     off | none | 0) echo "" ;;
     "") if [ -x "$HOME/cranium-work/heavy.sh" ]; then echo "$HOME/cranium-work/heavy.sh"; else echo "$REPO/scripts/ci/heavy.sh"; fi ;;
@@ -449,7 +479,7 @@ expand_job() {
     firmware) echo firmware-default firmware-no-bt firmware-pi firmware-nrf5340dk ;;
     *)
       for known in $JOBS; do [ "$known" = "$1" ] && { echo "$1"; return 0; }; done
-      die "no job named $1; the jobs: $(echo $JOBS) (and firmware, for all three builds)"
+      die "no job named $1; the jobs: $(echo $JOBS) (and firmware, for all four builds)"
       ;;
   esac
 }
@@ -629,6 +659,10 @@ job_python_tests() {
     case "$want" in "OK (skipped="*) also=OK ;; esac
     run_python_test "$file" "$want" ${also:+"$also"}
   done 3<<< "$tests"
+  # Not in ci.yml: build.sh --without-key, which the firmware jobs here run, puts binaries/ back as it was
+  # when a build stops part way.
+  step "scripts/tests/build-without-key-test.sh (local CI only)"
+  scripts/tests/build-without-key-test.sh
 }
 
 job_closed_loop() {
@@ -988,7 +1022,7 @@ list_warnings() {
 
 print_doctor() {
   echo "System:        $OS ($(uname -sm))"
-  echo "Memory gate:   ${GATE:-none (CRANIUM_HEAVY=off)}"
+  echo "Memory gate:   ${GATE:-none ($(under_gate && echo "this run is already inside one" || echo "CRANIUM_HEAVY=off"))}"
   echo "nrfutil:       ${NRFUTIL_BIN:-not found (docs/new-board-setup.md)}"
   echo "SDK $NCS_VERSION:   ${NCS:-not found${SDK_NOTE:+ ($SDK_NOTE)}; set NCS_DIR, or install it with nrfutil sdk-manager}"
   echo "Python + reqs: ${PY:-none yet; a job makes .local-ci/cache/venv from ${BASE_PY:-a Python 3.10+, which is missing}}"
@@ -1116,6 +1150,9 @@ summarize() {
 # --post needs a commit that GitHub has and a tree that is exactly that commit.
 check_postable() {
   [ -z "$ONLY" ] || die "--post describes a whole run: use it with --all or with no --job"
+  # A status is the merge gate, so it covers everything the branch changes from main.
+  [ "$MODE" = all ] || [ "$BASE_REF" = origin/main ] ||
+    die "--post compares with origin/main, so that the status covers the whole branch: leave out --base, or use --all"
   have gh || die "--post needs the GitHub CLI: install it, then gh auth login"
   gh auth token > /dev/null 2>&1 || die "--post needs gh to be signed in: gh auth login"
   [ -z "$(git -C "$REPO" status --porcelain)" ] ||
@@ -1173,7 +1210,8 @@ main() {
       --all) MODE=all ;;
       --job)
         [ $# -ge 2 ] || die "--job needs a name"
-        ONLY="$ONLY $(expand_job "$2")"
+        # die in expand_job ends only its subshell: the assignment carries its status out.
+      ONLY="$ONLY $(expand_job "$2")" || exit 2
         MODE=chosen
         shift
         ;;
@@ -1231,7 +1269,7 @@ main() {
     while IFS= read -r old; do rm -rf "$old"; done
 
   echo "local-ci on $OS, commit $(echo "$SHA" | cut -c1-8), $MODE jobs:$SELECTED"
-  echo "Memory gate for heavy jobs: ${GATE:-none}"
+  echo "Memory gate for heavy jobs: ${GATE:-none$(under_gate && echo ": the run is already inside one, so it takes no second turn")}"
   echo
   for job in $SELECTED; do
     run_job "$job"

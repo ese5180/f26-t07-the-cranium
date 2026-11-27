@@ -193,6 +193,13 @@ built=false
 finish() {
   # A build that failed has used no number.
   [ "$built" = true ] || cat "$version_before" > "$VERSION_FILE"
+  # A build without the key puts binaries/ back as it was, also when it stops part way: a failed check or
+  # Ctrl-C after the build stored its image would otherwise leave a throwaway-signed latest.signed.bin, and
+  # store_binary.py's pruning could have removed an older image. Only from a complete copy.
+  if [ "$without_key" = true ] && [ -f "$work/binaries.complete" ]; then
+    find "$REPO_DIR/binaries" -maxdepth 1 -type f -exec rm -f {} +
+    find "$work/binaries" -maxdepth 1 -type f -exec cp -p {} "$REPO_DIR/binaries/" \;
+  fi
   rm -rf "$work"
 }
 trap finish EXIT
@@ -232,6 +239,7 @@ open(sys.argv[1], "wb").write(key.private_bytes(serialization.Encoding.PEM, seri
   # Every file at the top of binaries/: the build adds its image and prunes old ones (tools/store_binary.py).
   mkdir -p "$work/binaries"
   find "$REPO_DIR/binaries" -maxdepth 1 -type f -exec cp -p {} "$work/binaries/" \;
+  touch "$work/binaries.complete"
   echo "No signing key: the bootloader takes the team's public key, and the application a throwaway key."
 fi
 echo "Building firmware $expected for the $board_type with $jobs jobs. This takes a minute or two."
