@@ -768,7 +768,7 @@ export function restartWeek(health, nowMs) {
 }
 
 /**
- * The week's restarts in one line of plain words, under the strip that draws them (console 2.30.2): "No restarts
+ * The week's restarts in one line of plain words, under the strip that draws them (console 2.31.1): "No restarts
  * this week", "1 restart this week, expected", "3 restarts this week: 2 unexpected". Expected and unexpected only, as
  * the strip; no cause.
  */
