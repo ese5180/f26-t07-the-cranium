@@ -174,7 +174,7 @@ RESULT and OS_STATUS store the same thing twice.
 | --- | --- | --- | --- |
 | FILE_INFO | `0x20` | none | `0xa0`, 116 bytes, below |
 | FILE_READ | `0x21` | offset u32, length u16 (1 to 480), 0 u16: 8 bytes | `0xa1`: generation u32, offset u32, length u16, 0 u16, size u32, then *length* bytes |
-| RESULT | `0x22` | code u8, *n* u8 (0 to 64), 0 u16, generation u32, version 32 bytes (zero-padded), then *n* bytes of reason: 40 + *n* bytes | `0xa2`, 8 bytes: generation u32, state u8, kept u8 (1 if the board kept it), 0 u16 |
+| RESULT | `0x22` | code u8, *n* u8 (0 to 255), 0 u16, generation u32, version 32 bytes (zero-padded), then *n* bytes of reason: 40 + *n* bytes | `0xa2`, 8 bytes: generation u32, state u8, kept u8 (1 if the board kept it), 0 u16 |
 | OS_STATUS | `0x23` | slot u8, default slot u8, trial u8 (0 or 1), last u8, version 32 bytes, last version 32 bytes: 68 bytes | `0xa3`, 8 bytes: generation u32, state u8, 1 u8, 0 u16 |
 
 **FILE_INFO** (116 bytes):
@@ -205,17 +205,22 @@ other well-formed one with kept 0 (a result for a file the board no longer holds
 text: the board keeps its first 32 bytes up to any zero, and makes anything but printable ASCII, and `"`
 and `\`, into `?`. Send it in ASCII.
 
-**OS_STATUS:** slot and default slot are `'a'`, `'b'`, or 0 for not known; *last* is the last result in
-the Pi's `state.json` (0 none, 2 confirmed, 3 rolled back); the versions are zero-padded. A version that is
-not 1 to 31 of `A-Z a-z 0-9 . _ + -` is kept as not known. The board keeps the last one in RAM: a board
-that restarts knows nothing until the Pi sends it again, so send it at the start of every run.
+**OS_STATUS:** `cranium-update status` as it prints it: slot and default slot are its `slot` and
+`default` (`'a'`, `'b'`, or 0 for not known), *trial* its `trial`; *last* is its `last.result` (0 none, 2
+`confirmed`, 3 `rolled back`), and the last version `last.version`; the versions are zero-padded. A version
+that is not 1 to 31 of `A-Z a-z 0-9 . _ + -` is kept as not known. **On trial**, for the board, is
+`trial` with the running slot not the default one: `status` says `trial` for the whole boot that tryboot
+started, also after `confirm` has kept the slot (and made it the default), until the Pi next restarts;
+with the default not known, `trial` alone counts. The board keeps the slot, that on-trial, *last* and the
+version in RAM (not the default slot or the last version): a board that restarts knows nothing until the
+Pi sends it again, so send it at the start of every run.
 
 **ERROR** (12 bytes, as #279's): code u8, the file's state u8 (FILE_INFO's), 0 u16, the file's generation
 u32, the request's type u8, 0 × 3.
 
 | Code | For the file requests | What the Pi does |
 | --- | --- | --- |
-| 2 `bad_request` | A payload of the wrong length, a reserved field not 0, a length of 0 or over 480, a RESULT code or OS_STATUS field out of range, a reason over 64 bytes | Fix the request: it will never be taken |
+| 2 `bad_request` | A payload of the wrong length, a reserved field not 0, a length of 0 or over 480, a RESULT code or OS_STATUS field out of range, a RESULT whose length is not 40 + *n* | Fix the request: it will never be taken |
 | 4 `no_image` | FILE_READ with no file offered (none, or held) | Ask FILE_INFO again later |
 | 5 `updating` | FILE_READ while the file is downloading or being checked | Ask FILE_INFO again later |
 | 6 `out_of_range` | FILE_READ past the file's end | A bug on the Pi's side |
@@ -230,7 +235,9 @@ the spidev (a lock around each request and the transfer that brings its answer),
 check that tries twice.
 
 **Speed, estimated:** a FILE_READ every transfer, pipelined, 480 bytes per transfer: about 240 to 480 KB/s
-at 8 MHz, so a 5 MB delta in 10 to 20 s. A full image of several GB would take hours. Not measured.
+at 8 MHz, so a 5 MB delta in 10 to 20 s. `cranium-link` clocks at 1 MHz unless told otherwise (`--hz`): a
+transfer then takes 4.1 ms, so at most about 115 KB/s, and a 5 MB delta takes about a minute. A full
+image of several GB would take hours. Not measured.
 
 ## What `cranium-update fetch` does
 
@@ -352,10 +359,11 @@ and says why. The RAM floor (18,432) holds, 16 bytes above it. The default build
 
 | Where | What | Count |
 | --- | --- | --- |
-| `make -C firmware/tests/host`: `pi_os_tests` | The file header (every field, every refusal, a reason with `"`, `\`, controls and UTF-8 cleaned); the download onto a blank card, the same job again (nothing downloaded), another job for the same file (offered anew), another file, a full image, a whole number of sectors; **the power cut at each of 58 writes in turn**, from a blank card and from one holding another file, each resuming in one call with at most a save's worth again and never "ready" with the wrong bytes; a lost connection, a short server, a withdrawn job (half way, and before it starts), the card pulled and put back, a card that cannot be written, no card; a wrong SHA-256 (twice, then refused, nothing kept), a byte wrong from the server once, a bit stored wrong once; next to #279's mirror (placed past it, the mirror and its state untouched, a delta image that would reach the file refused), a file too large, a header that points into the mirror, a torn newer copy, a failed save leaving RAM as it was, garbage where the header goes; **every file request**: before the link has a card, a card not read yet, no file, downloading, held, offered, the whole file in 480-byte pieces, nine malformed or out-of-range FILE_READs, malformed RESULTs, a RESULT for another generation or version, kept ones (on the card after a reopen), a long and dirty reason, a card that cannot be written, malformed OS_STATUS, a version that is not one, a new file where the old one was with the link's cache full (the card open all along), a full image's flag, the card taken out and put back, a header that cannot be read, a message between requests; what a job decides from each result and status; each report's JSON; the heartbeat's `os` in each state, at its longest exactly `PI_DELTA_REPORT_MAX`; the job document (14 bad ones); the delta update's progress report, which now shares the same function; a header whose place wraps around 64 bits; a delta image taking a held file's room (never an offered one's), alone and through a whole delta update; the bytes of a job counted over its calls | 762 checks |
+| `make -C firmware/tests/host`: `pi_os_tests` | The file header (every field, every refusal, a reason with `"`, `\`, controls and UTF-8 cleaned); the download onto a blank card, the same job again (nothing downloaded), another job for the same file (offered anew), another file, a full image, a whole number of sectors; **the power cut at each of 58 writes in turn**, from a blank card and from one holding another file, each resuming in one call with at most a save's worth again and never "ready" with the wrong bytes; a lost connection, a short server, a withdrawn job (half way, and before it starts), the card pulled and put back, a card that cannot be written, no card; a wrong SHA-256 (twice, then refused, nothing kept), a byte wrong from the server once, a bit stored wrong once; next to #279's mirror (placed past it, the mirror and its state untouched, a delta image that would reach the file refused), a file too large, a header that points into the mirror, a torn newer copy, a failed save leaving RAM as it was, garbage where the header goes; **every file request**: before the link has a card, a card not read yet, no file, downloading, held, offered, the whole file in 480-byte pieces, nine malformed or out-of-range FILE_READs, malformed RESULTs, a RESULT for another generation or version, kept ones (on the card after a reopen), a long and dirty reason, a card that cannot be written, malformed OS_STATUS, a version that is not one, a new file where the old one was with the link's cache full (the card open all along), a full image's flag, the card taken out and put back, a header that cannot be read, a message between requests; what a job decides from each result and status; each report's JSON; the heartbeat's `os` in each state, at its longest exactly `PI_DELTA_REPORT_MAX`; the job document (14 bad ones); the delta update's progress report, which now shares the same function; a header whose place wraps around 64 bits; a delta image taking a held file's room (never an offered one's), alone and through a whole delta update; the bytes of a job counted over its calls; a Pi on trial only while the slot it runs is not its default (`status` says trial until the restart after `confirm`); a reason as long as *n* can say | 769 checks |
 | `make -C firmware/tests/host`: `pi_delta_ota_tests` | The board's glue (`pi_delta_ota.c`, the real source) with the card in memory, a cloud that records the job's reports, no network, and the update's thread run until it waits: a `pi_os` job whose download keeps failing ends FAILED after 10 calls in a row, also after a delta job fetched blocks; a card swapped while a file is offered, for one with the same generation and a stored "confirmed": neither its file nor its result is taken, the job's file goes onto it, and the first card put back is offered again at once and ends the job with its own result; the same card taken out and put back; a withdrawn job | 52 checks |
 | `pi_delta_tests`, `app_pi_tests`, `pi_rx_tests`, `pi_rx_delta_tests`, `host_tests` | #279's, with `os` in every card report and the longest heartbeat; `0x20` to `0x23` taken in a Pi build and unknown in any other; `"op":"pi_os"` unsupported in a build without Pi updates | 1041, 13,964, 45, 45, 482 checks |
 | `firmware/tests/hil/test_pi_os.py` | The board's C code on the host (`pi_delta_harness os-update` and `serve --offer`) and `tools/pi_os_sim.py` as the Pi, with update files laid out as `cranium_ota.py make` writes them and signed with Ed25519: an update end to end (status, offer, read, signature, applied, trial, confirmed, status; the board keeps the result across a restart); nothing without a job; the Pi cut off half way and going on; refused before reading (wrong `from`; not newer); a bad signature; rolled back; a full image; a noisy wire with messages between the requests; a result sent again after a Pi restart; eight malformed requests; the download with a lost connection and a power cut; a wrong SHA-256 never offered; a delta image and an OS file on one card, each taken by its own stand-in | 15 tests |
+| `firmware/tests/hil/test_pi_os_tryboot.py` | The Pi's own `pi/cranium_ota.py` (the tryboot branch, read with `git show` when the tests run, never copied here; skipped, saying so, without it) on both ends of the board's C code: `make` builds and signs a real update (throwaway Ed25519 key, small images), the board downloads and offers it, it is read back whole over FILE_READ (its manifest and signature first, checked with the Pi's own `verify`), and the Pi's `apply`, on files that stand for its partitions as in its own tests, checks and installs the bytes the board served; its `status` as OS_STATUS before, on and after the trial, `confirm` kept and rolled back, a full image, and `apply`'s three refusals (another key, not newer, another starting point) as RESULT with its words; `pi/cranium_link.py` sending before every request of a whole update, and its `--status` right after a request whose answer nobody took | 8 tests |
 | `firmware/tests/hil/test_pi_delta.py` | #279's, unchanged | 19 tests |
 
 All host suites: 46, green. CI is off (GitHub Actions is paused); all of it was run locally.
@@ -373,8 +381,20 @@ All host suites: 46, green. CI is off (GitHub Actions is paused); all of it was 
    be a code of its own, for the console to send the right file?
 4. **Health check and the link.** The trial's health check is `cranium-link --status`; `fetch` and
    `cranium-link` must not both drive the spidev at once (a lock, as in #279's notes). Which lock file?
-5. **Reason text.** The board keeps 32 bytes of ASCII. Enough for `UpdateError` messages, or should the
-   board keep more?
+   `test_pi_os_tryboot.py` shows why: `--status` is one POLL and takes only STATUS, so right after a
+   request whose answer nobody took it prints `no status frame: {'bad_reply': 1}` and exits 1 (the next
+   one passes). `confirm` tries again every 10 s, so one costs 10 s of the trial; a second POLL in
+   `--status` would cost nothing.
+5. **Reason text.** The board keeps 32 bytes of ASCII. `apply`'s refusals run 41 to 99 bytes (`the
+   signature does not match the Pi OS signing key`, `1.1.0 is not newer than the running 1.2.0`, `the
+   running slot's root partition is not 1.0.0: this delta does not apply to it (a full image does)`).
+   RESULT takes any reason *n* can say (255 bytes; 64 before), so `fetch` can send `str(e)` as it is, but
+   the board keeps `the signature does not match the`, `1.1.0 is not newer than the runn` and `the
+   running slot's root partitio`. A short word first (`signature`, `not_newer`, `wrong_start`), or more
+   room on the board (32 bytes more of RAM in a Pi build, which is 16 bytes above its floor)?
+6. **The SPI clock.** `cranium-link` clocks at 1 MHz by default: about 115 KB/s at most for FILE_READ.
+   This page's and #279's estimates assume 8 MHz, not tried on the board's SPI target. Will `fetch` use
+   `--hz`, or is a minute for a 5 MB delta fine?
 
 ## Untested on hardware
 

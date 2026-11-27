@@ -85,9 +85,12 @@ enum pi_dlink_file_state {
 #define PI_DLINK_FILE_INFO_SIZE 116u
 /* FILE_INFO flags: 1 a full image (no version it updates from), 4 no card (as INFO's). */
 #define PI_DLINK_FILE_FULL      0x01u
-/* RESULT: the fixed part before the reason, and the longest reason the Pi may send. */
+/*
+ * RESULT: the fixed part before the reason, and the longest reason the Pi may send: any its n says
+ * (`cranium_ota.py apply`'s refusals run to about 100 bytes). The board keeps PI_OS_REASON_MAX of it.
+ */
 #define PI_DLINK_RESULT_HEAD    40u
-#define PI_DLINK_REASON_MAX     64u
+#define PI_DLINK_REASON_MAX     255u
 #define PI_DLINK_OS_STATUS_SIZE 68u
 /* The answers to RESULT and OS_STATUS. */
 #define PI_DLINK_ACK_SIZE       8u

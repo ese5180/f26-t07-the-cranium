@@ -49,7 +49,7 @@ NONE, DOWNLOADING, OFFERED, HELD = 0, 1, 2, 3
 APPLIED, CONFIRMED, ROLLED_BACK, REFUSED = 1, 2, 3, 4
 RESULT_NAMES = {APPLIED: "applied", CONFIRMED: "confirmed", ROLLED_BACK: "rolled_back", REFUSED: "refused"}
 FLAG_FULL, FLAG_NO_CARD = 1, 4
-REASON_MAX = 64
+REASON_MAX = 255             # what RESULT's n can say; the board keeps 32 bytes of it
 
 
 def version_key(text: str) -> tuple[int, ...]:

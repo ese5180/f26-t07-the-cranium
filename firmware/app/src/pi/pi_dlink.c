@@ -407,7 +407,8 @@ static uint8_t file_result(struct pi_dlink *link, const struct pi_frame *request
 	const uint8_t *req = request->payload;
 	bool taken;
 
-	if (request->length < PI_DLINK_RESULT_HEAD || req[1] > PI_DLINK_REASON_MAX ||
+	/* Any reason n can say fits the frame (PI_DLINK_REASON_MAX). */
+	if (request->length < PI_DLINK_RESULT_HEAD ||
 	    request->length != PI_DLINK_RESULT_HEAD + req[1] || pi_get16(req + 2) != 0 ||
 	    req[0] == PI_OS_NONE || req[0] >= PI_OS_RESULT_COUNT) {
 		return PI_DLINK_BAD_REQUEST;
@@ -475,7 +476,11 @@ static uint8_t os_status(struct pi_dlink *link, const struct pi_frame *request, 
 	os = &link->card->os;
 	os->known = true;
 	os->slot = req[0];
-	os->trial = req[2];
+	/*
+	 * On trial while the slot it runs is not the one it boots by default: `cranium-update status`
+	 * says trial for the whole boot that tryboot started, also once `confirm` has kept that slot.
+	 */
+	os->trial = req[2] != 0 && (req[1] == 0 || req[1] != req[0]) ? 1 : 0;
 	os->last = req[3];
 	memcpy(os->version, version, sizeof(version));
 	ack(link, p, 1);

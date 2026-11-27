@@ -939,8 +939,9 @@ static void test_link(void)
 		      error_code(&a) == PI_DLINK_BAD_REQUEST);
 		CHECK(ask(&link, PI_DLINK_RESULT, args, 39, &a, tx) &&
 		      error_code(&a) == PI_DLINK_BAD_REQUEST);
-		args[1] = PI_DLINK_REASON_MAX + 1;
-		CHECK(ask(&link, PI_DLINK_RESULT, args, PI_DLINK_RESULT_HEAD + PI_DLINK_REASON_MAX + 1, &a,
+		/* The longest reason n can say, one byte short of it. */
+		args[1] = PI_DLINK_REASON_MAX;
+		CHECK(ask(&link, PI_DLINK_RESULT, args, PI_DLINK_RESULT_HEAD + PI_DLINK_REASON_MAX - 1, &a,
 			  tx) && error_code(&a) == PI_DLINK_BAD_REQUEST);
 		n = result_args(args, PI_OS_APPLIED, 1, "1.1.0", "", 0);
 		args[2] = 1;
@@ -972,6 +973,16 @@ static void test_link(void)
 		CHECK(strcmp(w.card.file.reason, "health ?check?? failed??[31m?? a") == 0);
 		CHECK(strlen(w.card.file.reason) == PI_OS_REASON_MAX);
 		CHECK(strcmp(file_after_open(&w).reason, w.card.file.reason) == 0);
+		/* As long as n can say, as `apply`'s refusals are long: taken, its start kept. */
+		{
+			char lengthy[PI_DLINK_REASON_MAX];
+
+			memset(lengthy, 'r', sizeof(lengthy));
+			memcpy(lengthy, "the running slot's root partition is not 1.0.0", 46);
+			n = result_args(args, PI_OS_ROLLED_BACK, 1, "1.1.0", lengthy, sizeof(lengthy));
+			CHECK(ask(&link, PI_DLINK_RESULT, args, n, &a, tx) && a.payload[5] == 1);
+			CHECK(strcmp(w.card.file.reason, "the running slot's root partitio") == 0);
+		}
 		/* A zero in it ends it, on the card too. */
 		n = result_args(args, PI_OS_ROLLED_BACK, 1, "1.1.0", "ab\0cd", 5);
 		CHECK(ask(&link, PI_DLINK_RESULT, args, n, &a, tx) && strcmp(w.card.file.reason, "ab") == 0);
@@ -1006,6 +1017,18 @@ static void test_link(void)
 	CHECK(ask(&link, PI_DLINK_OS_STATUS, args, PI_DLINK_OS_STATUS_SIZE, &a, tx) && a.type == 0xa3);
 	CHECK(pi_get32(a.payload) == 1 && a.payload[4] == PI_DLINK_FILE_OFFERED);
 	CHECK(w.card.os.slot == 'b' && w.card.os.trial == 1 && strcmp(w.card.os.version, "1.1.0") == 0);
+	CHECK(!pi_os_pi_runs(&w.card, "1.1.0"));
+	/*
+	 * Kept on that same boot: `cranium-update status` says trial for the whole boot tryboot started,
+	 * also once confirm has made slot b the default. Off trial for the board; with the default not
+	 * known, still on trial.
+	 */
+	status_args(args, 'b', 'b', 1, PI_OS_CONFIRMED, "1.1.0");
+	CHECK(ask(&link, PI_DLINK_OS_STATUS, args, PI_DLINK_OS_STATUS_SIZE, &a, tx) && a.type == 0xa3);
+	CHECK(w.card.os.trial == 0 && pi_os_pi_runs(&w.card, "1.1.0"));
+	status_args(args, 'b', 0, 1, PI_OS_NONE, "1.1.0");
+	CHECK(ask(&link, PI_DLINK_OS_STATUS, args, PI_DLINK_OS_STATUS_SIZE, &a, tx) && a.type == 0xa3);
+	CHECK(w.card.os.trial == 1 && !pi_os_pi_runs(&w.card, "1.1.0"));
 	/* A version that is not one: kept as not known. */
 	status_args(args, 'b', 'b', 0, PI_OS_CONFIRMED, "1.1.0 \"x\"");
 	CHECK(ask(&link, PI_DLINK_OS_STATUS, args, PI_DLINK_OS_STATUS_SIZE, &a, tx) && a.type == 0xa3);
