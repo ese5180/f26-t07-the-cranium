@@ -208,6 +208,104 @@ void pi_card_state_encode(const struct pi_card_state *st, uint8_t raw[PI_SECTOR_
 /* False if the sector is not a state header: magic, format, CRC, or a field out of range. */
 bool pi_card_state_decode(const uint8_t raw[PI_SECTOR_SIZE], struct pi_card_state *st);
 
+/*
+ * The file area, from 1.20.2 (docs/pi-os-update.md): one update file for the Pi's own A/B update with
+ * tryboot, kept whole on the card for the Pi to read. Its header has two copies, as the state has, in
+ * the two sectors after the state's, which no earlier layout uses (a card that tools/pi_image.py wrote
+ * has zeros there). The file itself sits at the end of the card, on a 1 MiB boundary, and never below
+ * the end of the mirror's images.
+ */
+#define PI_FILE_HEADER_LBA (PI_CARD_BASE_LBA + 2u)
+
+enum pi_file_state {
+	PI_FILE_NONE = 0,
+	/* Being downloaded, or checked: the Pi gets nothing of it. */
+	PI_FILE_DOWNLOADING = 1,
+	/* Whole, and its SHA-256 the job's, as read back from the card. */
+	PI_FILE_READY = 2,
+};
+
+/* What the Pi did with a file (RESULT), and the last result in its status (OS_STATUS). */
+enum pi_os_result {
+	PI_OS_NONE = 0,
+	/* Written into its spare slot: it restarts into it on trial. */
+	PI_OS_APPLIED = 1,
+	/* The trial passed: the Pi runs it from now on. */
+	PI_OS_CONFIRMED = 2,
+	/* The trial failed: the Pi went back to the slot it ran before. */
+	PI_OS_ROLLED_BACK = 3,
+	/* Not installed: not for this Pi, not newer, or a bad signature. */
+	PI_OS_REFUSED = 4,
+	PI_OS_RESULT_COUNT,
+};
+
+/* What the board keeps of the reason a Pi gives with a result: printable ASCII, no " or \. */
+#define PI_OS_REASON_MAX 32u
+
+/*
+ * The file's header, one sector, little-endian; of the two copies, the good one with the higher
+ * sequence counts, and each save goes to the other:
+ *
+ *   offset  size  field
+ *        0     4  magic "CPOF"
+ *        4     2  format, 1
+ *        8     4  sequence
+ *       12     1  state (enum pi_file_state)
+ *       13     1  the Pi's result for this generation (enum pi_os_result)
+ *       16     4  generation: one up each time a job takes the file area
+ *       20     4  size, 1 to 2^32 - 1 bytes
+ *       24     4  bytes on the card: whole sectors until the last
+ *       28     4  the job that took it: CRC-32 of its ID
+ *       32     8  where the file starts on the card (a sector)
+ *       40    32  SHA-256 of the file
+ *       72    32  version: 1 to 31 of A-Z a-z 0-9 . _ + -, then zeros
+ *      104    32  the version it updates from: the same, or all zeros for a full image
+ *      136    32  the Pi's reason for its result, zeros after it
+ *      508     4  CRC-32 of bytes 0 to 507
+ */
+struct pi_file_header {
+	uint32_t seq;
+	uint8_t state;
+	uint8_t result;
+	uint32_t generation;
+	uint32_t size;
+	uint32_t done;
+	uint32_t job;
+	uint64_t lba;
+	uint8_t sha256[PI_HASH_SIZE];
+	char version[PI_VERSION_MAX + 1];
+	char from[PI_VERSION_MAX + 1];
+	char reason[PI_OS_REASON_MAX + 1];
+};
+
+/* Fields that are changed in place, in a header read from the card. */
+#define PI_FILE_AT_SEQ     8u
+#define PI_FILE_AT_STATE   12u
+#define PI_FILE_AT_RESULT  13u
+#define PI_FILE_AT_GEN     16u
+#define PI_FILE_AT_SIZE    20u
+#define PI_FILE_AT_DONE    24u
+#define PI_FILE_AT_LBA     32u
+#define PI_FILE_AT_SHA256  40u
+#define PI_FILE_AT_VERSION 72u
+#define PI_FILE_AT_FROM    104u
+#define PI_FILE_AT_REASON  136u
+
+void pi_file_header_encode(const struct pi_file_header *h, uint8_t raw[PI_SECTOR_SIZE]);
+/* False if the sector is not a file header: magic, format, CRC, or a field out of range. */
+bool pi_file_header_decode(const uint8_t raw[PI_SECTOR_SIZE], struct pi_file_header *h);
+/* The CRC at the end of a header changed in place. */
+void pi_file_header_seal(uint8_t raw[PI_SECTOR_SIZE]);
+
+/* "none", "applied", "confirmed", "rolled_back", "refused"; "unknown" past them. */
+const char *pi_os_result_name(uint8_t result);
+
+/*
+ * The Pi's text, made safe for JSON and for the console, in place: every byte up to the first zero
+ * that is not printable ASCII, and every " and \, becomes '?'.
+ */
+void pi_os_clean_text(char *text, size_t size);
+
 /* Little-endian helpers, shared with the link. */
 static inline void pi_put16(uint8_t *at, uint16_t v)
 {

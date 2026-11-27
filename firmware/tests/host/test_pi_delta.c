@@ -1468,13 +1468,25 @@ static void test_http(void)
 /* The report that goes with the heartbeat (pi_delta_report(), as main.c's "pi")                */
 
 /* The report is exactly `expected`, and JSON: an object with the six keys. */
-static bool report_is(const struct world *w, bool job, const char *expected)
+/*
+ * The card's part of the report is expected; from 1.20.2 the report ends with the Pi's own system and
+ * the file area ("os", test_pi_os.c), which here has nothing in it.
+ */
+#define OS_NOTHING                                                                                 \
+	",\"os\":{\"version\":\"\",\"slot\":\"\",\"last\":\"none\",\"file\":\"none\","                \
+	"\"result\":\"none\",\"done\":0,\"size\":0}}"
+
+static bool report_is(const struct world *w, bool job, const char *card_part)
 {
-	static const char *const keys[] = { "card", "version", "generation", "step", "done", "total" };
+	static const char *const keys[] = { "card", "version", "generation", "step", "done", "total", "os" };
 	char buf[PI_DELTA_REPORT_MAX];
+	char expected[PI_DELTA_REPORT_MAX];
 	int written = pi_delta_report(&w->delta, job, buf, sizeof(buf));
 	cJSON *json = written > 0 ? cJSON_Parse(buf) : NULL;
-	bool ok = written == (int)strlen(expected) && strcmp(buf, expected) == 0 && cJSON_IsObject(json);
+	bool ok;
+
+	snprintf(expected, sizeof(expected), "%.*s%s", (int)strlen(card_part) - 1, card_part, OS_NOTHING);
+	ok = written == (int)strlen(expected) && strcmp(buf, expected) == 0 && cJSON_IsObject(json);
 
 	for (size_t i = 0; ok && i < sizeof(keys) / sizeof(keys[0]); i++) {
 		ok = cJSON_HasObjectItem(json, keys[i]);
@@ -1585,7 +1597,8 @@ static void test_report(void)
 
 	/*
 	 * Every field at its longest is PI_DELTA_REPORT_MAX with the terminating zero, exactly, which is
-	 * what main.c leaves for it. A byte less is refused, and a step it does not know is "idle".
+	 * what main.c leaves for it. A byte less is refused, and a step it does not know is "idle". The
+	 * "os" part at its longest too (test_pi_os.c has it on its own).
 	 */
 	CHECK(pi_card_open(&w.card, MAX_BLOCKS) == PI_OK);
 	w.card.st.state = PI_STATE_UPDATING;
@@ -1595,6 +1608,14 @@ static void test_report(void)
 	w.delta.step = PI_STEP_MANIFEST;
 	w.delta.stats.blocks_total = UINT32_MAX;
 	w.delta.stats.blocks_done = UINT32_MAX;
+	w.card.os.known = true;
+	w.card.os.slot = 'b';
+	w.card.os.last = PI_OS_ROLLED_BACK;
+	memset(w.card.os.version, '8', PI_VERSION_MAX);
+	w.card.file.state = PI_FILE_DOWNLOADING;
+	w.card.file.result = PI_OS_ROLLED_BACK;
+	w.card.file.size = UINT32_MAX;
+	w.card.file.done = UINT32_MAX;
 	CHECK(pi_delta_report(&w.delta, true, buf, sizeof(buf)) == (int)PI_DELTA_REPORT_MAX - 1);
 	CHECK(strstr(buf, "\"version\":\"9999999999999999999999999999999\"") != NULL);
 	CHECK(pi_delta_report(&w.delta, true, buf, sizeof(buf) - 1) == -ENOSPC);

@@ -281,6 +281,24 @@ static enum ota_job_result parse_document(const cJSON *document, const char *all
 		job->pi_delta = true;
 		return split_url(string_member(pi, "url"), allowed_url_prefix, job);
 	}
+	/*
+	 * From 1.20.2, a Pi OS update (src/pi/pi_os.h): one file, whole. "from" is the version it
+	 * updates from, or null for a full image; it has to be there either way.
+	 */
+	if (operation != NULL && strcmp(operation, "pi_os") == 0 &&
+	    integer_member(document, "v", 1, 1, &document_version)) {
+		const cJSON *pi = cJSON_GetObjectItemCaseSensitive(document, "pi");
+		const cJSON *from = cJSON_GetObjectItemCaseSensitive(pi, "from");
+
+		if (!cJSON_IsObject(pi) || !copy_pi_version(string_member(pi, "version"), job->pi_version) ||
+		    !(cJSON_IsNull(from) || copy_pi_version(string_member(pi, "from"), job->pi_from)) ||
+		    !integer_member(pi, "size", 1, UINT32_MAX, &job->size) ||
+		    !parse_sha256(string_member(pi, "sha256"), job->sha256)) {
+			return OTA_JOB_BAD_DOCUMENT;
+		}
+		job->pi_os = true;
+		return split_url(string_member(pi, "url"), allowed_url_prefix, job);
+	}
 #endif
 
 	if (operation == NULL || strcmp(operation, "fw_update") != 0 ||

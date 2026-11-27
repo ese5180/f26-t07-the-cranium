@@ -7,6 +7,10 @@
  * presigned URL, and calls again, which goes on from what the card says. A call that got nothing
  * further counts as a failed attempt; CONFIG_APP_PI_DELTA_DOWNLOAD_ATTEMPTS of them in a row fail
  * the job.
+ *
+ * From 1.20.2 the same thread, downloader and retries also run a "pi_os" job (pi_os.h): one file into
+ * the card's file area. Once it is there and checked, the job is offered to the Pi and waits, on the
+ * main loop, for what the Pi says: the result of that file, or a status that shows it runs it.
  */
 
 #include "pi_delta_ota.h"
@@ -26,8 +30,10 @@
 #include "pi_card.h"
 #include "pi_card_disk.h"
 #include "pi_delta.h"
+#include "pi_frame.h"
 #include "pi_link.h"
 #include "pi_http.h"
+#include "pi_os.h"
 #include "pi_key.h"
 #include "version.h"
 
@@ -39,6 +45,8 @@ LOG_MODULE_REGISTER(pi_delta, CONFIG_APP_LOG_LEVEL);
 #define RETRY_WAIT_SECONDS    10
 /* The longest the heartbeat waits for the card's lock: a card operation in progress ends sooner. */
 #define REPORT_LOCK_MS        500
+/* The longest a tick waits for it while a Pi OS update is offered: the next tick looks again. */
+#define WATCH_LOCK_MS         50
 
 enum phase {
 	PHASE_IDLE,
@@ -48,6 +56,8 @@ enum phase {
 	PHASE_RETRY_WAIT,
 	/* Asked for the job again: waiting for it. */
 	PHASE_REFRESHING,
+	/* A Pi OS update's file is on the card and offered: waiting for the Pi. The thread is idle. */
+	PHASE_OFFERED,
 };
 
 static const struct pi_delta_config config = {
@@ -58,28 +68,50 @@ static const struct pi_delta_config config = {
 	.table_save_every = 64,
 };
 
+static const struct pi_os_config os_config = {
+	.default_max_blocks = CONFIG_APP_PI_DELTA_MAX_BLOCKS,
+	/* 32 KiB: a power cut costs that much of the file at most. */
+	.save_every = 64,
+	/* A file that reads back wrong is downloaded once more before the job fails. */
+	.attempts = 2,
+};
+
 static struct {
 	enum phase phase;
 	int seconds;
 	int since_report;
 	char job_id[OTA_JOB_ID_MAX + 1];
 	char closed_id[OTA_JOB_ID_MAX + 1];
-	struct pi_delta_job job;
+	/* From 1.20.2: the job is a Pi OS update (os_job), not a delta update (job). */
+	bool os_kind;
+	/* A Pi OS update, once offered: what its reports said last (enum pi_os_watch, bytes read). */
+	uint8_t watch;
+	/* Both start with the version, so job.version is the version of either. */
+	union {
+		struct pi_delta_job job;
+		struct pi_os_job os_job;
+	};
+	uint32_t offered_generation;
+	/* The card's open count when its file was offered: another card may hold that generation too. */
+	uint32_t offered_opens;
+	uint32_t watch_read;
 	/* "https://" and the host; the path and query. Only changed while the thread is idle. */
 	char host[OTA_JOB_HOST_MAX + 1];
 	char file[OTA_JOB_FILE_MAX + 1];
 	uint8_t attempts;
-	uint32_t mark;
 	bool withdrawn;
+	bool card_ok;
+	uint32_t mark;
 	/* Set by the thread when a call ends. */
 	atomic_t done;
 	enum pi_err result;
-	bool card_ok;
 } pi;
 
 static volatile bool stop;
 static struct pi_card card;
 static struct pi_delta delta;
+/* Pi OS updates (pi_os.h): lent the delta update's sector, as the thread runs one at a time. */
+static struct pi_os os;
 static int sock = -1;
 /* A response's head, then pieces of its body. */
 static uint8_t http_buf[CONFIG_APP_PI_DELTA_HTTP_BUF];
@@ -325,7 +357,7 @@ static void thread_main(void *a, void *b, void *c)
 			}
 			continue;
 		}
-		err = pi_delta_run(&delta, &pi.job, &already);
+		err = pi.os_kind ? pi_os_run(&os, &pi.os_job) : pi_delta_run(&delta, &pi.job, &already);
 		http_close();
 		pi.result = err;
 		pi.card_ok = card.open;
@@ -351,22 +383,33 @@ static void job_update(const char *status, const char *details)
 	}
 }
 
+/* Either kind's progress: blocks of a delta update, bytes of an OS update's file. */
 static void report_progress(void)
 {
 	char details[160];
-	uint32_t total = delta.stats.blocks_total;
-	uint32_t done = delta.stats.blocks_done;
 
-	(void)snprintf(details, sizeof(details),
-		       "\"step\":\"%s\",\"progress\":\"%u\",\"done\":\"%u\",\"total\":\"%u\"",
-		       pi_step_name(delta.step), total == 0 ? 0u : (unsigned int)(100ull * done / total),
-		       (unsigned int)done, (unsigned int)total);
-	job_update("IN_PROGRESS", details);
+	if (pi_os_details_progress(details, sizeof(details),
+				   pi.os_kind ? pi_os_step_name(os.step) : pi_step_name(delta.step),
+				   pi.os_kind ? os.done : delta.stats.blocks_done,
+				   pi.os_kind ? os.size : delta.stats.blocks_total) > 0) {
+		job_update("IN_PROGRESS", details);
+	}
 	pi.since_report = 0;
+}
+
+/* A Pi OS update's file stays on the card, but the Pi is offered nothing without a job. */
+static void stop_offering(void)
+{
+	if (pi.os_kind) {
+		pi_card_lock(&card);
+		card.file.offered = false;
+		pi_card_unlock(&card);
+	}
 }
 
 static void finish(void)
 {
+	stop_offering();
 	strncpy(pi.closed_id, pi.job_id, sizeof(pi.closed_id) - 1);
 	pi.phase = PHASE_IDLE;
 	(void)cloud_jobs_request_next();
@@ -376,6 +419,14 @@ static void finish_succeeded(void)
 {
 	char details[224];
 
+	if (pi.os_kind) {
+		(void)pi_os_details_succeeded(details, sizeof(details), pi.os_job.version,
+					      pi.offered_generation, os.bytes_fetched, pi.watch_read,
+					      fw_version_running_string());
+		job_update("SUCCEEDED", details);
+		finish();
+		return;
+	}
 	(void)snprintf(details, sizeof(details),
 		       "\"pi_version\":\"%s\",\"generation\":\"%u\",\"fetched\":\"%u\",\"changed\":\"%u\","
 		       "\"bytes\":\"%llu\",\"running\":\"%s\"",
@@ -393,7 +444,9 @@ static void finish_failed(enum pi_err err)
 	char details[160];
 
 	(void)snprintf(details, sizeof(details), "\"reason\":\"%s\",\"step\":\"%s\",\"running\":\"%s\"",
-		       pi_err_reason(err), pi_step_name(delta.step), fw_version_running_string());
+		       pi_err_reason(err),
+		       pi.os_kind ? pi_os_step_name(os.step) : pi_step_name(delta.step),
+		       fw_version_running_string());
 	LOG_ERR("Pi job %s failed: %s", pi.job_id, pi_err_reason(err));
 	job_update("FAILED", details);
 	finish();
@@ -410,6 +463,33 @@ static void run(void)
 	k_sem_give(&start);
 }
 
+/* A job named again, for a fresh URL, is for what the one under way was after. */
+static bool same_target(const struct ota_job *job)
+{
+	if (job->pi_os != pi.os_kind || strcmp(job->pi_version, pi.job.version) != 0) {
+		return false;
+	}
+	if (pi.os_kind) {
+		return memcmp(job->sha256, pi.os_job.sha256, PI_HASH_SIZE) == 0 &&
+		       memcmp(job->pi_from, pi.os_job.from, sizeof(pi.os_job.from)) == 0 &&
+		       job->size == pi.os_job.size;
+	}
+	return memcmp(job->sha256, pi.job.sha256, PI_HASH_SIZE) == 0;
+}
+
+/* A Pi OS update: the Pi's last status says it runs the job's version, off trial. */
+static bool pi_runs_job(void)
+{
+	bool runs;
+
+	if (pi_card_disk_lock_within(WATCH_LOCK_MS) != 0) {
+		return false;
+	}
+	runs = pi_os_pi_runs(&card, pi.os_job.version);
+	pi_card_unlock(&card);
+	return runs;
+}
+
 void pi_delta_ota_on_job(const struct ota_job *job)
 {
 	if (strcmp(job->id, pi.closed_id) == 0) {
@@ -423,8 +503,7 @@ void pi_delta_ota_on_job(const struct ota_job *job)
 		}
 		if (pi.phase == PHASE_REFRESHING || pi.phase == PHASE_RETRY_WAIT) {
 			/* The fresh URL. The image has to be the one the call before was after. */
-			if (strcmp(job->pi_version, pi.job.version) != 0 ||
-			    memcmp(job->sha256, pi.job.sha256, PI_HASH_SIZE) != 0) {
+			if (!same_target(job)) {
 				finish_failed(PI_ERR_MANIFEST_MISMATCH);
 				return;
 			}
@@ -435,17 +514,37 @@ void pi_delta_ota_on_job(const struct ota_job *job)
 		return;
 	}
 
-	memset(&pi.job, 0, sizeof(pi.job));
+	memset(&pi.os_job, 0, sizeof(pi.os_job));
 	memcpy(pi.job_id, job->id, sizeof(pi.job_id));
-	memcpy(pi.job.version, job->pi_version, sizeof(pi.job.version));
-	memcpy(pi.job.sha256, job->sha256, PI_HASH_SIZE);
+	pi.os_kind = job->pi_os;
+	if (pi.os_kind) {
+		memcpy(pi.os_job.version, job->pi_version, sizeof(pi.os_job.version));
+		memcpy(pi.os_job.from, job->pi_from, sizeof(pi.os_job.from));
+		memcpy(pi.os_job.sha256, job->sha256, PI_HASH_SIZE);
+		pi.os_job.size = job->size;
+		pi.os_job.tag = pi_crc32((const uint8_t *)job->id, strlen(job->id));
+	} else {
+		memcpy(pi.job.version, job->pi_version, sizeof(pi.job.version));
+		memcpy(pi.job.sha256, job->sha256, PI_HASH_SIZE);
+	}
 	memcpy(pi.host, job->host, sizeof(pi.host));
 	memcpy(pi.file, job->file, sizeof(pi.file));
 	pi.attempts = 0;
 	pi.mark = 0;
-	LOG_INF("Pi image %s: %s", pi.job.version, job->in_progress ? "going on" : "starting");
-	job_update("IN_PROGRESS", "\"step\":\"manifest\"");
+	pi.offered_generation = 0;
+	pi.watch = PI_OS_WAIT_CARD;
+	pi.watch_read = 0;
+	os.bytes_fetched = 0;
+	LOG_INF("Pi %s %s: %s", pi.os_kind ? "OS" : "image", pi.job.version,
+		job->in_progress ? "going on" : "starting");
+	job_update("IN_PROGRESS", pi.os_kind ? "\"step\":\"download\"" : "\"step\":\"manifest\"");
 	pi.since_report = 0;
+	if (pi.os_kind && pi_runs_job()) {
+		/* The Pi said it runs this version already: nothing to download. */
+		pi.phase = PHASE_RUNNING;
+		finish_succeeded();
+		return;
+	}
 	run();
 }
 
@@ -461,6 +560,7 @@ void pi_delta_ota_withdrawn(void)
 	}
 	LOG_INF("Pi job %s was withdrawn", pi.job_id);
 	pi.withdrawn = true;
+	stop_offering();
 	if (pi.phase == PHASE_RUNNING) {
 		/* The thread stops at its next piece; on_tick() then goes idle. */
 		stop = true;
@@ -469,14 +569,118 @@ void pi_delta_ota_withdrawn(void)
 	}
 }
 
+/* ------------------------------------------------------------------------------------------- */
+/* A Pi OS update, offered: on the main loop, while the thread is idle                          */
+
+static void report_offer(uint8_t watch, uint32_t read)
+{
+	char details[160];
+
+	if (pi_os_details_offer(details, sizeof(details), watch, pi.offered_generation, read,
+				pi.os_job.size) > 0) {
+		job_update("IN_PROGRESS", details);
+	}
+	pi.watch = watch;
+	pi.watch_read = read;
+	pi.since_report = 0;
+}
+
+static void finish_refused(uint8_t result, const char *reason)
+{
+	char details[160];
+
+	(void)pi_os_details_failed(details, sizeof(details), result, reason,
+				   fw_version_running_string());
+	LOG_ERR("Pi job %s: the Pi says %s (%s)", pi.job_id, pi_os_result_name(result), reason);
+	job_update("FAILED", details);
+	finish();
+}
+
+/* The file is on the card and checked: the Pi may take it now. */
+static void offer(void)
+{
+	pi.offered_generation = os.generation;
+	pi_card_lock(&card);
+	pi.offered_opens = card.opens;
+	if (card.open && card.file.state == PI_FILE_READY &&
+	    card.file.generation == pi.offered_generation) {
+		card.file.offered = true;
+	}
+	pi_card_unlock(&card);
+	LOG_INF("Pi OS %s: offered to the Pi (generation %u)", pi.os_job.version,
+		(unsigned int)pi.offered_generation);
+	pi.phase = PHASE_OFFERED;
+	pi.seconds = 0;
+	report_offer(PI_OS_OFFERED, 0);
+}
+
+/* What the Pi has done with the offered file, once a second. */
+static void watch_offer(void)
+{
+	char reason[PI_OS_REASON_MAX + 1];
+	enum pi_os_watch watch;
+	uint8_t result;
+	uint32_t read;
+
+	if (pi_card_disk_lock_within(WATCH_LOCK_MS) != 0) {
+		return;
+	}
+	/*
+	 * The card was opened again since the offer: it may be another card, whose file has the same
+	 * generation but was checked for another job, and whose result is not this job's. The update
+	 * takes the file again: the same card's file, with this job's tag, is offered again at once.
+	 */
+	if (card.open && card.opens != pi.offered_opens) {
+		pi_card_unlock(&card);
+		run();
+		return;
+	}
+	if (card.open && card.file.state == PI_FILE_READY &&
+	    card.file.generation == pi.offered_generation) {
+		card.file.offered = true;
+	}
+	watch = pi_os_watch(&card, &pi.os_job, pi.offered_generation);
+	result = card.file.result;
+	read = card.file.read;
+	memcpy(reason, card.file.reason, sizeof(reason));
+	pi_card_unlock(&card);
+
+	switch (watch) {
+	case PI_OS_SUCCEEDED:
+		pi.watch_read = read > pi.watch_read ? read : pi.watch_read;
+		finish_succeeded();
+		break;
+	case PI_OS_FAILED:
+		finish_refused(result, reason);
+		break;
+	case PI_OS_LOST:
+		/* Another card, or the file gone from it: take the file again, and offer it again. */
+		run();
+		break;
+	case PI_OS_WAIT_CARD:
+		break;
+	default:
+		if (watch != pi.watch ||
+		    (read != pi.watch_read && pi.since_report >= REPORT_SECONDS)) {
+			report_offer((uint8_t)watch, read);
+		}
+		break;
+	}
+}
+
 static void on_result(void)
 {
 	enum pi_err err = pi.result;
-	uint32_t progress = delta.stats.blocks_done + (uint32_t)delta.step * 0x1000000u;
+	uint32_t progress = pi.os_kind ? os.done + (uint32_t)os.step
+				       : delta.stats.blocks_done + (uint32_t)delta.step * 0x1000000u;
 
 	if (pi.withdrawn) {
 		pi.phase = PHASE_IDLE;
 		(void)cloud_jobs_request_next();
+		return;
+	}
+	if (err == PI_OK && pi.os_kind) {
+		offer();
 		return;
 	}
 	if (err == PI_OK) {
@@ -488,7 +692,11 @@ static void on_result(void)
 		return;
 	}
 	/* Something arrived since the last call: the count starts again. */
-	if (progress != pi.mark || delta.stats.blocks_fetched > 0) {
+	/*
+	 * For an OS update, progress counts what reached the card; a delta update's counts are its own
+	 * and stay from its last job, so they are not looked at for an OS update.
+	 */
+	if (progress != pi.mark || (!pi.os_kind && delta.stats.blocks_fetched > 0)) {
 		pi.attempts = 0;
 	}
 	pi.mark = progress;
@@ -530,7 +738,7 @@ void pi_delta_ota_on_tick(void)
 	pi.seconds++;
 	pi.since_report++;
 
-	if (pi.phase == PHASE_IDLE) {
+	if (pi.phase == PHASE_IDLE || pi.phase == PHASE_OFFERED) {
 		watch_card();
 	}
 
@@ -556,6 +764,11 @@ void pi_delta_ota_on_tick(void)
 			(void)cloud_jobs_request_next();
 		}
 		break;
+	case PHASE_OFFERED:
+		if (cloud_is_connected()) {
+			watch_offer();
+		}
+		break;
 	default:
 		break;
 	}
@@ -577,7 +790,7 @@ int pi_delta_ota_report(char *buf, size_t len)
 	if (pi_card_disk_lock_within(REPORT_LOCK_MS) != 0) {
 		return -EBUSY;
 	}
-	written = pi_delta_report(&delta, pi.phase != PHASE_IDLE, buf, len);
+	written = pi_delta_report(&delta, pi.phase != PHASE_IDLE && !pi.os_kind, buf, len);
 	pi_card_unlock(&card);
 	return written;
 }
@@ -588,6 +801,7 @@ int pi_delta_ota_init(void)
 
 	pi_card_init(&card, &pi_card_disk_ops, NULL);
 	pi_delta_init(&delta, &card, &config, &fetch, verify_signature, &stop);
+	pi_os_init(&os, &card, &os_config, &fetch, delta.io, &stop);
 
 	err = pi_card_disk_init();
 	if (err != 0) {

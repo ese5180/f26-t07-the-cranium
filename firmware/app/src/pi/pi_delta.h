@@ -151,8 +151,11 @@ const char *pi_step_name(uint8_t step);
  */
 #define PI_DELTA_REPORT_MAX                                                                        \
 	(sizeof("{\"card\":\"updating\",\"version\":\"\",\"generation\":4294967295,"                 \
-		"\"step\":\"manifest\",\"done\":4294967295,\"total\":4294967295}") +                   \
-	 PI_VERSION_MAX)
+		"\"step\":\"manifest\",\"done\":4294967295,\"total\":4294967295,"                     \
+		"\"os\":{\"version\":\"\",\"slot\":\"a\",\"last\":\"rolled_back\","                       \
+		"\"file\":\"downloading\",\"result\":\"rolled_back\",\"done\":4294967295,"               \
+		"\"size\":4294967295}}") +                                                             \
+	 2 * PI_VERSION_MAX)
 
 /*
  * The card and the update, as a board reports them with its heartbeat (pi_delta_ota_report()):
@@ -162,6 +165,12 @@ const char *pi_step_name(uint8_t step);
  * an update brings it to; "" for none, and for one that is not a valid version, so that nothing
  * read from a card can break the JSON. generation is 0 with no card. step is "idle" unless job is
  * true. done and total count the blocks of the update, done never more than total.
+ *
+ * From 1.20.2 it ends with "os", the Pi's own system and the file area (pi_os.h):
+ * "os":{"version":"1.1.0","slot":"b","last":"confirmed","file":"ready","result":"none","done":4096,
+ * "size":4096}. version, slot and last are what the Pi said in its last OS_STATUS ("" and "none"
+ * before it has); file is "none", "downloading", "ready" (offered to the Pi now) or "held" (whole,
+ * but no job offers it); result is what the Pi said it did with that file; done and size are bytes.
  *
  * The caller holds the card's lock (pi_card_lock()): the update's thread and the Pi's link change
  * the card's state under it. The step and the counts are read a word at a time, without it. The

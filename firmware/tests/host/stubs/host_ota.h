@@ -41,4 +41,22 @@ psa_status_t psa_hash_finish(psa_hash_operation_t *operation, uint8_t *digest, s
 			     size_t *length);
 psa_status_t psa_hash_abort(psa_hash_operation_t *operation);
 
+/* The key calls src/pi/pi_delta_ota.c makes to check a Pi delta manifest's signature. */
+typedef int psa_key_attributes_t;
+typedef unsigned int psa_key_id_t;
+#define PSA_KEY_ATTRIBUTES_INIT         0
+#define PSA_ECC_FAMILY_SECP_R1          0x12
+#define PSA_KEY_TYPE_ECC_PUBLIC_KEY(f)  (0x4100 | (f))
+#define PSA_KEY_USAGE_VERIFY_MESSAGE    0x0800
+#define PSA_ALG_ECDSA(hash)             (0x06000600 | (hash))
+void psa_set_key_type(psa_key_attributes_t *attributes, int type);
+void psa_set_key_bits(psa_key_attributes_t *attributes, size_t bits);
+void psa_set_key_usage_flags(psa_key_attributes_t *attributes, int usage);
+void psa_set_key_algorithm(psa_key_attributes_t *attributes, int algorithm);
+psa_status_t psa_import_key(const psa_key_attributes_t *attributes, const uint8_t *data,
+			    size_t length, psa_key_id_t *key);
+psa_status_t psa_verify_message(psa_key_id_t key, int algorithm, const uint8_t *input,
+				size_t input_length, const uint8_t *signature, size_t signature_length);
+psa_status_t psa_destroy_key(psa_key_id_t key);
+
 #endif

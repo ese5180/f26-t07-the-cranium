@@ -36,6 +36,13 @@ the console. Everything reaches it through the nRF7002 DK, which downloads onto 
 This replaces the firmware side of PR #196, where the board sent the whole image to the Pi, with
 the board as SPI controller.
 
+**From 1.20.2, the Pi's own A/B updates with tryboot** (Demetrius's design) run beside this on the same
+card, thread, downloader and link: a `"op": "pi_os"` job carries one update file into a file area at the
+end of the card, and the Pi reads it with requests `0x20` to `0x23`. That is
+[`docs/pi-os-update.md`](pi-os-update.md); the card's layout below gains two header sectors (2050, 2051)
+and that file area. A delta image that would reach the file takes its room when no job offers it,
+and fails with `too_large` when one does.
+
 ## Contents
 
 - [The parts](#the-parts)
@@ -67,7 +74,7 @@ files (`pi_link.c`, `pi_rx.c`, `pi_frame.c`), which every build with `CONFIG_APP
 | `pi_delta_fmt.c` | The manifest header, the card's state header, the card's layout, the reasons | `test_pi_delta.c` |
 | `pi_card.c` | The card in raw sectors: the two copies of the state, the slots, the list, the mirror | `test_pi_delta.c`, a card in memory |
 | `pi_delta.c` | The update: manifest, comparison, blocks, resume; the card's report for the heartbeat | `test_pi_delta.c`, and `test_pi_delta.py` through `pi_delta_harness.c` |
-| `pi_dlink.c` | The delta requests' answers, and STATUS for anything else | `test_pi_delta.c`, and `tools/pi_delta_sim.py` through the harness |
+| `pi_dlink.c` | The delta requests' answers (and from 1.20.2 the Pi OS update's, [`docs/pi-os-update.md`](pi-os-update.md)), and STATUS for anything else | `test_pi_delta.c`, `test_pi_os.c`, and `tools/pi_delta_sim.py` and `tools/pi_os_sim.py` through the harness |
 | `pi_http.c` | Range requests and the head of their answers | `test_pi_delta.c` |
 | `pi_sha256.c` | SHA-256 in plain C | Every test above |
 | `pi_frame.c` | The frames of the Pi's link, #58's file unchanged | Every link test |

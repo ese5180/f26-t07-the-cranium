@@ -148,7 +148,9 @@ config APP_PI_DELTA
 	  a signed manifest before it is written. The Pi asks the board which blocks changed and reads
 	  them over the Pi's message link (APP_PI_LINK, docs/pi-link.md): the same SPI peripheral, pins
 	  and frames, with request types of their own (0x10 to 0x13). Built with
-	  scripts/firmware/build.sh --pi, which turns Bluetooth off for the RAM. The card's drivers
+	  scripts/firmware/build.sh --pi, which turns Bluetooth off for the RAM. From 1.20.2 the same
+	  build also takes "pi_os" jobs (docs/pi-os-update.md): one update file for the Pi's own A/B
+	  slots with tryboot, offered to the Pi with requests 0x20 to 0x23. The card's drivers
 	  (disk access, the SD host, the SD/MMC disk) are in pi_delta.conf: selected from here they
 	  would make a dependency loop through the flash drivers.
 

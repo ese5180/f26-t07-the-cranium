@@ -32,6 +32,14 @@
  *             "url": "https://<host>/<path>?<query>" } }
  *
  * Any other build answers that "op" as unsupported, as it always has an "op" it does not know.
+ *
+ * or, from 1.20.2 in a Pi build, an update of the Pi's own system with its A/B slots and tryboot
+ * (docs/pi-os-update.md, src/pi/pi_os.c): one file that cranium_ota.py made, downloaded whole and
+ * offered to the Pi. "from" is the Pi version the file updates from, or null for a full image:
+ *
+ *   { "op": "pi_os", "v": 1,
+ *     "pi": { "version": "1.1.0", "from": "1.0.0", "size": 4194304,
+ *             "sha256": "<64 hex digits: the file>", "url": "https://<host>/<path>?<query>" } }
  */
 
 #ifndef OTA_JOB_H_
@@ -71,7 +79,13 @@ struct ota_job {
 	 * pi_version are valid. Only in a Pi build, so that no other build keeps it in RAM.
 	 */
 	bool pi_delta;
+	/*
+	 * From 1.20.2, a Raspberry Pi OS update: id, in_progress, size, sha256 (the file's), host,
+	 * file, pi_version and pi_from (zeros for a full image) are valid.
+	 */
+	bool pi_os;
 	char pi_version[OTA_PI_VERSION_MAX + 1];
+	char pi_from[OTA_PI_VERSION_MAX + 1];
 #endif
 	/* A promotion has no download, so its record takes the place of the URL's path: no RAM more. */
 	union {

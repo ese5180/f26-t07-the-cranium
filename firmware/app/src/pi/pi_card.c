@@ -69,6 +69,8 @@ enum pi_err pi_card_write_slot_header(struct pi_card *card, uint8_t slot,
 	return pi_card_write(card, card->layout.slot_lba[slot & 1], raw, 1);
 }
 
+static enum pi_err open_file(struct pi_card *card);
+
 static bool read_header(struct pi_card *card, uint8_t slot, struct pi_manifest *m)
 {
 	return pi_card_read_slot_raw(card, slot, card->sector) == PI_OK &&
@@ -153,6 +155,8 @@ enum pi_err pi_card_open(struct pi_card *card, uint32_t default_max_blocks)
 		}
 	}
 
+	result = open_file(card);
+
 out:
 	if (result != PI_OK) {
 		card->open = false;
@@ -191,5 +195,153 @@ uint64_t pi_card_block_lba(const struct pi_card *card, uint32_t block_size, uint
 
 bool pi_card_fits(const struct pi_card *card, uint64_t image_size)
 {
-	return card->layout.mirror_lba + image_size / PI_SECTOR_SIZE <= card->sectors;
+	uint64_t limit = card->sectors;
+
+	if (card->file.state != PI_FILE_NONE && card->file.lba < limit) {
+		limit = card->file.lba;
+	}
+	return card->layout.mirror_lba + image_size / PI_SECTOR_SIZE <= limit;
+}
+
+uint64_t pi_card_mirror_end(const struct pi_card *card)
+{
+	uint64_t end = card->layout.mirror_lba;
+
+	if ((card->st.flags & PI_FLAG_HAS_CUR) &&
+	    card->layout.mirror_lba + card->cur.image_size / PI_SECTOR_SIZE > end) {
+		end = card->layout.mirror_lba + card->cur.image_size / PI_SECTOR_SIZE;
+	}
+	if (card->st.phase != PI_PHASE_NONE &&
+	    card->layout.mirror_lba + card->neu.image_size / PI_SECTOR_SIZE > end) {
+		end = card->layout.mirror_lba + card->neu.image_size / PI_SECTOR_SIZE;
+	}
+	return end;
+}
+
+/* card->file from a header that is good: what its sector says, and what RAM keeps of it. */
+static void file_from_raw(struct pi_card *card, const uint8_t raw[PI_SECTOR_SIZE])
+{
+	struct pi_card_file *f = &card->file;
+	uint32_t generation = pi_get32(raw + PI_FILE_AT_GEN);
+
+	if (generation != f->generation) {
+		f->read = 0;
+		f->offered = false;
+	}
+	f->seq = pi_get32(raw + PI_FILE_AT_SEQ);
+	f->state = raw[PI_FILE_AT_STATE];
+	f->result = raw[PI_FILE_AT_RESULT];
+	f->generation = generation;
+	f->size = pi_get32(raw + PI_FILE_AT_SIZE);
+	f->done = pi_get32(raw + PI_FILE_AT_DONE);
+	f->lba = pi_get64(raw + PI_FILE_AT_LBA);
+	memcpy(f->reason, raw + PI_FILE_AT_REASON, PI_OS_REASON_MAX);
+	f->reason[PI_OS_REASON_MAX] = '\0';
+	pi_os_clean_text(f->reason, sizeof(f->reason));
+	if (f->state != PI_FILE_READY) {
+		f->offered = false;
+	}
+}
+
+/*
+ * The file's header, at the end of an open: the good copy with the higher sequence. One that is not
+ * where a file can be (inside the layout or the mirror's images, or past the card's end) counts as no
+ * file; its sequence and generation go on.
+ */
+static enum pi_err open_file(struct pi_card *card)
+{
+	struct pi_file_header h;
+	uint32_t seq[2] = { 0, 0 };
+	bool good[2];
+	int pick;
+	enum pi_err err;
+
+	memset(&card->file, 0, sizeof(card->file));
+	card->file.copy = 1;
+	for (int i = 0; i < 2; i++) {
+		err = pi_card_read(card, PI_FILE_HEADER_LBA + (uint64_t)i, card->sector, 1);
+		if (err != PI_OK) {
+			return err;
+		}
+		good[i] = pi_file_header_decode(card->sector, &h);
+		seq[i] = h.seq;
+	}
+	if (good[0] && (!good[1] || !later(seq[1], seq[0]))) {
+		pick = 0;
+	} else if (good[1]) {
+		pick = 1;
+	} else {
+		return PI_OK;
+	}
+	err = pi_card_read(card, PI_FILE_HEADER_LBA + (uint64_t)pick, card->sector, 1);
+	if (err != PI_OK) {
+		return err;
+	}
+	(void)pi_file_header_decode(card->sector, &h);
+	card->file.copy = (uint8_t)pick;
+	card->file.seq = h.seq;
+	card->file.generation = h.generation;
+	if (h.lba < pi_card_mirror_end(card) || h.lba > card->sectors ||
+	    h.lba + (h.size + (uint64_t)PI_SECTOR_SIZE - 1) / PI_SECTOR_SIZE > card->sectors) {
+		return PI_OK;
+	}
+	file_from_raw(card, card->sector);
+	return PI_OK;
+}
+
+enum pi_err pi_card_file_load(struct pi_card *card, uint8_t raw[PI_SECTOR_SIZE])
+{
+	struct pi_file_header check;
+	enum pi_err err;
+
+	pi_card_lock(card);
+	err = pi_card_read(card, PI_FILE_HEADER_LBA + card->file.copy, raw, 1);
+	if (err == PI_OK && (!pi_file_header_decode(raw, &check) || check.seq != card->file.seq)) {
+		err = PI_ERR_SD_IO;
+	}
+	pi_card_unlock(card);
+	return err;
+}
+
+enum pi_err pi_card_make_room(struct pi_card *card, uint64_t image_size, uint8_t raw[PI_SECTOR_SIZE])
+{
+	enum pi_err err;
+
+	if (pi_card_fits(card, image_size)) {
+		return PI_OK;
+	}
+	if (card->file.state == PI_FILE_NONE || card->file.offered ||
+	    card->layout.mirror_lba + image_size / PI_SECTOR_SIZE > card->sectors) {
+		return PI_ERR_TOO_LARGE;
+	}
+	pi_card_lock(card);
+	err = pi_card_file_load(card, raw);
+	if (err == PI_OK && !card->file.offered) {
+		raw[PI_FILE_AT_STATE] = PI_FILE_NONE;
+		raw[PI_FILE_AT_RESULT] = PI_OS_NONE;
+		err = pi_card_file_store(card, raw);
+	}
+	pi_card_unlock(card);
+	if (err != PI_OK) {
+		return err;
+	}
+	return pi_card_fits(card, image_size) ? PI_OK : PI_ERR_TOO_LARGE;
+}
+
+enum pi_err pi_card_file_store(struct pi_card *card, uint8_t raw[PI_SECTOR_SIZE])
+{
+	uint8_t other;
+	enum pi_err err;
+
+	pi_card_lock(card);
+	other = card->file.copy ^ 1u;
+	pi_put32(raw + PI_FILE_AT_SEQ, card->file.seq + 1);
+	pi_file_header_seal(raw);
+	err = pi_card_write(card, PI_FILE_HEADER_LBA + other, raw, 1);
+	if (err == PI_OK) {
+		card->file.copy = other;
+		file_from_raw(card, raw);
+	}
+	pi_card_unlock(card);
+	return err;
 }

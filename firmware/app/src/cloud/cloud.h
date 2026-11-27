@@ -109,7 +109,8 @@ bool cloud_commands_given_up(void);
  * document holds it in {"state":{"reported":...}}. A Pi build's heartbeat also carries its SD card.
  */
 #if defined(CONFIG_APP_PI_DELTA)
-#define CLOUD_REPORTED_MAX 553
+/* 736 bytes of document: from 1.20.2 the card's report also carries the Pi's system ("os"). */
+#define CLOUD_REPORTED_MAX 713
 #else
 #define CLOUD_REPORTED_MAX 489
 #endif

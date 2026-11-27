@@ -1148,6 +1148,11 @@ takes them over this same link, with request types of their own (`0x10` to `0x13
 them under `pi delta`. The link's work then runs on a queue of its own, as a read from the card can wait.
 Not yet tried on hardware: [`docs/pi-delta-update.md`](../docs/pi-delta-update.md).
 
+From 1.20.2 the same build also carries the Pi's own A/B updates with tryboot: a `pi_os` job downloads the Pi's
+update file onto the card, checks it, and offers it to the Pi, which reads it over this link (`0x20` to `0x23`,
+counted under `pi delta` too) and says how the update went. Not yet tried on hardware:
+[`docs/pi-os-update.md`](../docs/pi-os-update.md).
+
 ## Firmware update over Bluetooth
 
 An image can be uploaded from a phone over Bluetooth LE, for a board that has no Wi-Fi in reach or

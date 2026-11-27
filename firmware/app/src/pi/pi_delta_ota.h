@@ -4,6 +4,9 @@
  * image, downloading only the blocks that changed (pi_delta.c), and the Pi takes them over SPI
  * (pi_dlink.c) whenever it asks. ota.c hands such jobs here; this answers them.
  *
+ * From 1.20.2, also a "pi_os" job (pi_os.h, docs/pi-os-update.md): the Pi's own update file, whole,
+ * offered to the Pi once it is on the card and checked; the job then waits for the Pi's result.
+ *
  * Every function here runs on the main loop. The update runs on its own thread, and its outcome
  * comes back through pi_delta_ota_on_tick().
  */
@@ -21,7 +24,7 @@
 int pi_delta_ota_init(void);
 
 /*
- * A pi_delta job named by the cloud: a new one, the one under way with a fresh URL, or one left in
+ * A pi_delta or pi_os job named by the cloud: a new one, the one under way with a fresh URL, or one left in
  * progress by a restart, which goes on from what the card says.
  */
 void pi_delta_ota_on_job(const struct ota_job *job);

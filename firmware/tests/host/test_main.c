@@ -159,6 +159,11 @@ static void test_refused_documents(void)
 	CHECK(parse_doc("7") == OTA_JOB_BAD_DOCUMENT);
 	CHECK(parse_doc("null") == OTA_JOB_BAD_DOCUMENT);
 	CHECK(parse_doc(doc("reboot", "1", "1.2.3+4", "1", SHA, URL)) == OTA_JOB_UNSUPPORTED);
+	/* A Pi OS update (1.20.2) is a Pi build's alone: any other build does not know its "op". */
+	CHECK(parse(reply("job-8", "QUEUED",
+			  "{\"op\":\"pi_os\",\"v\":1,\"pi\":{\"version\":\"1.1.0\",\"from\":null,"
+			  "\"size\":10,\"sha256\":\"" SHA "\",\"url\":\"" URL "\"}}"),
+		    &job) == OTA_JOB_UNSUPPORTED);
 	CHECK(parse_doc(doc("fw_update", "2", "1.2.3+4", "1", SHA, URL)) == OTA_JOB_UNSUPPORTED);
 	CHECK(parse_doc(doc("fw_update", "\"1\"", "1.2.3+4", "1", SHA, URL)) == OTA_JOB_UNSUPPORTED);
 	CHECK(parse_doc("{\"op\":\"fw_update\",\"v\":1}") == OTA_JOB_BAD_DOCUMENT);

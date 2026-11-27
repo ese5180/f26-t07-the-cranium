@@ -232,3 +232,99 @@ bool pi_card_state_decode(const uint8_t raw[PI_SECTOR_SIZE], struct pi_card_stat
 	}
 	return true;
 }
+
+static const uint8_t file_magic[4] = { 'C', 'P', 'O', 'F' };
+#define PI_FILE_FORMAT 1u
+
+void pi_file_header_seal(uint8_t raw[PI_SECTOR_SIZE])
+{
+	pi_put32(raw + PI_SECTOR_SIZE - 4, pi_crc32(raw, PI_SECTOR_SIZE - 4));
+}
+
+void pi_file_header_encode(const struct pi_file_header *h, uint8_t raw[PI_SECTOR_SIZE])
+{
+	memset(raw, 0, PI_SECTOR_SIZE);
+	memcpy(raw, file_magic, sizeof(file_magic));
+	pi_put16(raw + 4, PI_FILE_FORMAT);
+	pi_put32(raw + PI_FILE_AT_SEQ, h->seq);
+	raw[PI_FILE_AT_STATE] = h->state;
+	raw[PI_FILE_AT_RESULT] = h->result;
+	pi_put32(raw + PI_FILE_AT_GEN, h->generation);
+	pi_put32(raw + PI_FILE_AT_SIZE, h->size);
+	pi_put32(raw + PI_FILE_AT_DONE, h->done);
+	pi_put32(raw + 28, h->job);
+	pi_put64(raw + PI_FILE_AT_LBA, h->lba);
+	memcpy(raw + PI_FILE_AT_SHA256, h->sha256, PI_HASH_SIZE);
+	memcpy(raw + PI_FILE_AT_VERSION, h->version, PI_VERSION_MAX + 1);
+	memcpy(raw + PI_FILE_AT_FROM, h->from, PI_VERSION_MAX + 1);
+	memcpy(raw + PI_FILE_AT_REASON, h->reason, PI_OS_REASON_MAX);
+	pi_file_header_seal(raw);
+}
+
+static bool all_zero(const uint8_t *at, size_t len)
+{
+	for (size_t i = 0; i < len; i++) {
+		if (at[i] != 0) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool pi_file_header_decode(const uint8_t raw[PI_SECTOR_SIZE], struct pi_file_header *h)
+{
+	memset(h, 0, sizeof(*h));
+	if (memcmp(raw, file_magic, sizeof(file_magic)) != 0 || pi_get16(raw + 4) != PI_FILE_FORMAT ||
+	    pi_get32(raw + PI_SECTOR_SIZE - 4) != pi_crc32(raw, PI_SECTOR_SIZE - 4)) {
+		return false;
+	}
+	h->seq = pi_get32(raw + PI_FILE_AT_SEQ);
+	h->state = raw[PI_FILE_AT_STATE];
+	h->result = raw[PI_FILE_AT_RESULT];
+	h->generation = pi_get32(raw + PI_FILE_AT_GEN);
+	h->size = pi_get32(raw + PI_FILE_AT_SIZE);
+	h->done = pi_get32(raw + PI_FILE_AT_DONE);
+	h->job = pi_get32(raw + 28);
+	h->lba = pi_get64(raw + PI_FILE_AT_LBA);
+	memcpy(h->sha256, raw + PI_FILE_AT_SHA256, PI_HASH_SIZE);
+	memcpy(h->version, raw + PI_FILE_AT_VERSION, PI_VERSION_MAX + 1);
+	memcpy(h->from, raw + PI_FILE_AT_FROM, PI_VERSION_MAX + 1);
+	memcpy(h->reason, raw + PI_FILE_AT_REASON, PI_OS_REASON_MAX);
+	h->reason[PI_OS_REASON_MAX] = '\0';
+
+	if (h->state > PI_FILE_READY || h->result >= PI_OS_RESULT_COUNT || h->size == 0 ||
+	    h->done > h->size || (h->done % PI_SECTOR_SIZE != 0 && h->done != h->size) ||
+	    !pi_version_valid(h->version, PI_VERSION_MAX + 1) ||
+	    !(all_zero(raw + PI_FILE_AT_FROM, PI_VERSION_MAX + 1) ||
+	      pi_version_valid(h->from, PI_VERSION_MAX + 1)) ||
+	    (h->state == PI_FILE_READY && h->done != h->size)) {
+		return false;
+	}
+	/* Written clean; cleaned again, as anything read from a card. */
+	pi_os_clean_text(h->reason, sizeof(h->reason));
+	return true;
+}
+
+static const char *const results[PI_OS_RESULT_COUNT] = {
+	[PI_OS_NONE] = "none",
+	[PI_OS_APPLIED] = "applied",
+	[PI_OS_CONFIRMED] = "confirmed",
+	[PI_OS_ROLLED_BACK] = "rolled_back",
+	[PI_OS_REFUSED] = "refused",
+};
+
+const char *pi_os_result_name(uint8_t result)
+{
+	return result < PI_OS_RESULT_COUNT ? results[result] : "unknown";
+}
+
+void pi_os_clean_text(char *text, size_t size)
+{
+	for (size_t i = 0; i < size && text[i] != '\0'; i++) {
+		unsigned char c = (unsigned char)text[i];
+
+		if (c < 0x20 || c > 0x7e || c == '"' || c == '\\') {
+			text[i] = '?';
+		}
+	}
+}

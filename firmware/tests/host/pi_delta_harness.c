@@ -14,12 +14,23 @@
  *       --cut-after-writes N   the power goes at that write, half way through it
  *       --corrupt-at OFFSET    the byte at that offset of the package comes wrong, every time
  *
- *   pi_delta_harness serve CARD [--max-blocks N]
+ *   pi_delta_harness os-update CARD FILE VERSION FROM SHA256 [options]
+ *       From 1.20.2, a Pi OS update (pi_os.c): download FILE whole into the card's file area, as a
+ *       "pi_os" job does, and check it. FROM is the version it updates from, or "" for a full
+ *       image. Prints one line: result=<reason> generation= bytes= requests= state= lba=.
+ *       --job N                the job's tag (another tag offers the same file anew)
+ *       --max-blocks N, --card-sectors N, --drop-after BYTES, --cut-after-writes N,
+ *       --corrupt-at OFFSET    as for update
+ *
+ *   pi_delta_harness serve CARD [--max-blocks N] [--offer]
  *       Be the board's end of the Pi's link, as pi_link.c is: each 512 bytes on stdin is what the
  *       Pi clocked in during a transfer; for each, the 512 bytes the board clocked out during it go
  *       to stdout (the answer it had armed, then 0xff), and then it takes what came in. DATA and POLL
- *       go to the message link's receiver (pi_rx.c), delta requests to pi_dlink.c. At the end, one
- *       line of counts on stderr.
+ *       go to the message link's receiver (pi_rx.c), delta and OS requests to pi_dlink.c. With
+ *       --offer, the file the card holds is offered to the Pi, as a "pi_os" job offers it once it is
+ *       checked. At the end, one line of counts on stderr, then one of the file and of what the Pi
+ *       said (its status, and its result, whose reason ends the line); the card, with what the
+ *       board wrote to it, is saved.
  */
 
 #include <errno.h>
@@ -36,6 +47,7 @@
 #include "pi_delta_fakes.h"
 #include "pi_dlink.h"
 #include "pi_frame.h"
+#include "pi_os.h"
 #include "pi_rx.h"
 #include "pi_sha256.h"
 
@@ -230,6 +242,91 @@ static int update(int argc, char **argv)
 	return 0;
 }
 
+static bool has_flag(int argc, char **argv, const char *name)
+{
+	for (int i = 0; i < argc; i++) {
+		if (strcmp(argv[i], name) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static int os_update(int argc, char **argv)
+{
+	struct pi_os_config config = {
+		.default_max_blocks = (uint32_t)option(argc, argv, "--max-blocks", 1024),
+		.save_every = 64,
+		.attempts = 2,
+	};
+	struct pi_card_layout layout;
+	struct fake_disk disk;
+	struct fake_server server;
+	struct pi_card card;
+	struct pi_os os;
+	struct pi_fetch fetch = { .get = fake_server_get, .ctx = &server };
+	struct pi_os_job job;
+	uint8_t io[PI_SECTOR_SIZE];
+	uint64_t file_size = 0;
+	uint8_t *file;
+	enum pi_err err;
+
+	if (argc < 7) {
+		return 2;
+	}
+	memset(&job, 0, sizeof(job));
+	if (!pi_version_valid(argv[4], strlen(argv[4]) + 1) ||
+	    (argv[5][0] != '\0' && !pi_version_valid(argv[5], strlen(argv[5]) + 1)) ||
+	    !parse_hex(argv[6], job.sha256, PI_HASH_SIZE)) {
+		fprintf(stderr, "bad arguments\n");
+		return 2;
+	}
+	strcpy(job.version, argv[4]);
+	strcpy(job.from, argv[5]);
+	job.tag = (uint32_t)option(argc, argv, "--job", 1);
+
+	pi_card_layout_for(config.default_max_blocks, &layout);
+	file = read_file(argv[3], &file_size);
+	if (file == NULL || file_size == 0 || file_size > UINT32_MAX) {
+		fprintf(stderr, "cannot read the file\n");
+		return 2;
+	}
+	job.size = (uint32_t)file_size;
+	if (!load_card(&disk, argv[2],
+		       (uint64_t)option(argc, argv, "--card-sectors",
+					(long long)(layout.mirror_lba + 8192 + file_size / 512)))) {
+		fprintf(stderr, "cannot make the card\n");
+		return 2;
+	}
+	memset(&server, 0, sizeof(server));
+	server.package = file;
+	server.size = file_size;
+	server.max_piece = 2048;
+	server.seed = 77;
+	server.drop_after = option(argc, argv, "--drop-after", -1);
+	server.stop_after = -1;
+	if (option(argc, argv, "--corrupt-at", -1) >= 0) {
+		server.corrupt_from = (uint64_t)option(argc, argv, "--corrupt-at", -1);
+		server.corrupt_to = server.corrupt_from + 1;
+		server.corrupt_times = 1 << 30;
+	}
+	disk.writes_left = (long)option(argc, argv, "--cut-after-writes", -1);
+
+	pi_card_init(&card, &fake_disk_ops, &disk);
+	pi_os_init(&os, &card, &config, &fetch, io, NULL);
+	err = pi_os_run(&os, &job);
+	printf("result=%s generation=%u bytes=%llu requests=%u state=%u lba=%llu\n", pi_err_reason(err),
+	       card.file.generation, (unsigned long long)os.bytes_fetched, server.requests, card.file.state,
+	       (unsigned long long)card.file.lba);
+	if (!save_card(&disk, argv[2])) {
+		fprintf(stderr, "cannot write the card\n");
+		return 2;
+	}
+	free(file);
+	fake_disk_free(&disk);
+	return 0;
+}
+
 static int serve(int argc, char **argv)
 {
 	struct fake_disk disk;
@@ -247,6 +344,8 @@ static int serve(int argc, char **argv)
 	}
 	pi_card_init(&card, &fake_disk_ops, &disk);
 	(void)pi_card_open(&card, (uint32_t)option(argc, argv, "--max-blocks", 1024));
+	/* As pi_delta_ota.c offers a checked file while its job waits for the Pi. */
+	card.file.offered = has_flag(argc, argv, "--offer") && card.file.state == PI_FILE_READY;
 	pi_dlink_init(&link, &card);
 	pi_rx_init(&link_rx);
 	/* Before the first transfer the board arms STATUS; after an answer, it clocks out 0xff. */
@@ -267,6 +366,18 @@ static int serve(int argc, char **argv)
 		"unknown=%u\n",
 		link.answered, link.errors, link_rx.delta, link_rx.delivered, link_rx.duplicates,
 		link_rx.polls, link_rx.bad, link_rx.bad_crc, link_rx.unknown);
+	fprintf(stderr,
+		"file_state=%u generation=%u read=%u result=%s os_known=%d os_slot=%c os_trial=%u "
+		"os_last=%s os_version=%s reason=%s\n",
+		card.file.state, card.file.generation, card.file.read, pi_os_result_name(card.file.result),
+		card.os.known ? 1 : 0, card.os.slot != 0 ? card.os.slot : '-', card.os.trial,
+		pi_os_result_name(card.os.last), card.os.version[0] != '\0' ? card.os.version : "-",
+		card.file.reason);
+	/* What the board wrote (a Pi's result, kept with the file) stays on the card, as on a real one. */
+	if (!save_card(&disk, argv[2])) {
+		fprintf(stderr, "cannot write the card\n");
+		return 2;
+	}
 	fake_disk_free(&disk);
 	return 0;
 }
@@ -279,6 +390,9 @@ int main(int argc, char **argv)
 	if (argc >= 2 && strcmp(argv[1], "serve") == 0) {
 		return serve(argc, argv);
 	}
-	fprintf(stderr, "usage: pi_delta_harness update|serve ... (see the top of pi_delta_harness.c)\n");
+	if (argc >= 2 && strcmp(argv[1], "os-update") == 0) {
+		return os_update(argc, argv);
+	}
+	fprintf(stderr, "usage: pi_delta_harness update|os-update|serve ... (see the top of pi_delta_harness.c)\n");
 	return 2;
 }

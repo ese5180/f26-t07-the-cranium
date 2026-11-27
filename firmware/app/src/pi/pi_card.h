@@ -51,6 +51,40 @@ struct pi_card {
 	uint8_t sector[PI_SECTOR_SIZE];
 	/* Goes up with each open: a copy of the card's sectors made under another count is stale. */
 	uint32_t opens;
+	/*
+	 * From 1.20.2, the file area (pi_os.h): what its header says, and two things only RAM knows.
+	 * Changed under the lock, by the update's thread and by the Pi's link.
+	 */
+	struct pi_card_file {
+		uint32_t seq;
+		uint32_t generation;
+		uint32_t size;
+		uint32_t done;
+		uint64_t lba;
+		/* The most of this generation the Pi has read (RAM only): offset and length. */
+		uint32_t read;
+		/* Which copy holds the header: the next save goes to the other one. */
+		uint8_t copy;
+		uint8_t state;
+		uint8_t result;
+		/* A job offers the file to the Pi now (RAM only): FILE_READ is refused otherwise. */
+		bool offered;
+		char reason[PI_OS_REASON_MAX + 1];
+	} file;
+	/*
+	 * What the Pi last said about itself (OS_STATUS): kept here because the link and the reports
+	 * share the card's lock. Not the card's: an open or a close leaves it as it is.
+	 */
+	struct pi_os_status {
+		bool known;
+		/* 'a', 'b', or 0 for not known. */
+		uint8_t slot;
+		uint8_t trial;
+		/* The last result the Pi gave, in its status or with RESULT (enum pi_os_result). */
+		uint8_t last;
+		/* "" when it did not say, or said something that is not a version. */
+		char version[PI_VERSION_MAX + 1];
+	} os;
 };
 
 void pi_card_init(struct pi_card *card, const struct pi_disk_ops *ops, void *ctx);
@@ -80,8 +114,30 @@ enum pi_err pi_card_write(struct pi_card *card, uint64_t lba, const uint8_t *buf
 /* The first sector of block `block` of the mirror, for a manifest with that block size. */
 uint64_t pi_card_block_lba(const struct pi_card *card, uint32_t block_size, uint32_t block);
 
-/* The image fits on this card behind its layout. */
+/* The image fits on this card behind its layout, and below the file area while it holds a file. */
 bool pi_card_fits(const struct pi_card *card, uint64_t image_size);
+
+/* The first sector past the mirror's images: the current one and an update's, whichever is longer. */
+uint64_t pi_card_mirror_end(const struct pi_card *card);
+
+/*
+ * The file's header (PI_FILE_HEADER_LBA), as a raw sector. Load reads the copy that counts and
+ * checks it is the one card->file says (PI_ERR_SD_IO otherwise). Store writes raw, as changed, to the
+ * other copy with the next sequence number and its CRC, and only then takes what it says into
+ * card->file: a store that fails leaves the card, and card->file, as they were. A new generation or a
+ * file that is not ready is no longer offered. Both lock the card.
+ */
+enum pi_err pi_card_file_load(struct pi_card *card, uint8_t raw[PI_SECTOR_SIZE]);
+enum pi_err pi_card_file_store(struct pi_card *card, uint8_t raw[PI_SECTOR_SIZE]);
+
+/*
+ * A delta image that fits the card, but not below the file the card holds: the file gives way, if no
+ * job offers it now (its job has ended, or never offered it), and the card says it has none; its
+ * generation goes on. PI_OK when the image fits now (with or without dropping a file),
+ * PI_ERR_TOO_LARGE when it cannot, a card error if the header could not be saved. raw is a sector to
+ * work in.
+ */
+enum pi_err pi_card_make_room(struct pi_card *card, uint64_t image_size, uint8_t raw[PI_SECTOR_SIZE]);
 
 static inline void pi_card_lock(struct pi_card *card)
 {

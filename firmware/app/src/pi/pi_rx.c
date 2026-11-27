@@ -29,7 +29,8 @@ enum pi_rx_result pi_rx_handle(struct pi_rx *rx, const uint8_t *buf, size_t rece
 	}
 
 #if defined(CONFIG_APP_PI_DELTA)
-	if (frame->type >= PI_FRAME_DELTA_FIRST && frame->type <= PI_FRAME_DELTA_LAST) {
+	if ((frame->type >= PI_FRAME_DELTA_FIRST && frame->type <= PI_FRAME_DELTA_LAST) ||
+	    (frame->type >= PI_FRAME_OS_FIRST && frame->type <= PI_FRAME_OS_LAST)) {
 		rx->delta++;
 		return PI_RX_DELTA;
 	}
