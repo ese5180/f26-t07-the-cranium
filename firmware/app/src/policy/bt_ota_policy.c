@@ -32,12 +32,6 @@ enum bt_ota_open bt_ota_may_open(const struct bt_ota_board *board)
 	}
 
 	if (board->testing) {
-#if defined(CONFIG_APP_BT_ONLY)
-		/* No cloud job can have put it there, and nothing but a person can prove it. */
-		if (board->no_cloud && !board->bluetooth_trial) {
-			return BT_OTA_REFUSED_UNKNOWN_TRIAL;
-		}
-#endif
 		return board->bluetooth_trial ? BT_OTA_OPEN_PROOF : BT_OTA_REFUSED_CLOUD_TRIAL;
 	}
 
@@ -71,10 +65,6 @@ const char *bt_ota_open_text(enum bt_ota_open open)
 		return "the bootloader has a swap to do";
 	case BT_OTA_REFUSED_LINK_UP:
 		return "the last phone has not gone yet: try again in a moment";
-#if defined(CONFIG_APP_BT_ONLY)
-	case BT_OTA_REFUSED_UNKNOWN_TRIAL:
-		return "nothing says how this image got here, so nobody can prove it: it reverts";
-#endif
 	default:
 		return "";
 	}
@@ -334,20 +324,6 @@ bool bt_ota_offer_ok(bool header_read, const struct fw_version *target,
 	return header_read && !swap_pending && fw_version_compare(target, running) > 0;
 }
 
-/*
- * A board with no Wi-Fi at all (CONFIG_APP_BT_ONLY) has no stack to have answered, and no network that
- * would make it the cloud's to decide. Every other board has Wi-Fi.
- */
-static bool has_wifi(const struct bt_ota_proof *proof)
-{
-#if defined(CONFIG_APP_BT_ONLY)
-	return !proof->no_wifi;
-#else
-	(void)proof;
-	return true;
-#endif
-}
-
 enum bt_ota_proof_result bt_ota_proof_check(const struct bt_ota_proof *proof)
 {
 	if (!proof->provisioned) {
@@ -358,7 +334,7 @@ enum bt_ota_proof_result bt_ota_proof_check(const struct bt_ota_proof *proof)
 	 * With Wi-Fi in reach, an image that cannot get to the cloud is what the trial is there
 	 * to catch. A person has no say in that: this image reverts unless it gets there.
 	 */
-	if (proof->wifi_up && has_wifi(proof)) {
+	if (proof->wifi_up) {
 		return BT_OTA_WAIT_FOR_CLOUD;
 	}
 
@@ -374,7 +350,7 @@ enum bt_ota_proof_result bt_ota_proof_check(const struct bt_ota_proof *proof)
 		return BT_OTA_WAIT_FOR_TIME;
 	}
 
-	return proof->wifi_answered || !has_wifi(proof) ? BT_OTA_PROVED : BT_OTA_WAIT_FOR_WIFI_ANSWER;
+	return proof->wifi_answered ? BT_OTA_PROVED : BT_OTA_WAIT_FOR_WIFI_ANSWER;
 }
 
 const char *bt_ota_proof_text(enum bt_ota_proof_result result)

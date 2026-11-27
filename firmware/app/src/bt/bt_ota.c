@@ -62,9 +62,9 @@ LOG_MODULE_REGISTER(bt_ota, CONFIG_APP_LOG_LEVEL);
 #error "The Bluetooth host must pair with real keys, and with no passkey fixed in the image"
 #endif
 /*
- * A board with a cloud gets a new passkey for every attempt, drawn by the host. One with Bluetooth only
- * hands the host its own, from protected storage, which src/bt/bt_passkey.h explains: only then may the
- * application provide one.
+ * A board gets a new passkey for every attempt, drawn by the host, unless it has one of its own in
+ * protected storage (offline mode), which src/bt/bt_passkey.h explains: only then may the application
+ * provide one.
  */
 #if defined(CONFIG_BT_APP_PASSKEY) != defined(CONFIG_APP_BT_STATIC_PASSKEY)
 #error "Only a board's own stored passkey may replace the one the host draws: see bt_passkey.h"
@@ -120,15 +120,12 @@ BUILD_ASSERT(BT_OTA_IMAGE_HEADER_LEN == IMAGE_HEADER_SIZE);
 /* How long the main loop waits for a status to go out before it closes the link or restarts. */
 #define STATUS_SENT_MS    500
 
-#if !defined(CONFIG_APP_BT_ONLY)
 /*
  * P1.10 picks the antenna of the network core's radio: low for its own, high for the one it
  * would share with Wi-Fi. It starts undriven, so it is driven low before anything is sent. A board
- * with Bluetooth only has no Wi-Fi chip, and its radio has an antenna of its own.
  */
 static const struct gpio_dt_spec antenna_switch =
 	GPIO_DT_SPEC_GET(DT_NODELABEL(nrf70), srrf_switch_gpios);
-#endif
 
 /* The main loop's. The Bluetooth and MCUmgr threads see only the atomics below. */
 static struct bt_ota_window window;
@@ -142,15 +139,8 @@ static bool controller_failed;
 static bool report_waiting;
 static enum bt_ota_proof_result last_proof = BT_OTA_PROVED;
 static char name[ADV_NAME_SIZE];
-#if !defined(CONFIG_APP_BT_ONLY)
 /* A passkey went into the device shadow, and has not been taken out again. */
 static bool pairing_reported;
-#endif
-#if defined(CONFIG_APP_BT_ONLY)
-/* For the LEDs of a board with Bluetooth only: see bt_ota_link_view(). */
-static uint32_t commands_last_tick;
-static enum bt_ota_link_view link_view;
-#endif
 
 /*
  * What the status characteristic says of this window (bt_status.h), as the main loop has seen it.
@@ -210,14 +200,6 @@ static atomic_t upload_bytes;
 static atomic_t upload_total;
 static atomic_t upload_version;
 static atomic_t upload_build;
-#if defined(CONFIG_APP_BT_ONLY)
-/* Something went wrong that a person should see, for LED4: see bt_ota_take_trouble(). */
-static atomic_t trouble;
-#define NOTE_TROUBLE() ((void)atomic_set(&trouble, 1))
-#else
-/* LED4 is a board with Bluetooth only's: an nRF7002 DK says all of this on its console and in the cloud. */
-#define NOTE_TROUBLE() ((void)0)
-#endif
 #if defined(CONFIG_APP_BT_STATIC_PASSKEY)
 /* The pairing under way was handed the board's own passkey, and not one the host drew. */
 static atomic_t own_passkey;
@@ -309,7 +291,6 @@ static enum mgmt_cb_return on_command(uint32_t event, enum mgmt_cb_return prev_s
 				    (now & GATE_UPLOADS) != 0)) {
 		console_event("BT", "refused a command: group %u, id %u, op %u", command->group,
 			      command->id, command->op);
-		NOTE_TROUBLE();
 		*rc = MGMT_ERR_EACCESSDENIED;
 		return MGMT_CB_ERROR_RC;
 	}
@@ -391,7 +372,6 @@ static bool upload_compat_ok(uint64_t off, const uint8_t *data, size_t len)
 		upload_refused(BT_STATUS_REFUSAL_MALFORMED);
 		break;
 	}
-	NOTE_TROUBLE();
 	return false;
 }
 
@@ -441,7 +421,6 @@ static enum mgmt_cb_return on_upload(uint32_t event, enum mgmt_cb_return prev_st
 		if (verdict != BT_OTA_UPLOAD_OK) {
 			console_event("BT", "refused an upload: %s", bt_ota_upload_text(verdict));
 			upload_refused(bt_ota_status_refusal(verdict));
-			NOTE_TROUBLE();
 			*rc = MGMT_ERR_EBADSTATE;
 			return MGMT_CB_ERROR_RC;
 		}
@@ -648,7 +627,6 @@ static void on_pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
 		bt_passkey_count_failure();
 	}
 #endif
-	NOTE_TROUBLE();
 	(void)atomic_inc(&failed_pairings);
 	(void)atomic_set(&failure_reason, (atomic_val_t)reason);
 	tell_main_loop(SAY_FAILED);
@@ -729,7 +707,6 @@ static void apply(uint32_t actions);
  * report. Nothing more goes on the air than before: the name already does, and the passkey never.
  * An offline board has the console only, as before.
  */
-#if !defined(CONFIG_APP_BT_ONLY)
 static void report_pairing(unsigned int passkey)
 {
 	char json[80];
@@ -756,17 +733,6 @@ static void unreport_pairing(void)
 		pairing_reported = false;
 	}
 }
-#else
-/* No cloud and no shadow: the passkey is the board's own, and the console has it already. */
-static void report_pairing(unsigned int passkey)
-{
-	ARG_UNUSED(passkey);
-}
-
-static void unreport_pairing(void)
-{
-}
-#endif
 
 static const char *phy_name(uint32_t phy)
 {
@@ -910,11 +876,6 @@ static void say_record(const char *what)
 
 static void finish_record(enum bt_ota_result result, enum bt_ota_proof_by proof)
 {
-	/* What a person at the board should know about: an image that did not stay. */
-	if (result != BT_OTA_RESULT_SUCCEEDED && result != BT_OTA_RESULT_SUPERSEDED) {
-		NOTE_TROUBLE();
-	}
-
 	record.phase = BT_OTA_RECORD_DONE;
 	record.result = result;
 	record.proof = proof;
@@ -964,14 +925,8 @@ static void decide_on_boot(bool on_trial, bool has_trailer, bool job_record)
 		save_record();
 		bluetooth_trial = true;
 		say_record("on trial");
-#if defined(CONFIG_APP_BT_ONLY)
-		console_event("BT", "to keep it, once it has run %d s, hold Button 1, pair, and read the "
-				    "image list: otherwise it reverts at %d s",
-			      CONFIG_APP_BT_OTA_TRIAL_MIN_SECONDS, CONFIG_APP_OTA_SELF_TEST_TIMEOUT_SECONDS);
-#else
 		console_event("BT", "kept when it reaches the cloud; with no Wi-Fi in reach, hold "
 				    "Button 1, pair, and read the image list");
-#endif
 		break;
 	case OTA_RESTART_CONFIRMED:
 		/* Confirmed, and restarted before this could be written. By whom is not known. */
@@ -991,12 +946,7 @@ static void decide_on_boot(bool on_trial, bool has_trailer, bool job_record)
 
 static bool provisioned(void)
 {
-#if defined(CONFIG_APP_BT_ONLY)
-	/* Nothing of the cloud to set up on a board with Bluetooth only: out of factory mode, it has its ID. */
-	return !device_is_factory();
-#else
 	return identity_settings_get() != NULL && net_has_credentials();
-#endif
 }
 
 /* For a proof: the image can read what TF-M keeps for it. On a board with a cloud, provisioned() says. */
@@ -1018,12 +968,10 @@ static int start_bluetooth(void)
 		return 0;
 	}
 
-#if !defined(CONFIG_APP_BT_ONLY)
 	if (!gpio_is_ready_dt(&antenna_switch) ||
 	    gpio_pin_configure_dt(&antenna_switch, GPIO_OUTPUT_INACTIVE) != 0) {
 		LOG_WRN("The antenna switch could not be set");
 	}
-#endif
 
 	err = bt_conn_auth_cb_register(&auth_callbacks);
 	if (err == 0) {
@@ -1481,7 +1429,6 @@ static bool slot_compatible(const struct fw_version *target, const uint8_t *hash
 
 	if (verdict != IMAGE_COMPAT_OTHER_BOARD && verdict != IMAGE_COMPAT_OTHER_LAYOUT) {
 		console_event("BT", "what arrived cannot be installed");
-		NOTE_TROUBLE();
 		refuse(BT_STATUS_REFUSAL_MALFORMED);
 		apply(bt_ota_window_offer_failed(&window));
 		return false;
@@ -1540,7 +1487,6 @@ static void offer_image(void)
 	if (!bt_ota_offer_ok(header_read, &target, fw_version_running(),
 			     mcuboot_swap_type_multi(0) != BOOT_SWAP_TYPE_NONE)) {
 		console_event("BT", "what arrived cannot be installed");
-		NOTE_TROUBLE();
 		refuse(!header_read ? BT_STATUS_REFUSAL_MALFORMED
 		       : mcuboot_swap_type_multi(0) != BOOT_SWAP_TYPE_NONE ? BT_STATUS_REFUSAL_SWAP_PENDING
 									    : BT_STATUS_REFUSAL_OLDER);
@@ -1582,7 +1528,6 @@ static void install_image(void)
 	if (mcuboot_swap_type_multi(0) != BOOT_SWAP_TYPE_NONE ||
 	    store_write(STORE_BT_OTA_RECORD, &offered, sizeof(offered)) != 0) {
 		console_event("BT", "the image could not be installed");
-		NOTE_TROUBLE();
 		refuse(mcuboot_swap_type_multi(0) != BOOT_SWAP_TYPE_NONE ? BT_STATUS_REFUSAL_SWAP_PENDING
 									 : BT_STATUS_REFUSAL_CANNOT_INSTALL);
 		apply(bt_ota_window_offer_failed(&window));
@@ -1634,13 +1579,8 @@ static void try_proof(void)
 		.uptime_seconds = (uint32_t)(k_uptime_get() / MSEC_PER_SEC),
 		.min_seconds = CONFIG_APP_BT_OTA_TRIAL_MIN_SECONDS,
 		.provisioned = provisioned() && storage_readable(),
-#if defined(CONFIG_APP_BT_ONLY)
-		/* No Wi-Fi to answer and no cloud to wait for: the person, the link and the time decide. */
-		.no_wifi = true,
-#else
 		.wifi_up = net_is_up() || net_wifi_associated(),
 		.wifi_answered = net_wifi_answered(),
-#endif
 		.link_secure = atomic_get(&secure) != 0,
 		.list_reads = (uint32_t)atomic_get(&list_reads),
 	};
@@ -1720,9 +1660,6 @@ bool bt_ota_on_button(uint8_t button, bool long_press, bool physical)
 		.swap_pending = mcuboot_swap_type_multi(0) != BOOT_SWAP_TYPE_NONE,
 		/* A phone that came for the status never paired: open_window() lets it go. */
 		.link_up = atomic_get(&connected) != 0 && atomic_get(&status_link) == 0,
-#if defined(CONFIG_APP_BT_ONLY)
-		.no_cloud = true,
-#endif
 	};
 	open = bt_ota_may_open(&board);
 
@@ -1767,43 +1704,31 @@ void bt_ota_on_tick(void)
 
 	say_what_happened();
 
-#if !defined(CONFIG_APP_BT_ONLY)
 	if (report_waiting && have_record && cloud_is_connected()) {
 		bt_ota_on_cloud_up();
 	}
-#endif
 
 #if defined(CONFIG_APP_BT_STATIC_PASSKEY)
 	/* A count of failures that has changed goes into storage, and the passkey may be locked by it. */
-	if (bt_passkey_persist()) {
-		NOTE_TROUBLE();
-	}
+	(void)bt_passkey_persist();
 #endif
 
 	/* bt_enable() cannot be called again, so this stands until the next restart. */
 	if (atomic_get(&start_failed) != 0 && !controller_failed) {
 		controller_failed = true;
-		NOTE_TROUBLE();
 		console_event("BT", "%s", bt_ota_open_text(BT_OTA_REFUSED_NO_CONTROLLER));
 		if (window.phase != BT_OTA_CLOSED) {
 			apply(bt_ota_window_abort(&window));
 		}
 	}
 
-	/* A board with Bluetooth only has no Wi-Fi or TLS to leave the heap to first: it starts at once. */
 	if (status_due && window.phase == BT_OTA_CLOSED &&
-	    bt_ota_status_may_start((uint32_t)(k_uptime_get() / MSEC_PER_SEC),
-				    IS_ENABLED(CONFIG_APP_BT_ONLY) || cloud_is_connected())) {
+	    bt_ota_status_may_start((uint32_t)(k_uptime_get() / MSEC_PER_SEC), cloud_is_connected())) {
 		status_due = false;
 		open_status_window();
 	}
 
 	if (window.phase == BT_OTA_CLOSED) {
-#if defined(CONFIG_APP_BT_ONLY)
-		/* A phone that came to read the status is on a link, though it never pairs. */
-		link_view = status_window.open && atomic_get(&connected) != 0 ? BT_OTA_LINK_CONNECTED
-									      : BT_OTA_LINK_NONE;
-#endif
 		if (status_window.open) {
 			tick_status_window();
 			refresh_status(false);
@@ -1825,24 +1750,10 @@ void bt_ota_on_tick(void)
 		.receiving = (atomic_get(&upload_state) & 0xff) == BT_STATUS_IMAGE_RECEIVING,
 	};
 
-#if defined(CONFIG_APP_BT_ONLY)
-	/* Commands in the last second, in a window that takes an image: it is arriving. */
-	if (!link.connected) {
-		link_view = BT_OTA_LINK_NONE;
-	} else if (link.secure && link.commands != commands_last_tick &&
-		   (atomic_get(&gate) & GATE_UPLOADS) != 0) {
-		link_view = BT_OTA_LINK_RECEIVING;
-	} else {
-		link_view = BT_OTA_LINK_CONNECTED;
-	}
-	commands_last_tick = link.commands;
-#endif
-
 	apply(bt_ota_window_tick(&window, &link));
 	refresh_status(false);
 }
 
-#if !defined(CONFIG_APP_BT_ONLY)
 void bt_ota_on_cloud_up(void)
 {
 	char json[192];
@@ -1855,24 +1766,11 @@ void bt_ota_on_cloud_up(void)
 		report_waiting = false;
 	}
 }
-#endif
 
 bool bt_ota_is_open(void)
 {
 	return window.phase != BT_OTA_CLOSED;
 }
-
-#if defined(CONFIG_APP_BT_ONLY)
-enum bt_ota_link_view bt_ota_link_view(void)
-{
-	return link_view;
-}
-
-bool bt_ota_take_trouble(void)
-{
-	return atomic_set(&trouble, 0) != 0;
-}
-#endif
 
 enum ui_state bt_ota_ui_state(void)
 {

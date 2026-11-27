@@ -3245,10 +3245,10 @@ static void test_the_diagnostics_report_says_only_what_it_should(void)
 	memset(values.board, 'z', sizeof(values.board));
 	CHECK(diag_format(&values, text, sizeof(text)) > 0);
 	CHECK(strstr(text, ",\"board\":\"unknown\",\"layout\":1}}") != NULL);
-	strcpy(values.board, "nrf5340dk");
+	strcpy(values.board, "nrf9999dk");
 	values.layout = 2;
 	CHECK(diag_format(&values, text, sizeof(text)) > 0);
-	CHECK(strstr(text, ",\"board\":\"nrf5340dk\",\"layout\":2}}") != NULL);
+	CHECK(strstr(text, ",\"board\":\"nrf9999dk\",\"layout\":2}}") != NULL);
 
 	/* The longest one fits the buffer main.c gives it, and a short buffer is refused. */
 	char longest[DIAG_REPORT_MAX + 32];

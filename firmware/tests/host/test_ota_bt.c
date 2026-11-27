@@ -828,8 +828,8 @@ static void test_an_image_for_another_board_or_layout_is_refused(void)
 		const char *reason;
 		const char *detail;
 	} cases[] = {
-		{ IMAGE_COMPAT_OTHER_BOARD, "nrf5340dk", 1, "incompatible_board",
-		  "\"detail\":\"image is for nrf5340dk\"" },
+		{ IMAGE_COMPAT_OTHER_BOARD, "nrf9999dk", 1, "incompatible_board",
+		  "\"detail\":\"image is for nrf9999dk\"" },
 		{ IMAGE_COMPAT_OTHER_LAYOUT, "nrf7002dk", 2, "incompatible_layout",
 		  "\"detail\":\"image is for flash layout 2\"" },
 		{ IMAGE_COMPAT_MALFORMED, "", 0, "header_mismatch",

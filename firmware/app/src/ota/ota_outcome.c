@@ -1,7 +1,6 @@
 /*
  * What a stored record of an update means once the board has restarted: ota_restart_outcome() in
- * ota_job.h. On its own, out of ota_job.c, because a board with Bluetooth only has no jobs to parse
- * and needs this for its updates over Bluetooth all the same.
+ * ota_job.h. On its own, out of ota_job.c, because updates over Bluetooth need it as well as jobs.
  */
 
 #include "ota_job.h"
