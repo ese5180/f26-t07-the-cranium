@@ -110,7 +110,7 @@ function ago(iso, now) {
 
 // The frame of a signed-in page.
 
-// [the section, its address, its name, its icon]: the boards first (console 2.30.2, #122), then the mixes, then the
+// [the section, its address, its name, its icon]: the boards first (console 2.31.1, #122), then the mixes, then the
 // account and the help.
 const STUDIO = Object.freeze([
   ['overview', '#/overview', 'Overview', 'grid'],
