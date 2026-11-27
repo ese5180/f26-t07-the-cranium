@@ -32,7 +32,20 @@ import {
   textOf,
 } from './page.mjs';
 // The Map and Account pages (docs/fleet.md).
-import { ACCOUNT, APPS, BLUETOOTH, BRIDGE, CUSTOMERS, FLEET, LABELS, LIVE, MAP, MEMFAULT } from './page.mjs';
+import {
+  ACCOUNT,
+  APPS,
+  BLUETOOTH,
+  BRIDGE,
+  COMPARE,
+  CUSTOMERS,
+  FLEET,
+  LABELS,
+  LIVE,
+  MAP,
+  MEMFAULT,
+  PLAYS,
+} from './page.mjs';
 import {
   INSTALLING,
   MANAGER,
@@ -334,6 +347,8 @@ async function openTab(t, options = {}) {
         'labels.js': LABELS,
         'apps.js': APPS,
         'customers.js': CUSTOMERS,
+        'compare.js': COMPARE,
+        'plays.js': PLAYS,
       },
       `tab ${copies}`
     )
