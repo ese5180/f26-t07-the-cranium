@@ -104,7 +104,7 @@ job_paths() {
   case "$1" in
     scan | lint | codeql) echo "*" ;;
     host-tests) echo "firmware/* .github/workflows/ci.yml" ;;
-    python-tests) echo "firmware/* tools/* scripts/board/* scripts/firmware/* pi/* .github/workflows/ci.yml" ;;
+    python-tests) echo "firmware/* tools/* scripts/board/* scripts/firmware/* scripts/tests/build-without-key-test.sh pi/* .github/workflows/ci.yml" ;;
     closed-loop) echo "closed-loop/* .github/workflows/ci.yml" ;;
     cloud-tests)
       echo "cloud/* apps/* firmware/* tools/* scripts/* binaries/golden/* docs/* .prettierrc* .prettierignore"
@@ -1211,7 +1211,7 @@ main() {
       --job)
         [ $# -ge 2 ] || die "--job needs a name"
         # die in expand_job ends only its subshell: the assignment carries its status out.
-      ONLY="$ONLY $(expand_job "$2")" || exit 2
+        ONLY="$ONLY $(expand_job "$2")" || exit 2
         MODE=chosen
         shift
         ;;
