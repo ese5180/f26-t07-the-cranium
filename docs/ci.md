@@ -138,8 +138,8 @@ no second turn, which would wait for ever for the one it is inside.
 - **The firmware is built by `scripts/firmware/build.sh --without-key`**, with the SDK installed here rather
   than Nordic's container. The bootloader takes the team's public key and the application a throwaway key that
   no board takes, and the build goes to `.local-ci/build/<job>/`, so a checkout's own `build/` is never touched.
-`binaries/` is changed during each build and put back as it was on every exit, a failed check or Ctrl-C
-included (`scripts/tests/build-without-key-test.sh` checks that).
+  `binaries/` is changed during each build and put back as it was on every exit, a failed check or Ctrl-C
+  included (`scripts/tests/build-without-key-test.sh` checks that).
   `tools/build_report.py` is not run: it needs `binaries/` to hold the build, which `--without-key` puts back
   as it was. The memory floors, the key check and each configuration's checks are run. Nothing is uploaded,
   flashed or deployed, and no artifact is kept beyond the logs.

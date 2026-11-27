@@ -52,9 +52,18 @@ stale() {
 waited=0
 until mkdir "$lock" 2> /dev/null; do
   holder="$(cat "$lock/pid" 2> /dev/null || true)"
-  if [ -d "$lock" ] && stale && mv "$lock" "$lock.stale.$$" 2> /dev/null; then
-    rm -rf "$lock.stale.$$"
-    continue
+  # Only the waiter that holds $lock.takeover judges and renames a stale lock, so no waiter renames a lock
+  # that another has just made after both found the old one stale. One left by a waiter that died in it
+  # is cleared after a minute.
+  if mkdir "$lock.takeover" 2> /dev/null; then
+    if [ -d "$lock" ] && stale && mv "$lock" "$lock.stale.$$" 2> /dev/null; then
+      rm -rf "$lock.stale.$$"
+      rmdir "$lock.takeover"
+      continue
+    fi
+    rmdir "$lock.takeover"
+  elif [ -n "$(find "$lock.takeover" -maxdepth 0 -mmin +1 2> /dev/null)" ]; then
+    rmdir "$lock.takeover" 2> /dev/null || true
   fi
   [ $((waited % 60)) -eq 0 ] && echo "heavy.sh: waiting for another heavy job (pid ${holder:-?}) to finish" >&2
   sleep 5
