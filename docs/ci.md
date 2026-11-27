@@ -53,14 +53,14 @@ copied as they are. A change to a workflow file calls for all of that workflow's
 | `lint` | `lint.yml` | Every change | actionlint, shellcheck on the tracked scripts, `scripts/tests/notes-test.sh`, gitleaks on the history of HEAD | With shellcheck, actionlint and gitleaks |
 | `codeql` | `codeql.yml` | Every change | `codeql database create` and `analyze` for JavaScript/TypeScript, Python and the workflows, with the security-extended queries; fails on any result | Only with the CodeQL CLI; skipped otherwise |
 | `host-tests` | `ci.yml` | `firmware/` | `make -C firmware/tests/host` | macOS, Linux |
-| `python-tests` | `ci.yml` | `firmware/`, `tools/`, `scripts/board/`, `scripts/firmware/` | The console simulator, `test_new_board.py` and the eleven test files, failing on a skip ci.yml does not list | macOS, Linux |
+| `python-tests` | `ci.yml` | `firmware/`, `tools/`, `scripts/board/`, `scripts/firmware/`, `pi/` | The console simulator, `test_new_board.py`, then the tests the branch's own `ci.yml` lists (each `run_test`, and `python3 pi/tests/...` where it has one), failing on a skip ci.yml does not list | macOS, Linux |
 | `closed-loop` | `ci.yml` | `closed-loop/` | `./bench test` in `closed-loop/.venv` | macOS, Linux |
 | `cloud-tests` | `ci.yml` | `cloud/`, `apps/`, `firmware/app/`, the keys and certificates, `scripts/firmware/`, `docs/` | Prettier 3.3.3, then `node --test` in `cloud/api`, `cloud/web` and `cloud/dev` | With Node.js |
 | `desktop-core` | `ci.yml` | `apps/desktop/`, the pages* | `npm ci`, `npm test`, the app started once offscreen until it draws the sign-in | macOS, Linux, Windows |
 | `android` | `ci.yml` | `apps/android/`, the pages* | `./gradlew testDebugUnitTest assembleDebug`, then `./gradlew --stop` | With JDK 17 and the Android SDK |
 | `ios` | `ci.yml` | `apps/ios/`, the pages* | `swift test`, then the XcodeGen project built for iPhone without signing; then `xcrun simctl shutdown all` | macOS |
 | `macos` | `ci.yml` (allowed to fail) | `apps/macos/`, the pages* | The project made `--ad-hoc`, and `xcodebuild test` | macOS |
-| `firmware-default`, `firmware-no-bt`, `firmware-nrf5340dk` | `ci.yml`, the firmware matrix | `firmware/app/`, `firmware/netcore/`, the keys, `tools/`, `scripts/firmware/build.sh` | `scripts/firmware/build.sh --keep --no-upload --without-key --build-dir .local-ci/build/<job>` (with `--cmake-arg -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf` or `--board nrf5340dk`) and a throwaway golden key, then `tools/memory_budget.py` and the configuration's checks from ci.yml | macOS, Linux, with nrfutil and the SDK |
+| `firmware-default`, `firmware-no-bt`, `firmware-pi`, `firmware-nrf5340dk` | `ci.yml`, the firmware matrix (`firmware-pi` only on a branch whose ci.yml or build.sh has the Pi delta updates configuration) | `firmware/app/`, `firmware/netcore/`, the keys, `tools/`, `scripts/firmware/build.sh` | `scripts/firmware/build.sh --keep --no-upload --without-key --build-dir .local-ci/build/<job>` (with `--cmake-arg -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf`, `--pi`, or `--board nrf5340dk`) and a throwaway golden key, then `tools/memory_budget.py` and the configuration's checks from ci.yml | macOS, Linux, with nrfutil and the SDK |
 | `cranium-mix` | `cranium-mix.yml` (comes with `pi/cranium-mix/`) | `pi/cranium-mix/` | `bash tools/test.sh` | Where `pi/cranium-mix/` exists |
 | `firmware-image` | `firmware-image.yml` | `tools/firmware-image/` | Nothing: skipped | Never locally |
 | `desktop-linux` | `desktop-linux.yml` | Its own paths | The AppImage, .deb and .rpm built and looked into; with `--install-packages`, the .deb installed, started and removed | Linux |
@@ -83,7 +83,8 @@ when `--post` could not post. Logs are in `.local-ci/runs/<time>-<commit>/` (the
   Packages. Build it by hand with `docker build tools/firmware-image` when the Dockerfile changes.
 - `desktop-linux` off Linux, `desktop-windows` off Windows, and `ios` and `macos` off macOS: their tools exist
   only there. The desktop app's tests and its start run in `desktop-core` on every system.
-- `cranium-mix`, where `pi/cranium-mix/` is not in the tree.
+- `cranium-mix`, where `pi/cranium-mix/` is not in the tree, and `firmware-pi` on a branch without the Pi delta
+  updates configuration.
 - Never run: `ci.yml`'s check of a published release (run `scripts/release/verify-github-release.sh` by hand),
   and `deploy-console.yml` and `release-apps.yml`, which deploy and release rather than check.
 
@@ -139,8 +140,8 @@ free: `CRANIUM_HEAVY` names the gate (`off` for none), else `~/cranium-work/heav
 - **gitleaks scans the history of HEAD.** Actions scanned every branch it fetched; a clone holds whatever
   branches its owner fetched, someone else's pull request among them, so the local scan is the commit's own
   history.
-- **Two Python tests may run instead of skipping**: `test_golden.py` when `binaries/` has the 1.3.0 image, and
-  `test_flash_layout.py` when `build/` has a build. Both results are accepted.
+- **A test ci.yml lets skip may run instead, and pass**: `test_golden.py` when `binaries/` has the 1.3.0 image,
+  and `test_flash_layout.py` when `build/` has a build. Both results are accepted.
 - **CodeQL fails on any result.** Actions compared the results with main's; a local run has no baseline.
 
 ## What runs

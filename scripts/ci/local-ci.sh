@@ -35,7 +35,7 @@ NCS_VERSION="$(sed -n 's/^NCS_VERSION=\(v[0-9][0-9.]*\)$/\1/p' "$REPO/scripts/fi
 NCS_VERSION="${NCS_VERSION:-v3.4.0}"
 
 JOBS="scan lint codeql host-tests python-tests closed-loop cloud-tests desktop-core android ios macos
-  firmware-default firmware-no-bt firmware-nrf5340dk cranium-mix firmware-image desktop-linux desktop-windows"
+  firmware-default firmware-no-bt firmware-pi firmware-nrf5340dk cranium-mix firmware-image desktop-linux desktop-windows"
 
 case "$(uname -s)" in
   Darwin) OS=macos ;;
@@ -71,6 +71,7 @@ job_title() {
     macos) echo "Mac app" ;;
     firmware-default) echo "Firmware (default)" ;;
     firmware-no-bt) echo "Firmware (no Bluetooth)" ;;
+    firmware-pi) echo "Firmware (Pi delta updates)" ;;
     firmware-nrf5340dk) echo "Firmware (nRF5340 DK)" ;;
     cranium-mix) echo "CRANIUM Mix host checks" ;;
     firmware-image) echo "Firmware build image" ;;
@@ -102,7 +103,7 @@ job_paths() {
   case "$1" in
     scan | lint | codeql) echo "*" ;;
     host-tests) echo "firmware/* .github/workflows/ci.yml" ;;
-    python-tests) echo "firmware/* tools/* scripts/board/* scripts/firmware/* .github/workflows/ci.yml" ;;
+    python-tests) echo "firmware/* tools/* scripts/board/* scripts/firmware/* pi/* .github/workflows/ci.yml" ;;
     closed-loop) echo "closed-loop/* .github/workflows/ci.yml" ;;
     cloud-tests)
       echo "cloud/* apps/* firmware/app/* firmware/certs/* firmware/keys/* firmware/golden.json"
@@ -112,7 +113,7 @@ job_paths() {
     android) echo "apps/android/* $bundle .github/workflows/ci.yml" ;;
     ios) echo "apps/ios/* $bundle .github/workflows/ci.yml" ;;
     macos) echo "apps/macos/* $bundle .github/workflows/ci.yml" ;;
-    firmware-default | firmware-no-bt | firmware-nrf5340dk) echo "$firmware .github/workflows/ci.yml" ;;
+    firmware-default | firmware-no-bt | firmware-pi | firmware-nrf5340dk) echo "$firmware .github/workflows/ci.yml" ;;
     cranium-mix) echo "pi/cranium-mix/* .github/workflows/cranium-mix.yml" ;;
     firmware-image) echo "tools/firmware-image/* .github/workflows/firmware-image.yml" ;;
     desktop-linux | desktop-windows)
@@ -295,6 +296,13 @@ detect() {
   export LOCALCI_JDK="$JDK" LOCALCI_ANDROID_SDK="$ANDROID_SDK"
 }
 
+# The firmware for a board wired to a Raspberry Pi (firmware 1.20.0, #279): a configuration of ci.yml's
+# matrix, built with build.sh --pi, on the branches that have it.
+has_pi_configuration() {
+  grep -q '^ *- configuration: Pi delta updates$' "$WORKFLOWS/ci.yml" 2> /dev/null ||
+    grep -q '^ *--pi)' "$REPO/scripts/firmware/build.sh" 2> /dev/null
+}
+
 # Why a job cannot run here, as "kind|reason", or nothing when it can. The kinds: os (not on this system),
 # tool (something to install), absent (not in this tree), design (never run locally).
 job_blocker() {
@@ -346,8 +354,10 @@ job_blocker() {
         [ -z "$missing" ] || echo "tool|install${missing}"
       fi
       ;;
-    firmware-default | firmware-no-bt | firmware-nrf5340dk)
-      if [ "$OS" = windows ]; then
+    firmware-default | firmware-no-bt | firmware-pi | firmware-nrf5340dk)
+      if [ "$1" = firmware-pi ] && ! has_pi_configuration; then
+        echo "absent|this branch has no Pi delta updates configuration (in ci.yml's firmware matrix or build.sh --pi)"
+      elif [ "$OS" = windows ]; then
         echo "os|scripts/firmware/build.sh runs on macOS and Linux"
       else
         [ -n "$NRFUTIL_BIN" ] || missing="$missing nrfutil (docs/new-board-setup.md)"
@@ -436,7 +446,7 @@ job_reason() {
 
 expand_job() {
   case "$1" in
-    firmware) echo firmware-default firmware-no-bt firmware-nrf5340dk ;;
+    firmware) echo firmware-default firmware-no-bt firmware-pi firmware-nrf5340dk ;;
     *)
       for known in $JOBS; do [ "$known" = "$1" ] && { echo "$1"; return 0; }; done
       die "no job named $1; the jobs: $(echo $JOBS) (and firmware, for all three builds)"
@@ -449,7 +459,7 @@ expand_job() {
 unknown_firmware_configurations() {
   [ -f "$WORKFLOWS/ci.yml" ] || return 0
   sed -n 's/^ *- configuration: *//p' "$WORKFLOWS/ci.yml" | while IFS= read -r name; do
-    case "$name" in default | "no Bluetooth" | "nRF5340 DK") ;; *) echo "$name" ;; esac
+    case "$name" in default | "no Bluetooth" | "Pi delta updates" | "nRF5340 DK") ;; *) echo "$name" ;; esac
   done
 }
 
@@ -602,20 +612,23 @@ job_python_tests() {
   make -C firmware/tests/host build/console_sim build/console_sim_fault
   step "The tests of the new-board script"
   run_python_test test_new_board.py OK
-  step "The tests, failing on any skip that is not listed"
-  # As in ci.yml. Two tests may skip there and not here: test_golden.py checks binaries/cranium-1.3.0-0,
-  # and test_flash_layout.py the last build in build/, when this checkout has them.
-  run_python_test test_board.py OK
-  run_python_test test_recover.py OK
-  run_python_test test_golden.py 'OK (skipped=1)' OK
-  run_python_test test_golden_promote.py OK
-  run_python_test test_build_report.py OK
-  run_python_test test_memory_budget.py OK
-  run_python_test test_check_image.py OK
-  run_python_test test_flash_layout.py 'OK (skipped=1)' OK
-  run_python_test test_memfault_upload.py OK
-  run_python_test test_provision.py OK
-  run_python_test test_bt_only_check.py OK
+  # The tests of ci.yml's Python job, read from this branch's ci.yml, so that a branch that adds one is
+  # checked with it: the Pi's own (python3 pi/tests/...), then each run_test with its expected result.
+  local tests extra_test file want also
+  for extra_test in $(sed -n 's/^ *run: python3 \(pi\/tests\/[A-Za-z0-9_]*\.py\)$/\1/p' "$WORKFLOWS/ci.yml"); do
+    step "$extra_test"
+    python3 "$extra_test"
+  done
+  step "The tests, failing on any skip that ci.yml does not list"
+  tests="$(sed -n "s/^ *run_test \([A-Za-z0-9_]*\.py\) '\([^']*\)'.*/\1|\2/p" "$WORKFLOWS/ci.yml")"
+  [ -n "$tests" ] || { echo "error: no run_test lines in ci.yml's Python job" >&2; return 1; }
+  # A test that may skip on Actions may run here instead, and pass: test_golden.py checks
+  # binaries/cranium-1.3.0-0 and test_flash_layout.py the last build in build/, when a checkout has them.
+  while IFS='|' read -r file want <&3; do
+    also=""
+    case "$want" in "OK (skipped="*) also=OK ;; esac
+    run_python_test "$file" "$want" ${also:+"$also"}
+  done 3<<< "$tests"
 }
 
 job_closed_loop() {
@@ -740,6 +753,14 @@ job_firmware() {
   case "$configuration" in
     "no Bluetooth") args+=(--cmake-arg -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf) ;;
     "nRF5340 DK") board=nrf5340dk ;;
+    "Pi delta updates")
+      # build.sh --pi where it has it; else the matrix's own argument.
+      if grep -q '^ *--pi)' scripts/firmware/build.sh; then
+        args+=(--pi)
+      else
+        args+=(--cmake-arg -DSB_EXTRA_CONF_FILE=pi_delta_sysbuild.conf)
+      fi
+      ;;
   esac
   args+=(--board "$board")
   ensure_python
@@ -913,6 +934,7 @@ run_job_body() {
     macos) job_macos ;;
     firmware-default) job_firmware default "$1" ;;
     firmware-no-bt) job_firmware "no Bluetooth" "$1" ;;
+    firmware-pi) job_firmware "Pi delta updates" "$1" ;;
     firmware-nrf5340dk) job_firmware "nRF5340 DK" "$1" ;;
     cranium-mix) job_cranium_mix ;;
     desktop-linux) job_desktop_linux ;;
