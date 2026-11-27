@@ -185,6 +185,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-26 | Local CI: `scripts/ci/local-ci.sh` runs the workflows' checks on a teammate's computer, picked by the changed files, and sets the `local-ci` commit status (GitHub Actions off) | — | #308 |
 | 2026-11-26 | Our own Vitals: crash-free boards, connected time and the newest release, by day, board and version, from the events boards already send | console 2.31.0, apps 0.9.5, desktop 0.1.19 | #304 |
 | 2026-11-25 | Our own Issues: crashes, faults and stuck restarts grouped by signature, with boards, versions and regressions | console 2.30.3 | #298 |
 | 2026-11-25 | Canary time limit: a canary that has not confirmed in time halts the rest, unless visibly still at work; a deployment of several boards gets a canary | console 2.30.1, apps 0.9.3, desktop 0.1.17 | #293 |
