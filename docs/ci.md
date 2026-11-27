@@ -38,7 +38,7 @@ scripts/ci/local-ci.sh --doctor      # what this computer can run, and what to i
 scripts/ci/local-ci.sh --list        # which jobs the changes call for, and why; runs nothing
 scripts/ci/local-ci.sh               # those jobs
 scripts/ci/local-ci.sh --all         # every job
-scripts/ci/local-ci.sh --job lint    # one job (repeat --job for more; --job firmware is all three builds)
+scripts/ci/local-ci.sh --job lint    # one job (repeat --job for more; --job firmware is all four builds)
 scripts/ci/local-ci.sh --post        # run, then set the commit status local-ci on HEAD
 ```
 
@@ -53,9 +53,9 @@ copied as they are. A change to a workflow file calls for all of that workflow's
 | `lint` | `lint.yml` | Every change | actionlint, shellcheck on the tracked scripts, `scripts/tests/notes-test.sh`, gitleaks on the history of HEAD | With shellcheck, actionlint and gitleaks |
 | `codeql` | `codeql.yml` | Every change | `codeql database create` and `analyze` for JavaScript/TypeScript, Python and the workflows, with the security-extended queries; fails on any result | Only with the CodeQL CLI; skipped otherwise |
 | `host-tests` | `ci.yml` | `firmware/` | `make -C firmware/tests/host` | macOS, Linux |
-| `python-tests` | `ci.yml` | `firmware/`, `tools/`, `scripts/board/`, `scripts/firmware/`, `pi/` | The console simulator, `test_new_board.py`, then the tests the branch's own `ci.yml` lists (each `run_test`, and `python3 pi/tests/...` where it has one), failing on a skip ci.yml does not list | macOS, Linux |
+| `python-tests` | `ci.yml` | `firmware/`, `tools/`, `scripts/board/`, `scripts/firmware/`, `pi/` | The console simulator, `test_new_board.py`, then the tests the branch's own `ci.yml` lists (each `run_test`, and `python3 pi/tests/...` where it has one), failing on a skip ci.yml does not list; then `scripts/tests/build-without-key-test.sh` (local only) | macOS, Linux |
 | `closed-loop` | `ci.yml` | `closed-loop/` | `./bench test` in `closed-loop/.venv` | macOS, Linux |
-| `cloud-tests` | `ci.yml` | `cloud/`, `apps/`, `firmware/app/`, the keys and certificates, `scripts/firmware/`, `docs/` | Prettier 3.3.3, then `node --test` in `cloud/api`, `cloud/web` and `cloud/dev` | With Node.js |
+| `cloud-tests` | `ci.yml` | `cloud/`, `apps/`, `firmware/`, `tools/`, `scripts/`, `docs/`, the golden image, Prettier's files, `ci.yml` and `deploy-console.yml` | Prettier 3.3.3, then `node --test` in `cloud/api`, `cloud/web` and `cloud/dev` | With Node.js |
 | `desktop-core` | `ci.yml` | `apps/desktop/`, the pages* | `npm ci`, `npm test`, the app started once offscreen until it draws the sign-in | macOS, Linux, Windows |
 | `android` | `ci.yml` | `apps/android/`, the pages* | `./gradlew testDebugUnitTest assembleDebug`, then `./gradlew --stop` | With JDK 17 and the Android SDK |
 | `ios` | `ci.yml` | `apps/ios/`, the pages* | `swift test`, then the XcodeGen project built for iPhone without signing; then `xcrun simctl shutdown all` | macOS |
@@ -97,7 +97,9 @@ this script does not (it says which: add it to the script in the branch that add
 review has passed it ("OK to merge"). A status belongs to one commit: run `--post` again after every push.
 
 **Posting the status.** `--post` runs only on a clean tree whose HEAD is on GitHub (pushed), so that the status
-describes exactly that commit, and not with `--job`, because a status describes a whole run. It checks the API's
+describes exactly that commit; not with `--job`, because a status describes a whole run; and only against
+`origin/main` (no `--base`, unless with `--all`), so that it covers everything the branch changes from main. A
+stacked pull request's changes against main include its base branch's, so it is covered too. It checks the API's
 rate limit first, then sets the status with `gh api repos/ese5180/f26-t07-the-cranium/statuses/<commit>`: the
 context `local-ci`, the state and a one-line description, with no link. That uses no Actions minutes. It needs
 the GitHub CLI signed in (`gh auth login`) as an account with write access to the repository. A worktree of the
@@ -106,7 +108,9 @@ pull request's branch is a clean place to run it: `git worktree add ../pr-check 
 **Memory.** Every job except `scan` and `lint` runs through a memory gate, one at a time, once at least 3 GB is
 free: `CRANIUM_HEAVY` names the gate (`off` for none), else `~/cranium-work/heavy.sh` if you have one, else
 `scripts/ci/heavy.sh`, which takes a lock in your temporary folder and reads `vm_stat` on macOS or
-`/proc/meminfo` on Linux (`CRANIUM_HEAVY_NEED_GB` changes the 3).
+`/proc/meminfo` on Linux (`CRANIUM_HEAVY_NEED_GB` changes the 3). Started inside a gate already, under
+`scripts/ci/heavy.sh` (which sets `CRANIUM_HEAVY_HELD`) or under any heavy.sh among its parent processes, it takes
+no second turn, which would wait for ever for the one it is inside.
 
 ### Setting up a computer
 
@@ -134,6 +138,8 @@ free: `CRANIUM_HEAVY` names the gate (`off` for none), else `~/cranium-work/heav
 - **The firmware is built by `scripts/firmware/build.sh --without-key`**, with the SDK installed here rather
   than Nordic's container. The bootloader takes the team's public key and the application a throwaway key that
   no board takes, and the build goes to `.local-ci/build/<job>/`, so a checkout's own `build/` is never touched.
+`binaries/` is changed during each build and put back as it was on every exit, a failed check or Ctrl-C
+included (`scripts/tests/build-without-key-test.sh` checks that).
   `tools/build_report.py` is not run: it needs `binaries/` to hold the build, which `--without-key` puts back
   as it was. The memory floors, the key check and each configuration's checks are run. Nothing is uploaded,
   flashed or deployed, and no artifact is kept beyond the logs.
@@ -143,6 +149,9 @@ free: `CRANIUM_HEAVY` names the gate (`off` for none), else `~/cranium-work/heav
 - **A test ci.yml lets skip may run instead, and pass**: `test_golden.py` when `binaries/` has the 1.3.0 image,
   and `test_flash_layout.py` when `build/` has a build. Both results are accepted.
 - **CodeQL fails on any result.** Actions compared the results with main's; a local run has no baseline.
+- **Green does not include CodeQL** while nobody's computer has its CLI: `codeql.yml` ran on every pull request,
+  and here a missing CLI is an optional skip, named in the status's description. Once a teammate installs it,
+  it should become a required job.
 
 ## What runs
 

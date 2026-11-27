@@ -9,8 +9,9 @@
 # It waits for its turn, then for at least CRANIUM_HEAVY_NEED_GB gigabytes of memory to be available
 # (default 3), then runs the command with a lower priority and exits with its status. The turn is a
 # folder lock holding the holder's process ID, shared by every checkout of this user; a lock whose holder
-# has died is taken over. The memory check reads vm_stat on macOS and /proc/meminfo on Linux; elsewhere
-# (Git Bash on Windows) it only takes turns.
+# has died, or that has had no process ID for a minute, is taken over. The command runs with
+# CRANIUM_HEAVY_HELD=1, so that scripts/ci/local-ci.sh under it takes no second turn. The memory check
+# reads vm_stat on macOS and /proc/meminfo on Linux; elsewhere (Git Bash on Windows) it only takes turns.
 
 set -u
 
@@ -18,7 +19,7 @@ lock="${CRANIUM_HEAVY_LOCK:-${TMPDIR:-/tmp}/cranium-heavy-$(id -u 2> /dev/null |
 need_gb="${CRANIUM_HEAVY_NEED_GB:-3}"
 
 if [ $# -eq 0 ]; then
-  sed -n '3,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 2
 fi
 
@@ -34,12 +35,25 @@ available_gb() {
   fi
 }
 
+# A lock is stale when its holder has died, or when it has had no process ID for a minute (its holder
+# was stopped between making it and writing the ID). It is taken over by renaming it first, which only
+# one waiter can do, so that two waiters never both remove it and both run.
+stale() {
+  local holder age
+  holder="$(cat "$lock/pid" 2> /dev/null || true)"
+  if [ -n "$holder" ]; then
+    ! kill -0 "$holder" 2> /dev/null
+    return
+  fi
+  age=$(($(date +%s) - $(stat -c %Y "$lock" 2> /dev/null || stat -f %m "$lock" 2> /dev/null || date +%s)))
+  [ "$age" -gt 60 ]
+}
+
 waited=0
 until mkdir "$lock" 2> /dev/null; do
   holder="$(cat "$lock/pid" 2> /dev/null || true)"
-  if [ -n "$holder" ] && ! kill -0 "$holder" 2> /dev/null; then
-    rm -f "$lock/pid"
-    rmdir "$lock" 2> /dev/null || true
+  if [ -d "$lock" ] && stale && mv "$lock" "$lock.stale.$$" 2> /dev/null; then
+    rm -rf "$lock.stale.$$"
     continue
   fi
   [ $((waited % 60)) -eq 0 ] && echo "heavy.sh: waiting for another heavy job (pid ${holder:-?}) to finish" >&2
@@ -60,6 +74,7 @@ while :; do
   waited=$((waited + 10))
 done
 
+export CRANIUM_HEAVY_HELD=1
 if command -v nice > /dev/null 2>&1; then
   nice -n 10 "$@"
 else
