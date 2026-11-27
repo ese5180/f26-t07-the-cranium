@@ -1,0 +1,1029 @@
+diff --git a/src/library/rekordbox/rekordboxfeature.cpp b/src/library/rekordbox/rekordboxfeature.cpp
+index 13838ff..0091f87 100644
+--- a/src/library/rekordbox/rekordboxfeature.cpp
++++ b/src/library/rekordbox/rekordboxfeature.cpp
+@@ -20,6 +20,8 @@
+ #include "library/trackcollection.h"
+ #include "library/trackcollectionmanager.h"
+ #include "library/treeitem.h"
++#include "mixer/playerinfo.h"
++#include "track/track.h"
+ #include "moc_rekordboxfeature.cpp"
+ #include "util/sandbox.h"
+ #include "widget/wlibrary.h"
+@@ -415,6 +417,41 @@ RekordboxFeature::catalogForRoot(const QString& root) const {
+             ? session->catalog() : nullptr;
+ }
+ 
++std::optional<mixxx::rekordbox::RuntimeTrack> RekordboxFeature::infoForLocation(
++        const QString& location,QString* root) const {
++    if(location.isEmpty()) return {};
++    for(auto it=m_sessions.cbegin();it!=m_sessions.cend();++it) {
++        const auto catalog=it.value()->catalog();
++        if(!catalog || !catalog->valid()) continue;
++        const auto tracks=catalog->tracks();
++        for(const auto& track:tracks) if(track.resolvedAudioPath==location) {
++            if(root) *root=it.key();return track;
++        }
++    }
++    return {};
++}
++
++void RekordboxFeature::writeRating(const QString& root,quint32 id,int rating,
++        std::function<void(QString)> finished) {
++    const auto session=m_sessions.value(root);
++    if(!session) {finished(QStringLiteral("USB is unavailable."));return;}
++    auto* watcher=new QFutureWatcher<QString>(this);
++    connect(watcher,&QFutureWatcher<QString>::finished,this,[this,watcher,root,id,rating,finished]{
++        const auto error=watcher->result();watcher->deleteLater();
++        if(error.isEmpty()) {
++            if(root==m_selectedRoot) m_runtimeTrackModel.refreshRating(id,rating);
++            for(int deck=1;deck<=2;++deck) {
++                auto track=PlayerInfo::instance().getTrackInfo(QString("[Channel%1]").arg(deck));
++                QString trackRoot;
++                const auto record=track?infoForLocation(track->getLocation(),&trackRoot):std::nullopt;
++                if(record && trackRoot==root && record->rekordboxId==id) track->setRating(rating);
++            }
++        }
++        finished(error);
++    });
++    watcher->setFuture(QtConcurrent::run([session,id,rating]{return session->writeRating(id,rating);}));
++}
++
+ bool RekordboxFeature::showTrackIds(const QString& root,
+         const QList<quint32>& ids,
+         const QString& viewKey) {
+diff --git a/src/library/rekordbox/rekordboxfeature.h b/src/library/rekordbox/rekordboxfeature.h
+index bf90df5..98ff7f8 100644
+--- a/src/library/rekordbox/rekordboxfeature.h
++++ b/src/library/rekordbox/rekordboxfeature.h
+@@ -1,4 +1,5 @@
+-// Read-only browser for removable Rekordbox exports. Runtime rows are never
++// Browser for removable Rekordbox exports; only explicit INFO rating edits write USB.
++// Runtime rows are never
+ // copied into Mixxx's collection or represented by Mixxx TrackIds.
+ #pragma once
+ 
+@@ -10,6 +11,7 @@
+ #include <QtConcurrentRun>
+ 
+ #include <memory>
++#include <functional>
+ 
+ #include "library/libraryfeature.h"
+ #include "library/proxytrackmodel.h"
+@@ -34,6 +36,8 @@ class RekordboxFeature final : public LibraryFeature {
+     TreeItemModel* sidebarModel() const override;
+     std::shared_ptr<const mixxx::rekordbox::RuntimeCatalog> catalogForRoot(
+             const QString& root) const;
++    std::optional<mixxx::rekordbox::RuntimeTrack> infoForLocation(const QString& location,QString* root) const;
++    void writeRating(const QString& root,quint32 id,int rating,std::function<void(QString)> finished);
+     bool showTrackIds(const QString& root,
+             const QList<quint32>& ids,
+             const QString& viewKey);
+diff --git a/src/library/rekordbox/rekordboxratingwriter.h b/src/library/rekordbox/rekordboxratingwriter.h
+new file mode 100644
+index 0000000..c5586b0
+--- /dev/null
++++ b/src/library/rekordbox/rekordboxratingwriter.h
+@@ -0,0 +1,56 @@
++#pragma once
++
++#include <QCryptographicHash>
++#include <QFile>
++#include <QFileInfo>
++#include <QLockFile>
++#include <QSaveFile>
++#include <QtEndian>
++#include "library/rekordbox/rekordboxdatabase.h"
++#include "library/rekordbox/rekordboxdevice.h"
++
++namespace mixxx::rekordbox {
++// Explicit fixed-field edit. Generic tag/collection writers still treat USB
++// exports as read-only. No table rebuilding, track IDs or ANLZ bytes change.
++inline QString writeUsbRating(const DeviceSnapshot& expected,quint32 trackId,
++        const QString& expectedAudioPath,int rating,QByteArray* newFingerprint) {
++    if(rating<0 || rating>5 || !trackId) return QStringLiteral("Invalid rating.");
++    const auto path=resolvePath(expected.root,"PIONEER/rekordbox/export.pdb");
++    if(path.isEmpty() || path!=expected.databasePath)
++        return QStringLiteral("USB database is unavailable.");
++    QLockFile lock(path+".nauticmixxx.lock");
++    if(!lock.tryLock(0)) return QStringLiteral("Another rating update is in progress.");
++    const auto document=readDatabaseFile(path,DatabaseKind::Main);
++    if(!document.valid()) return QStringLiteral("Invalid USB database: ")+document.error;
++    if(QCryptographicHash::hash(document.bytes,QCryptographicHash::Sha256)!=expected.fingerprint)
++        return QStringLiteral("USB export changed. Reconnect the device before editing.");
++    const auto tracks=readTrackIndex(document);
++    if(!tracks.error.isEmpty() || !tracks.tracks.contains(trackId) ||
++            tracks.tracks.value(trackId).filePath!=expectedAudioPath)
++        return QStringLiteral("USB track identity changed.");
++    qint64 offset=-1;
++    for(const auto& row:document.rows) if(row.tableType==0 && row.size>=136 &&
++            qFromLittleEndian<quint32>(document.bytes.constData()+row.offset+72)==trackId) {
++        if(offset>=0) return QStringLiteral("Ambiguous USB track identity.");
++        offset=row.offset+89;
++    }
++    if(offset<0) return QStringLiteral("USB track was not found.");
++    QByteArray modified=document.bytes;modified[int(offset)]=char(rating);
++    if(modified==document.bytes) {if(newFingerprint) *newFingerprint=expected.fingerprint;return {};}
++    // Keep one bounded recovery copy, replacing it only before a validated edit.
++    QSaveFile backup(path+".nauticmixxx-rating-backup");
++    backup.setDirectWriteFallback(false);
++    if(!backup.open(QIODevice::WriteOnly) || backup.write(document.bytes)!=document.bytes.size() || !backup.commit())
++        return QStringLiteral("Could not save the USB rating backup: ")+backup.errorString();
++    QSaveFile output(path);output.setDirectWriteFallback(false);
++    if(!output.open(QIODevice::WriteOnly) || output.write(modified)!=modified.size())
++        return QStringLiteral("Could not write the USB rating: ")+output.errorString();
++    const auto current=inspectDevice(expected.root);
++    if(!current.matches(expected) || current.databasePath!=path ||
++            resolvePath(expected.root,"PIONEER/rekordbox/export.pdb")!=path)
++        return QStringLiteral("USB changed during rating update. Original export retained.");
++    if(!output.commit()) return QStringLiteral("Could not commit the USB rating: ")+output.errorString();
++    if(newFingerprint) *newFingerprint=QCryptographicHash::hash(modified,QCryptographicHash::Sha256);
++    return {};
++}
++} // namespace mixxx::rekordbox
+diff --git a/src/library/rekordbox/rekordboxruntimecatalog.cpp b/src/library/rekordbox/rekordboxruntimecatalog.cpp
+index 1b026a2..232f3d7 100644
+--- a/src/library/rekordbox/rekordboxruntimecatalog.cpp
++++ b/src/library/rekordbox/rekordboxruntimecatalog.cpp
+@@ -6,6 +6,14 @@
+ 
+ namespace mixxx::rekordbox {
+ 
++bool RuntimeCatalog::updateRating(quint32 id,int rating) {
++    const std::lock_guard<std::mutex> lock(m_mutex);
++    auto it=m_tracks.find(id);
++    if(!m_valid || it==m_tracks.end() || rating<0 || rating>5) return false;
++    it->rating=quint32(rating);it->rawMetadata.insert("rating",rating);
++    return true;
++}
++
+ bool RuntimeCatalog::insertTrack(RuntimeTrack track) {
+     const std::lock_guard<std::mutex> lock(m_mutex);
+     if (!m_valid || m_sealed || track.rekordboxId == 0) {
+diff --git a/src/library/rekordbox/rekordboxruntimecatalog.h b/src/library/rekordbox/rekordboxruntimecatalog.h
+index 5583366..37b2c9a 100644
+--- a/src/library/rekordbox/rekordboxruntimecatalog.h
++++ b/src/library/rekordbox/rekordboxruntimecatalog.h
+@@ -158,6 +158,8 @@ class RuntimeCatalog {
+     RuntimeCatalog& operator=(const RuntimeCatalog&) = delete;
+ 
+     bool insertTrack(RuntimeTrack track);
++    // Published rating update, called only after a successful USB commit.
++    bool updateRating(quint32 id,int rating);
+     // Atomic subtree insertion. Tracks must exist before playlists reference
+     // them; duplicate entries in a playlist are allowed and order is preserved.
+     bool insertPlaylist(RuntimePlaylistNode playlist);
+diff --git a/src/library/rekordbox/rekordboxruntimetrackmodel.cpp b/src/library/rekordbox/rekordboxruntimetrackmodel.cpp
+index fea42f7..0f1ddfa 100644
+--- a/src/library/rekordbox/rekordboxruntimetrackmodel.cpp
++++ b/src/library/rekordbox/rekordboxruntimetrackmodel.cpp
+@@ -130,6 +130,14 @@ void RekordboxRuntimeTrackModel::showTrackIds(
+     setRows(std::move(session), std::move(rows), viewKey);
+ }
+ 
++void RekordboxRuntimeTrackModel::refreshRating(quint32 id,int rating) {
++    for(int row=0;row<m_rows.size();++row) if(m_rows[row].rekordboxId==id) {
++        m_rows[row].rating=quint32(rating);
++        const int col=fieldIndex(ColumnCache::COLUMN_LIBRARYTABLE_RATING);
++        emit dataChanged(index(row,col),index(row,col));
++    }
++}
++
+ void RekordboxRuntimeTrackModel::clearSession() {
+     setRows({}, {}, QStringLiteral("empty"));
+ }
+diff --git a/src/library/rekordbox/rekordboxruntimetrackmodel.h b/src/library/rekordbox/rekordboxruntimetrackmodel.h
+index 119104f..42cf041 100644
+--- a/src/library/rekordbox/rekordboxruntimetrackmodel.h
++++ b/src/library/rekordbox/rekordboxruntimetrackmodel.h
+@@ -34,6 +34,7 @@ class RekordboxRuntimeTrackModel final : public BaseTrackTableModel {
+             const QList<quint32>& trackIds,
+             const QString& viewKey);
+     void clearSession();
++    void refreshRating(quint32 id,int rating);
+ 
+     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
+     TrackPointer getTrack(const QModelIndex& index) const override;
+diff --git a/src/library/rekordbox/rekordboxusbsession.cpp b/src/library/rekordbox/rekordboxusbsession.cpp
+index 7dd25a1..320e2d6 100644
+--- a/src/library/rekordbox/rekordboxusbsession.cpp
++++ b/src/library/rekordbox/rekordboxusbsession.cpp
+@@ -12,6 +12,7 @@
+ 
+ #include "library/rekordbox/rekordboxanlzreader.h"
+ #include "library/rekordbox/rekordboxdatabase.h"
++#include "library/rekordbox/rekordboxratingwriter.h"
+ #include "library/rekordbox/rekordboxtrackadapter.h"
+ 
+ namespace mixxx::rekordbox {
+@@ -273,6 +274,20 @@ RekordboxUsbSession::~RekordboxUsbSession() {
+     invalidate();
+ }
+ 
++QString RekordboxUsbSession::writeRating(quint32 trackId,int rating) {
++    const std::lock_guard<std::mutex> lock(m_mutex);
++    if(m_state!=UsbSessionState::Ready || !m_catalog || !m_sessionState->isActive())
++        return QStringLiteral("USB session is unavailable.");
++    const auto track=m_catalog->findTrack(trackId);
++    if(!track) return QStringLiteral("Unknown USB track.");
++    QByteArray fingerprint;
++    const auto error=writeUsbRating(m_snapshot,trackId,track->audioRelativePath,rating,&fingerprint);
++    if(!error.isEmpty()) return error;
++    m_snapshot.fingerprint=fingerprint;
++    m_catalog->updateRating(trackId,rating);
++    return {};
++}
++
+ bool RekordboxUsbSession::load() {
+     QString root;
+     {
+diff --git a/src/library/rekordbox/rekordboxusbsession.h b/src/library/rekordbox/rekordboxusbsession.h
+index b8e5401..b5e3775 100644
+--- a/src/library/rekordbox/rekordboxusbsession.h
++++ b/src/library/rekordbox/rekordboxusbsession.h
+@@ -30,6 +30,8 @@ class RekordboxUsbSession final {
+     // fully built/sealed catalog is published. invalidate() may cancel a load.
+     bool load();
+     bool refresh();
++    // Explicit USB write, off GUI/audio threads; returns an error or empty.
++    QString writeRating(quint32 trackId,int rating);
+     // Explicit synchronous I/O, off UI/audio threads. nullopt is failure; an
+     // engaged empty QByteArray is a valid zero-length payload. No cache or mutation
+     // of the sealed catalog; returned bytes own their storage.
+diff --git a/src/skin/legacy/legacyskinparser.cpp b/src/skin/legacy/legacyskinparser.cpp
+index 55513f2..318a54e 100644
+--- a/src/skin/legacy/legacyskinparser.cpp
++++ b/src/skin/legacy/legacyskinparser.cpp
+@@ -62,6 +62,7 @@
+ #include "widget/wreferencescaler.h"
+ #include "widget/rx3displaystate.h"
+ #include "widget/wrx3shortcut.h"
++#include "widget/wrx3info.h"
+ #include "widget/wrx3countdown.h"
+ #include "widget/wrx3performancewidgets.h"
+ #include "widget/wnumberrate.h"
+@@ -453,6 +454,7 @@ QWidget* LegacySkinParser::parseSkin(const QString& skinPath, QWidget* pParent)
+     if (rx3State) {
+         new WRx3Shortcut(m_pConfig,m_pEffectsManager,widgets[0]);
+         new WRx3Countdown(m_pConfig,widgets[0]);
++        new WRx3Info(m_pLibrary,widgets[0]);
+     }
+     const QString reference = m_pContext->selectString(skinDocument, "ReferenceSize");
+     const auto dimensions = reference.split(',');
+diff --git a/src/test/rekordboxusbsession_test.cpp b/src/test/rekordboxusbsession_test.cpp
+index d732eff..15498a2 100644
+--- a/src/test/rekordboxusbsession_test.cpp
++++ b/src/test/rekordboxusbsession_test.cpp
+@@ -21,6 +21,7 @@
+ #include <QtEndian>
+ 
+ #include "library/rekordbox/rekordboxdatabase.h"
++#include "library/rekordbox/rekordboxratingwriter.h"
+ #include "library/rekordbox/rekordboxdecodertiming.h"
+ #include "library/rekordbox/rekordboxanlzreader.h"
+ #include "library/rekordbox/rekordboxruntimetrackmodel.h"
+@@ -1592,3 +1593,60 @@ TEST_F(RekordboxLazyWaveformTest, PdbChangeInvalidatesPayloadLoading) {
+     EXPECT_EQ(session->state(), UsbSessionState::Invalidated);
+ }
+ } // namespace
++
++TEST(RekordboxUsbSessionTest, RatingCommitChangesOneByteAndSurvivesReconnection) {
++    QTemporaryDir volume;
++    const auto original=database(rows());ASSERT_TRUE(write(pdb(volume),original));
++    ASSERT_TRUE(write(volume.filePath("Contents/test.mp3"),"audio fixture"));
++    const auto index=readDatabase(original,DatabaseKind::Main);
++    qint64 ratingOffset=-1;for(const auto& row:index.rows) if(row.tableType==0) ratingOffset=row.offset+89;
++    ASSERT_GE(ratingOffset,0);
++    RekordboxUsbSession session(volume.path());ASSERT_TRUE(session.load());
++    const auto before=session.catalog()->findTrack(1);ASSERT_TRUE(before);
++    EXPECT_TRUE(session.writeRating(1,2).isEmpty());
++    EXPECT_EQ(2u,session.catalog()->findTrack(1)->rating);
++    QFile edited(pdb(volume));ASSERT_TRUE(edited.open(QIODevice::ReadOnly));
++    const auto bytes=edited.readAll();edited.close();ASSERT_EQ(original.size(),bytes.size());
++    for(int i=0;i<bytes.size();++i) EXPECT_EQ(i==ratingOffset?char(2):original.at(i),bytes.at(i))<<i;
++    QFile backup(pdb(volume)+".nauticmixxx-rating-backup");ASSERT_TRUE(backup.open(QIODevice::ReadOnly));
++    EXPECT_EQ(original,backup.readAll());
++    EXPECT_EQ(before->cues.size(),session.catalog()->findTrack(1)->cues.size());
++    EXPECT_TRUE(session.writeRating(1,5).isEmpty());
++    session.invalidate();
++    RekordboxUsbSession reconnected(volume.path());ASSERT_TRUE(reconnected.load());
++    EXPECT_EQ(5u,reconnected.catalog()->findTrack(1)->rating);
++    EXPECT_EQ(before->title,reconnected.catalog()->findTrack(1)->title);
++    EXPECT_EQ(before->audioRelativePath,reconnected.catalog()->findTrack(1)->audioRelativePath);
++}
++
++TEST(RekordboxUsbSessionTest, RatingRejectsChangedExportRevocationAndInvalidValues) {
++    QTemporaryDir volume;const auto original=database(rows());ASSERT_TRUE(write(pdb(volume),original));
++    RekordboxUsbSession session(volume.path());ASSERT_TRUE(session.load());
++    EXPECT_FALSE(session.writeRating(1,-1).isEmpty());EXPECT_FALSE(session.writeRating(1,6).isEmpty());
++    EXPECT_FALSE(session.writeRating(999,3).isEmpty());
++    auto replaced=original;replaced[20]=char(42);ASSERT_TRUE(write(pdb(volume),replaced));
++    EXPECT_FALSE(session.writeRating(1,3).isEmpty());
++    QFile bytes(pdb(volume));ASSERT_TRUE(bytes.open(QIODevice::ReadOnly));EXPECT_EQ(replaced,bytes.readAll());bytes.close();
++    EXPECT_EQ(4u,session.catalog()->findTrack(1)->rating);
++    session.invalidate();EXPECT_FALSE(session.writeRating(1,3).isEmpty());
++}
++
++TEST(RekordboxUsbSessionTest, RealExportRatingEditUsesOnlyAnIsolatedDatabaseCopy) {
++    const auto root=qEnvironmentVariable("MIXXX_REKORDBOX_REAL_FIXTURE");
++    if(root.isEmpty()) GTEST_SKIP()<<"Provide an external read-only export fixture";
++    const auto original=readDatabaseFile(databasePath(root),DatabaseKind::Main);ASSERT_TRUE(original.valid());
++    const auto tracks=readTrackIndex(original);ASSERT_FALSE(tracks.tracks.isEmpty());
++    const auto track=tracks.tracks.first();const int previous=track.metadata.value("rating").toInt();
++    QTemporaryDir copy;ASSERT_TRUE(write(pdb(copy),original.bytes));
++    const auto snapshot=inspectDevice(copy.path());const auto rating=(previous+1)%6;
++    QByteArray fingerprint;
++    EXPECT_TRUE(writeUsbRating(snapshot,track.id,track.filePath,rating,&fingerprint).isEmpty());
++    const auto edited=readDatabaseFile(pdb(copy),DatabaseKind::Main);ASSERT_TRUE(edited.valid());
++    EXPECT_EQ(rating,readTrackIndex(edited).tracks.value(track.id).metadata.value("rating").toInt());
++    int changes=0;for(int i=0;i<edited.bytes.size();++i) if(edited.bytes.at(i)!=original.bytes.at(i)) ++changes;
++    EXPECT_EQ(1,changes);EXPECT_EQ(original.sequence,edited.sequence);
++    EXPECT_EQ(original.bytes,readDatabaseFile(databasePath(root),DatabaseKind::Main).bytes);
++    const auto output=qEnvironmentVariable("NAUTIC_RX3_RENDER_DIR");
++    if(!output.isEmpty()) {ASSERT_TRUE(write(QDir(output).filePath("real-rating-original.pdb"),original.bytes));
++        ASSERT_TRUE(write(QDir(output).filePath("real-rating-edited.pdb"),edited.bytes));}
++}
+diff --git a/src/test/rx3display_test.cpp b/src/test/rx3display_test.cpp
+index 20a12e4..5e8f5f0 100644
+--- a/src/test/rx3display_test.cpp
++++ b/src/test/rx3display_test.cpp
+@@ -1073,6 +1073,34 @@ TEST_F(Rx3ReferenceScaleTest, RenderShortcutAtReferenceAndFullscreenSizes) {
+         EXPECT_LE(panel->minimumSizeHint().height(),panel->height());
+     }
+ }
++TEST_F(Rx3ReferenceScaleTest, ShortcutNeverCoversSharedBrowserFooterAfterLayoutOrResize) {
++    ControlObject page(ConfigKey("[Tab]","current"),false,false,false,0);
++    QWidget canvas;canvas.resize(1280,800);canvas.show();
++    QWidget browser(&canvas);browser.setGeometry(0,48,1280,752);browser.show();
++    QFrame footer(&browser);footer.setObjectName("RX3LibraryDecks");
++    footer.setStyleSheet("background:#050607;border:1px solid white;");
++    footer.setGeometry(8,644,1264,94);footer.show();
++    QLabel deck1("DECK 1 — REMAIN 04:21",&footer);deck1.move(8,3);deck1.show();
++    QLabel deck2("DECK 2 — REMAIN 02:53",&footer);deck2.move(650,3);deck2.show();
++    QCoreApplication::processEvents();
++    const auto before=canvas.grab(footer.geometry().translated(browser.pos())).toImage();
++    WRx3Shortcut panel(config(),nullptr,&canvas);panel.setVisibleControl(true);
++    QCoreApplication::processEvents();
++    EXPECT_EQ(footer.mapTo(&canvas,QPoint()).y(),panel.geometry().bottom()+1);
++    EXPECT_TRUE(before==canvas.grab(footer.geometry().translated(browser.pos())).toImage());
++    // A delayed browser layout and fullscreen scaling move the shared footer.
++    for(const auto size:{QSize(1280,800),QSize(1920,1200)}) {
++        canvas.resize(size);browser.setGeometry(0,48,size.width(),size.height()-48);
++        footer.setGeometry(8,size.height()-149,size.width()-16,101);
++        QCoreApplication::processEvents();
++        EXPECT_EQ(footer.mapTo(&canvas,QPoint()).y(),panel.geometry().bottom()+1);
++        EXPECT_LE(panel.minimumSizeHint().height(),panel.height());
++        const auto covered=canvas.grab(footer.geometry().translated(browser.pos())).toImage();
++        panel.setVisibleControl(false);QCoreApplication::processEvents();
++        EXPECT_TRUE(covered==canvas.grab(footer.geometry().translated(browser.pos())).toImage());
++        panel.setVisibleControl(true);QCoreApplication::processEvents();
++    }
++}
+ TEST_F(Rx3ReferenceScaleTest, UserInputSelectsDeckButEngineFeedbackDoesNot) {
+     ControlObject pitch1(ConfigKey("[Channel1]","rate"));
+     ControlObject pitch2(ConfigKey("[Channel2]","rate"));
+@@ -1458,3 +1486,60 @@ TEST(Rx3DeckBadge, SlipIndicatorUsesYellowWithoutChangingDeckNumber) {
+     }
+     EXPECT_GT(yellow,10);
+ }
++
++#include "widget/wrx3info.h"
++TEST_F(Rx3ReferenceScaleTest, InfoStackHidesWaveformsRetainsFooterAndUsesDeckButtons) {
++    PlayerInfo::create();
++    {
++        ControlObject page(ConfigKey("[Tab]","current"));
++        auto* canvas=new QWidget;auto* layout=new QVBoxLayout(canvas);
++        auto* top=new QWidget(canvas);auto* header=new QHBoxLayout(top);header->addWidget(new QLabel("INFO",top));
++        top->findChild<QLabel*>()->setObjectName("RX3InfoLabel");layout->addWidget(top);
++        auto* area=new QWidget(canvas);area->setObjectName("RX3PerformanceArea");auto* waves=new QWidget(area);
++        waves->setObjectName("Waveforms");auto* row=new QHBoxLayout(area);row->addWidget(waves);layout->addWidget(area,1);
++        auto* modes=new QWidget(canvas);modes->setObjectName("RX3ModeStripContainer");layout->addWidget(modes);
++        auto* footer=new QLabel("Live deck footer",canvas);layout->addWidget(footer);
++        WRx3Info info(nullptr,canvas);canvas->resize(1280,800);canvas->show();QCoreApplication::processEvents();
++        EXPECT_TRUE(waves->isVisible());info.setOpen(true);QCoreApplication::processEvents();
++        EXPECT_FALSE(waves->isVisible());EXPECT_TRUE(footer->isVisible());EXPECT_FALSE(modes->isVisible());
++        EXPECT_EQ(1,ControlObject::get(ConfigKey("[RX3Info]","visible")));
++        info.findChild<QPushButton*>("RX3InfoDeck2")->click();EXPECT_TRUE(info.isVisible());
++        const auto output=qEnvironmentVariable("NAUTIC_RX3_RENDER_DIR");
++        if(!output.isEmpty()) EXPECT_TRUE(canvas->grab().save(QDir(output).filePath("info-empty.png")));
++        info.setOpen(false);EXPECT_TRUE(waves->isVisible());EXPECT_TRUE(modes->isVisible());
++        // Remove the page before destroying its parent-owned layout.
++        info.setParent(nullptr);delete canvas;
++    }
++    PlayerInfo::destroy();
++}
++
++TEST_F(Rx3ReferenceScaleTest, InfoMetadataHasArtworkCommentJumpAndBoundedRatingPreview) {
++    rx3::InfoTrack data;data.location="track.mp3";data.root="usb";
++    data.record=mixxx::rekordbox::RuntimeTrack{};data.record->rekordboxId=1;
++    data.values[0]="Boats";data.values[1]="Xinobi";data.values[4]="122.0 bpm";
++    data.values[5]="Bbm";data.values[8]="Chill House";data.values[9]="2021-09-08";
++    data.comment="BB39";data.rating=4;data.number=6;data.total=56;
++    Rx3TrackInfoPanel panel(nullptr);panel.resize(1000,480);panel.setTrack(data);panel.show();
++    QString jumped;panel.setJump([&](const QString& key,const rx3::InfoTrack&){jumped=key;});
++    panel.move(8);panel.enter();EXPECT_EQ(QString("genre"),jumped);
++    panel.move(-2);panel.hold(true);panel.move(12);
++    auto* fields=panel.findChild<QListWidget*>("RX3InfoFields");ASSERT_TRUE(fields);
++    EXPECT_EQ(QString(5,QChar(0x2605)),fields->item(6)->text());
++    panel.move(-12);EXPECT_EQ(QString(5,QChar(0x2606)),fields->item(6)->text());panel.hold(false);
++    const auto output=qEnvironmentVariable("NAUTIC_RX3_RENDER_DIR");
++    if(!output.isEmpty()) EXPECT_TRUE(panel.grab().save(QDir(output).filePath("info-metadata.png")));
++    data.record.reset();panel.setTrack(data);panel.move(8);jumped.clear();panel.enter();EXPECT_TRUE(jumped.isEmpty());
++}
++
++TEST_F(Rx3ReferenceScaleTest, WaveformColorButtonsPaintSamplesAndKeepSelectionControl) {
++    QWidget canvas;canvas.resize(1280,800);canvas.show();WRx3Shortcut panel(config(),nullptr,&canvas);
++    panel.setVisibleControl(true);QCoreApplication::processEvents();
++    const QStringList names={"BLUE","RGB","3BAND"};
++    for(int i=0;i<3;++i) {
++        auto* button=panel.findChild<QPushButton*>(QString("Shortcut_waveform_color_%1").arg(i));ASSERT_TRUE(button);
++        EXPECT_EQ(names[i],button->accessibleName());button->click();
++        EXPECT_EQ(i,ControlObject::get(ConfigKey("[RX3Settings]","waveform_color")));
++        const auto image=button->grab().toImage();
++        EXPECT_NE(QColor("#007CE0"),image.pixelColor(image.width()/2,image.height()/3));
++    }
++}
+diff --git a/src/widget/wrx3browser.h b/src/widget/wrx3browser.h
+index de9cd13..ef18115 100644
+--- a/src/widget/wrx3browser.h
++++ b/src/widget/wrx3browser.h
+@@ -39,6 +39,7 @@
+ #include "widget/wtracktableview.h"
+ #include "widget/rx3browsericons.h"
+ #include "widget/rx3browsernavigation.h"
++#include "widget/wrx3trackinfo.h"
+ #include "mixer/playerinfo.h"
+ 
+ class Rx3CategoryDelegate : public QStyledItemDelegate {
+@@ -105,7 +106,7 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         m_search = new QLineEdit(header); m_search->setPlaceholderText("SEARCH"); m_search->hide(); h->addWidget(m_search,1);
+         m_searchCount=new QLabel("0",header);m_searchCount->setObjectName("RX3SearchCount");m_searchCount->hide();h->addWidget(m_searchCount);
+         auto* search = new QPushButton("SEARCH", header); h->addWidget(search);
+-        auto* info = new QPushButton("◀  INFO", header); h->addWidget(info);
++        m_infoButton = new QPushButton("◀  INFO", header); h->addWidget(m_infoButton);
+         layout->addWidget(header);
+         m_pages = new QStackedWidget(this); layout->addWidget(m_pages, 1);
+         auto* browse = new QWidget(m_pages); auto* b = new QHBoxLayout(browse);
+@@ -177,6 +178,13 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         m_trackInfo=new QLabel(browse);m_trackInfo->setObjectName("RX3TrackInfo");
+         m_trackInfo->setTextFormat(Qt::PlainText);m_trackInfo->setWordWrap(true);
+         m_trackInfo->setAlignment(Qt::AlignTop|Qt::AlignLeft);m_trackInfo->hide();b->addWidget(m_trackInfo);
++        m_detailedInfo=new Rx3TrackInfoPanel(m_backend?m_backend->rekordboxFeature():nullptr,browse);
++        m_detailedInfo->hide();b->addWidget(m_detailedInfo);
++        m_detailedInfo->setJump([this](const QString& key,const rx3::InfoTrack& track){
++            if(key=="title") ControlObject::set(ConfigKey("[RX3Info]","visible"),0);
++            else infoJump(key,track);
++        });
++        m_detailedInfo->setRefresh([this]{updateTrackInfo();});
+         m_emptySpace=new QWidget(browse);b->addWidget(m_emptySpace,1);
+         m_pages->addWidget(browse);
+         createKeyboard(layout);
+@@ -218,10 +226,10 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+             }
+             m_library->search(query);
+             QTimer::singleShot(0,this,[this]{refreshTable();updateTrackInfo();}); });
+-        connect(info, &QPushButton::clicked, this, [this]{
+-            if(m_pages->currentIndex()==0 && m_level==BrowserLevel::Tracks) {
+-                m_trackInfo->setVisible(!m_trackInfo->isVisible());updateTrackInfo();
+-            }
++        connect(m_infoButton,&QPushButton::clicked,this,[]{
++            ControlObject::set(ConfigKey("[RX3Info]","toggle"),0);
++            ControlObject::set(ConfigKey("[RX3Info]","toggle"),1);
++            ControlObject::set(ConfigKey("[RX3Info]","toggle"),0);
+         });
+         connect(m_categories, &QListWidget::itemClicked, this, [this](QListWidgetItem*){ selectCategory(m_categories->currentRow());updateNavigationHighlight(); });
+         connect(m_sources,&QTreeWidget::currentItemChanged,this,[this](QTreeWidgetItem* item,QTreeWidgetItem*){updateSourceInfo(m_sources->indexOfTopLevelItem(item));});
+@@ -252,11 +260,52 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         connect(m_sidebar->model(), &QAbstractItemModel::rowsRemoved, this, [this]{ onDeviceModelChanged(); });
+         connect(m_sidebar->model(), &QAbstractItemModel::dataChanged, this, [this]{ onDeviceModelChanged(); });
+         connect(m_sidebar->model(), &QAbstractItemModel::modelReset, this, [this]{onDeviceModelChanged();});
+-        connect(&PlayerInfo::instance(),&PlayerInfo::trackChanged,this,[this]{
++        connect(&PlayerInfo::instance(),&PlayerInfo::trackChanged,this,[this](const QString&,TrackPointer track,TrackPointer){
++            if(track && m_level==BrowserLevel::Tracks) rememberOrigin(track->getLocation());
+             if(m_selectedCategory=="MATCHING") updateFacetPreview();
+         });
+     }
+     ~WRx3Browser() override = default;
++    QString infoUsbName(const QString& root) const {return QString("USB%1").arg(m_usbSlots.value(root));}
++    Rx3TrackInfoPanel* detailedInfo() const {return m_detailedInfo;}
++    bool canShowInfo() const {return m_pages->currentIndex()==0 && m_level==BrowserLevel::Tracks;}
++    void showTrackInfo(bool show) {
++        m_detailedInfo->setVisible(show && canShowInfo());
++        m_infoButton->setStyleSheet(show?"color:#007CE0;":"");
++        if(show) {m_trackInfo->hide();updateTrackInfo();}
++    }
++    void infoJump(const QString& key,const rx3::InfoTrack& track) {
++        if(!m_backend) return;
++        ControlObject::set(ConfigKey("[RX3Info]","visible"),0);showBrowser();
++        if(key=="title" && m_origins.contains(track.location)) {
++            const auto origin=m_origins.value(track.location);
++            if(!selectInfoRoot(origin.root)) {showSources();return;}
++            m_selectedCategory=origin.category;m_sidebar->setRootIndex(origin.treeRoot);
++            if(origin.treeSelection.isValid()) m_sidebar->selectIndex(origin.treeSelection);
++            m_categories->setCurrentRow(origin.categoryRow);
++            m_facetTracks=origin.facets;m_facetField=origin.field;m_folderPath=origin.folder;
++            m_facets->clear();m_facets->addItems(origin.facetLabels);
++            m_facets->setCurrentRow(origin.facetRow);
++            if(origin.field=="folder") m_backend->showUsbFolder(origin.root,origin.folder);
++            else m_backend->rekordboxFeature()->showTrackIds(origin.root,origin.ids,"info-return");
++            showTrackList(origin.returnLevel);m_breadcrumb->setText(origin.breadcrumb);
++            m_pendingFolderTrack=track.location;selectPendingFolderTrack();return;
++        }
++        if(track.root.isEmpty()) {openBrowser();return;}
++        if(!selectInfoRoot(track.root)) {showSources();return;}
++        if(key=="title") {
++            auto* feature=m_backend->rekordboxFeature();
++            feature->showTrackIds(track.root,catalog()->tracks().keys(),"info-return");
++            showTrackList(BrowserLevel::Categories);m_breadcrumb->setText("TRACK");
++            m_pendingFolderTrack=track.location;selectPendingFolderTrack();return;
++        }
++        if(!track.canJump()) return;
++        const auto field=key=="color"?QString("color_id"):key;
++        m_selectedCategory=key.toUpper();showFacet(field);
++        for(int row=0;row<m_facets->count();++row) if(m_facetTracks.value(m_facets->item(row)->text()).contains(track.record->rekordboxId)) {
++            m_facets->setCurrentRow(row);chooseFacet();return;
++        }
++    }
+   protected:
+     void hideEvent(QHideEvent* event) override {
+         m_resumeFocus=m_focus;
+@@ -270,6 +319,7 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         m_source->setFixedSize(qRound(100*scale), qRound(46*scale));
+         m_search->setMaximumWidth(m_selectedCategory=="SEARCH" ? QWIDGETSIZE_MAX : qRound(400*scale));
+         m_trackInfo->setFixedWidth(qRound(280*scale));
++        m_detailedInfo->setFixedWidth(qRound(560*scale));
+         m_keyboard->setFixedHeight(qRound(215*scale));
+         QTimer::singleShot(0,this,[this]{fitBrowseRows();});
+         refreshTable();
+@@ -547,11 +597,55 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+             }
+         }
+     }
++    bool selectInfoRoot(const QString& root) {
++        if(!m_backend || !m_backend->rekordboxFeature()->catalogForRoot(root)) return false;
++        for(const auto& device:m_devices) if(deviceRoot(device)==root) {m_selectedDevice=device;break;}
++        m_currentRoot=root;
++        m_pages->setCurrentIndex(0);populateCategories();
++        m_source->setText(QString("▣ USB%1").arg(m_usbSlots.value(root)));
++        return true;
++    }
++    void rememberOrigin(const QString& location) {
++        if(!m_backend || location.isEmpty()) return;
++        const auto current=catalog();if(!current) return;
++        const auto tracks=current->tracks();
++        QHash<QString,quint32> ids;for(const auto& track:tracks) ids.insert(track.resolvedAudioPath,track.rekordboxId);
++        InfoOrigin origin;origin.root=m_currentRoot;origin.category=m_selectedCategory;
++        origin.breadcrumb=m_breadcrumb->text();origin.treeRoot=m_sidebar->rootIndex();
++        origin.treeSelection=selectedTreeIndex();origin.categoryRow=m_categories->currentRow();
++        for(int row=0;row<m_facets->count();++row) origin.facetLabels.append(m_facets->item(row)->text());
++        origin.facets=m_facetTracks;origin.field=m_facetField;origin.folder=m_folderPath;
++        origin.facetRow=m_facets->currentRow();origin.returnLevel=m_returnLevel;
++        if(auto* table=m_library->getCurrentTrackTableView()) if(auto* model=dynamic_cast<TrackModel*>(table->model()))
++            for(int row=0;row<table->model()->rowCount();++row) {
++                const auto id=ids.value(model->getTrackLocation(table->model()->index(row,0)));
++                if(id) origin.ids.append(id);
++            }
++        if(ids.contains(location)) m_origins.insert(location,origin);
++    }
+     void updateTrackInfo() {
+         if(m_selectedCategory=="SEARCH") {
+             const auto* table=m_library->getCurrentTrackTableView();
+             m_searchCount->setText(QString::number(table && table->model() ? table->model()->rowCount() : 0));
+         }
++        if(m_detailedInfo->isVisible()) {
++            rx3::InfoTrack details;
++            if(auto* table=m_library->getCurrentTrackTableView();table && table->model()) {
++                if(auto* tracks=dynamic_cast<TrackModel*>(table->model())) {
++                    details=rx3::infoTrack(m_backend?m_backend->rekordboxFeature():nullptr,tracks->getTrackLocation(table->currentIndex()));
++                    details.total=table->model()->rowCount();details.number=table->currentIndex().row()+1;
++                    if(!details.record) {
++                        const QStringList keys={"title","artist","album","duration","bpm","key","rating","color","genre","date_added"};
++                        for(int col=0;col<table->model()->columnCount();++col) {
++                            const auto name=table->model()->headerData(col,Qt::Horizontal,TrackModel::kHeaderNameRole).toString();
++                            const int field=keys.indexOf(name);
++                            if(field>=0) details.values[field]=table->model()->index(table->currentIndex().row(),col).data().toString();
++                        }
++                    }
++                }
++            }
++            m_detailedInfo->setTrack(details);
++        }
+         if(!m_trackInfo->isVisible()) return;
+         QString text="INFO";
+         if(auto* table=m_library->getCurrentTrackTableView();table && table->model()) {
+@@ -596,6 +690,7 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         refreshTable();focusTracks();
+     }
+     void selectCategory(int row) {
++        if(m_detailedInfo->isVisible()) ControlObject::set(ConfigKey("[RX3Info]","visible"),0);
+         if(row<0 || row>=m_categoryIds.size() || !m_selectedDevice.isValid()) return;
+         if(deviceStatus(m_selectedDevice)!="ready" || !catalog()) {
+             showSources();
+@@ -802,6 +897,7 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         }
+     }
+     void showSources() {
++        if(m_detailedInfo->isVisible()) ControlObject::set(ConfigKey("[RX3Info]","visible"),0);
+         m_keyboard->hide();m_search->hide();m_categories->show();m_searchRail->hide();m_breadcrumb->show();m_searchCount->hide();
+         m_source->setText("SOURCE");
+         m_pages->setCurrentIndex(1);m_breadcrumb->setText(QString());m_focus=NavigationTarget::Source;
+@@ -1010,6 +1106,15 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+     QString m_folderPath;
+     QString m_pendingFolderTrack;
+     QLabel* m_trackInfo;
++    QPushButton* m_infoButton;
++    Rx3TrackInfoPanel* m_detailedInfo;
++    struct InfoOrigin {
++        QString root,category,breadcrumb,field,folder;
++        QPersistentModelIndex treeRoot,treeSelection;QStringList facetLabels;int categoryRow=0;
++        QList<quint32> ids;QMap<QString,QList<quint32>> facets;
++        BrowserLevel returnLevel;int facetRow=0;
++    };
++    QHash<QString,InfoOrigin> m_origins;
+     QLabel* m_loading;
+     QWidget* m_preview;
+     Rx3PreviewTable* m_previewTracks;
+diff --git a/src/widget/wrx3info.h b/src/widget/wrx3info.h
+new file mode 100644
+index 0000000..6946bc4
+--- /dev/null
++++ b/src/widget/wrx3info.h
+@@ -0,0 +1,102 @@
++#pragma once
++
++#include <QStackedLayout>
++#include <QTimer>
++#include <memory>
++#include <vector>
++#include "control/controlobject.h"
++#include "control/controlproxy.h"
++#include "mixer/playerinfo.h"
++#include "widget/wrx3browser.h"
++
++// Native stacked page: hiding the waveform parent also hides accelerated
++// waveform surfaces. The deck footer remains live at its original full size.
++class WRx3Info : public QWidget {
++  public:
++    WRx3Info(Library* library,QWidget* canvas):QWidget(canvas) {
++        setObjectName("RX3InfoPage");setStyleSheet("#RX3InfoPage {background:black;}");
++        m_browser=static_cast<WRx3Browser*>(canvas->findChild<QWidget*>("RX3NativeBrowser"));
++        m_modes=canvas->findChild<QWidget*>("RX3ModeStripContainer");
++        auto* area=canvas->findChild<QWidget*>("RX3PerformanceArea");
++        if(area && area->layout()) {
++            auto* original=new QWidget(area);auto* originalLayout=new QHBoxLayout(original);
++            const auto margins=area->layout()->contentsMargins();originalLayout->setContentsMargins(margins);
++            originalLayout->setSpacing(area->layout()->spacing());
++            while(auto* item=area->layout()->takeAt(0)) {if(item->widget()) originalLayout->addWidget(item->widget());delete item;}
++            delete area->layout();m_stack=new QStackedLayout(area);m_stack->setContentsMargins(0,0,0,0);
++            m_stack->addWidget(original);m_stack->addWidget(this);
++        }
++        auto* layout=new QHBoxLayout(this);layout->setContentsMargins(0,0,0,0);layout->setSpacing(8);
++        auto* decks=new QVBoxLayout;decks->setSpacing(8);layout->addLayout(decks);
++        for(int i=0;i<2;++i) {
++            m_decks[i]=new QPushButton(this);m_decks[i]->setObjectName(QString("RX3InfoDeck%1").arg(i+1));
++            m_decks[i]->setStyleSheet("QPushButton {background:#202020;color:white;border:1px solid #555;font-family:Arial;font-size:17px;text-align:left;padding:8px;border-top:2px solid #00839E;} QPushButton[chosen=\"true\"] {border:1px solid white;border-top:2px solid #00839E;}");
++            m_decks[i]->setFixedWidth(144);m_decks[i]->setMinimumHeight(130);decks->addWidget(m_decks[i]);
++            m_decks[i]->setAccessibleName(QString("Inspect deck %1").arg(i+1));
++            connect(m_decks[i],&QPushButton::clicked,this,[this,i]{m_deck=i+1;updateTrack();});
++        }
++        decks->addStretch();
++        m_panel=new Rx3TrackInfoPanel(library?library->rekordboxFeature():nullptr,this);layout->addWidget(m_panel,1);
++        m_panel->setJump([this](const QString& key,const rx3::InfoTrack& track){if(m_browser) m_browser->infoJump(key,track);});
++        if(auto* label=canvas->findChild<QLabel*>("RX3InfoLabel")) {
++            m_toggle=new QPushButton("◀ INFO",label->parentWidget());m_toggle->setObjectName("RX3InfoToggle");
++            m_toggle->setAccessibleName("Show or hide track information");m_toggle->setStyleSheet("QPushButton {color:#ddd;background:transparent;border:0;font-family:Arial;font-size:16px;} QPushButton[chosen=\"true\"] {color:#007CE0;}");
++            if(auto* layout=label->parentWidget()->layout()) {layout->replaceWidget(label,m_toggle);label->hide();}
++            connect(m_toggle,&QPushButton::clicked,this,[this]{setOpen(!m_open);});
++        }
++        make("visible",[this](double value){setOpen(value>0);});
++        make("toggle",[this](double value){if(value>0) setOpen(!m_open);});
++        make("move",[this](double value){if(m_open && value) activePanel()->move(qRound(value));});
++        make("enter",[this](double value){if(m_open && value>0) activePanel()->enter();});
++        make("hold",[this](double value){if(m_open) activePanel()->hold(value>0);});
++        make("back",[this](double value){if(value>0) setOpen(false);});
++        m_tab=std::make_unique<ControlProxy>("[Tab]","current",this,ControlFlag::NoAssertIfMissing);
++        m_tab->connectValueChanged(this,[this](double){if(m_open) setOpen(false);});
++        m_shortcut=std::make_unique<ControlProxy>("[RX3Shortcut]","visible",this);
++        m_shortcut->connectValueChanged(this,[this](double value){if(value>0) setOpen(false);});
++        auto* refresh=new QTimer(this);refresh->setInterval(250);
++        connect(refresh,&QTimer::timeout,this,[this,library]{if(m_open && !m_browse) updateTrack(library);});refresh->start();
++        m_library=library;
++        if(m_stack) m_stack->setCurrentIndex(0);else hide();
++    }
++    void setOpen(bool open) {
++        if(open==m_open) return;
++        if(open) {
++            m_browse=ControlObject::get(ConfigKey("[Tab]","current"))==1;
++            if(m_browse && (!m_browser || !m_browser->canShowInfo())) {ControlObject::set(ConfigKey("[RX3Info]","visible"),0);return;}
++            if(!m_browse && !m_stack) {ControlObject::set(ConfigKey("[RX3Info]","visible"),0);return;}
++            m_deck=ControlObject::get(ConfigKey("[RX3Controller]","active_deck"))==2?2:1;
++        } else activePanel()->hold(false);
++        m_open=open;
++        if(m_browser) m_browser->showTrackInfo(open && m_browse);
++        if(m_stack) m_stack->setCurrentIndex(open && !m_browse?1:0);
++        if(m_modes) m_modes->setVisible(!(open && !m_browse));
++        if(m_toggle) {m_toggle->setProperty("chosen",open);m_toggle->style()->unpolish(m_toggle);m_toggle->style()->polish(m_toggle);}
++        ControlObject::set(ConfigKey("[RX3Info]","visible"),open?1:0);
++        if(open && !m_browse) updateTrack();
++    }
++  private:
++    Rx3TrackInfoPanel* activePanel() const {return m_browse && m_browser?m_browser->detailedInfo():m_panel;}
++    void make(const QString& key,std::function<void(double)> callback) {
++        auto control=std::make_unique<ControlObject>(ConfigKey("[RX3Info]",key),false);
++        connect(control.get(),&ControlObject::valueChanged,this,[callback](double value){callback(value);});m_controls.push_back(std::move(control));
++    }
++    void updateTrack(Library* library=nullptr) {
++        if(!library) library=m_library;
++        auto* feature=library?library->rekordboxFeature():nullptr;
++        for(int i=0;i<2;++i) {
++            const auto track=PlayerInfo::instance().getTrackInfo(QString("[Channel%1]").arg(i+1));
++            auto info=rx3::infoTrack(feature,track?track->getLocation():QString(),track);
++            m_decks[i]->setText(QString("DECK %1\n\n%2\n\n%3").arg(i+1)
++                .arg(info.record?m_browser?m_browser->infoUsbName(info.root):QString("USB"):QString())
++                .arg(info.values.value(5)));
++            if(m_decks[i]->property("chosen").toBool()!=(m_deck==i+1)) {m_decks[i]->setProperty("chosen",m_deck==i+1);m_decks[i]->style()->unpolish(m_decks[i]);m_decks[i]->style()->polish(m_decks[i]);}
++            if(m_deck==i+1) m_panel->setTrack(info);
++        }
++    }
++    Library* m_library=nullptr;WRx3Browser* m_browser=nullptr;
++    QStackedLayout* m_stack=nullptr;QWidget* m_modes=nullptr;Rx3TrackInfoPanel* m_panel;
++    QPushButton* m_decks[2];QPushButton* m_toggle=nullptr;bool m_open=false,m_browse=false;int m_deck=1;
++    std::vector<std::unique_ptr<ControlObject>> m_controls;
++    std::unique_ptr<ControlProxy> m_tab,m_shortcut;
++};
+diff --git a/src/widget/wrx3shortcut.h b/src/widget/wrx3shortcut.h
+index 78764cb..6b66691 100644
+--- a/src/widget/wrx3shortcut.h
++++ b/src/widget/wrx3shortcut.h
+@@ -13,6 +13,7 @@
+ #include <QLabel>
+ #include <QPainterPath>
+ #include <QPushButton>
++#include <QPointer>
+ #include <QTimer>
+ #include <QVBoxLayout>
+ #include <cmath>
+@@ -55,6 +56,34 @@ class Rx3CurveButton : public QPushButton {
+     int m_shape;bool m_cross;
+ };
+ 
++class Rx3WaveformColorButton : public QPushButton {
++  public:
++    Rx3WaveformColorButton(int color,QWidget* parent)
++            :QPushButton(parent),m_color(color) {
++        setAccessibleName(QStringList{"BLUE","RGB","3BAND"}.at(color));
++    }
++  protected:
++    void paintEvent(QPaintEvent* event) override {
++        QPushButton::paintEvent(event);
++        QPainter painter(this);
++        const QRectF chip(width()*0.22,height()*0.16,width()*0.56,height()*0.32);
++        if(m_color==0) painter.fillRect(chip,QColor("#80B8F1"));
++        else if(m_color==1) {
++            const QStringList colors={"#E74B30","#EF9B38","#EFD64A","#7ABF68","#68BFC7","#3C78DA","#574BC2","#9B60AF"};
++            for(int i=0;i<colors.size();++i) painter.fillRect(
++                    QRectF(chip.x()+chip.width()*i/colors.size(),chip.y(),chip.width()/colors.size()+0.5,chip.height()),QColor(colors[i]));
++        } else {
++            const QStringList colors={"#FFFFFF","#F3C966","#80B8F1"};
++            for(int i=0;i<3;++i) painter.fillRect(QRectF(chip.x()+chip.width()*i/3,chip.y(),chip.width()/3+0.5,chip.height()),QColor(colors[i]));
++        }
++        painter.setPen(QColor("#333333"));painter.drawRect(chip);
++        QFont font("Arial");font.setPixelSize(qRound(height()*0.32));painter.setFont(font);painter.setPen(Qt::white);
++        painter.drawText(QRectF(2,height()*0.51,width()-4,height()*0.44),Qt::AlignCenter,accessibleName());
++    }
++  private:
++    int m_color;
++};
++
+ // Settings and their controls belong to this skin instance. Engine controls
+ // remain authoritative; closing SHORTCUT only hides the presentation layer.
+ class WRx3Shortcut : public QFrame {
+@@ -152,7 +181,7 @@ class WRx3Shortcut : public QFrame {
+                 ControlObject::set(ConfigKey("[Tab]","current"),1);
+             }
+             setVisible(visible);
+-            if(visible) {m_editing=false;m_focused=0;place();raise();refresh();}
++            if(visible) {m_editing=false;m_focused=0;place();queuePlacement();raise();refresh();}
+             else if(m_presenting) {
+                 m_presenting=false;ControlObject::set(ConfigKey("[Tab]","current"),m_previousTab);
+             }
+@@ -259,7 +288,12 @@ class WRx3Shortcut : public QFrame {
+     }
+   protected:
+     bool eventFilter(QObject* object,QEvent* event) override {
+-        if(object==parentWidget() && event->type()==QEvent::Resize) place();
++        if(object==parentWidget() && (event->type()==QEvent::Resize ||
++                event->type()==QEvent::LayoutRequest)) queuePlacement();
++        if(object==m_footer && (event->type()==QEvent::Move ||
++                event->type()==QEvent::Resize || event->type()==QEvent::Show)) {
++            place();queuePlacement();
++        }
+         return QFrame::eventFilter(object,event);
+     }
+   private:
+@@ -278,7 +312,8 @@ class WRx3Shortcut : public QFrame {
+         ensure("[RX3Settings]",key,m_config->getValue<double>(ConfigKey("[RX3Settings]",key),initial));
+         const int rowIndex=int(m_rows.size());
+         for(int i=0;i<(stepper?3:labels.size());++i) {
+-            auto* button=curves?static_cast<QPushButton*>(new Rx3CurveButton(i,key=="crossfader_curve",row.frame)):
++            auto* button=key=="waveform_color"?static_cast<QPushButton*>(new Rx3WaveformColorButton(i,row.frame)):
++                    curves?static_cast<QPushButton*>(new Rx3CurveButton(i,key=="crossfader_curve",row.frame)):
+                     new QPushButton(stepper?(i==0?"‹":i==2?"›":"3"):labels[i],row.frame);
+             button->setObjectName("Shortcut_"+key+"_"+QString::number(i));
+             button->setFixedHeight(36);button->setFixedWidth(key.startsWith("tempo_range")?82:stepper||curves?96:88);
+@@ -388,9 +423,27 @@ class WRx3Shortcut : public QFrame {
+         m_status->setToolTip(text);
+         m_status->setText(text.size()>200?text.left(197)+"…":text);m_details->setVisible(text.size()>200);return text;
+     }
++    void queuePlacement() {
++        if(m_placementPending) return;
++        m_placementPending=true;
++        QTimer::singleShot(0,this,[this]{m_placementPending=false;if(isVisible()) place();});
++    }
+     void place() {
+-        const double scale=parentWidget()->height()/800.0;
+-        setGeometry(0,qRound(48*scale),parentWidget()->width(),qMax(1,parentWidget()->height()-qRound(142*scale)));
++        auto* canvas=parentWidget();
++        if(!m_footer) {
++            m_footer=canvas->findChild<QWidget*>("RX3LibraryDecks");
++            if(m_footer) m_footer->installEventFilter(this);
++        }
++        const double scale=canvas->height()/800.0;
++        const int top=qRound(48*scale);
++        int bottom=canvas->height()-qRound(94*scale);
++        // Use the same live footer as SOURCE/BROWSE, including its margins.
++        // The layout settles after selecting the browser page and after scaling.
++        if(m_footer && m_footer->isVisibleTo(canvas)) {
++            const int footerTop=m_footer->mapTo(canvas,QPoint(0,0)).y();
++            if(footerTop>top) bottom=footerTop;
++        }
++        setGeometry(0,top,canvas->width(),qMax(1,bottom-top));
+     }
+     void refresh() {
+         const auto root=qApp->property("rx3SettingsUsbRoot").toString();
+@@ -410,6 +463,7 @@ class WRx3Shortcut : public QFrame {
+             }
+         }
+     }
++    QPointer<QWidget> m_footer;bool m_placementPending=false;
+     UserSettingsPointer m_config;EffectsManager* m_effects;
+     std::vector<std::unique_ptr<ControlObject>> m_owners;
+     std::vector<Row> m_rows;int m_focused=0;bool m_editing=false;
+diff --git a/src/widget/wrx3trackinfo.h b/src/widget/wrx3trackinfo.h
+new file mode 100644
+index 0000000..0fc1799
+--- /dev/null
++++ b/src/widget/wrx3trackinfo.h
+@@ -0,0 +1,150 @@
++#pragma once
++
++#include <QFrame>
++#include <QHBoxLayout>
++#include <QLabel>
++#include <QListWidget>
++#include <QPointer>
++#include <QPushButton>
++#include <QResizeEvent>
++#include <QVBoxLayout>
++#include <functional>
++#include <algorithm>
++#include <QStyle>
++#include <optional>
++#include "library/rekordbox/rekordboxfeature.h"
++#include "track/track.h"
++
++namespace rx3 {
++struct InfoTrack {
++    QString location,root,artwork,comment;
++    QStringList values{QString(),QString(),QString(),QString(),QString(),QString(),QString(),QString(),QString(),QString()};
++    std::optional<mixxx::rekordbox::RuntimeTrack> record;
++    int rating=0,number=0,total=0;
++    bool canJump() const {return record.has_value() && !root.isEmpty();}
++};
++inline InfoTrack infoTrack(RekordboxFeature* feature,const QString& location,TrackPointer loaded={}) {
++    InfoTrack info;info.location=location;
++    if(feature) info.record=feature->infoForLocation(location,&info.root);
++    if(info.record) {
++        const auto& track=*info.record;
++        const int seconds=int(track.durationSeconds.value_or(0));
++        info.rating=int(track.rating.value_or(0));info.artwork=track.resolvedArtworkPath;info.comment=track.comment;
++        info.values={track.title,track.artist,track.album,
++            QString("%1:%2").arg(seconds/60,2,10,QChar('0')).arg(seconds%60,2,10,QChar('0')),
++            track.bpm?QString::number(*track.bpm,'f',1)+" bpm":QString(),track.key,QString(),
++            track.rawMetadata.value("color_name").toString(),track.genre,track.rawMetadata.value("date_added").toString()};
++        info.number=track.rawMetadata.value("track_number").toInt();
++    } else if(loaded) {
++        const int seconds=qMax(0,int(loaded->getDuration()));
++        info.rating=loaded->getRating();info.comment=loaded->getComment();
++        info.values={loaded->getTitle(),loaded->getArtist(),loaded->getAlbum(),
++            QString("%1:%2").arg(seconds/60,2,10,QChar('0')).arg(seconds%60,2,10,QChar('0')),
++            loaded->getBpm()>0?QString::number(loaded->getBpm(),'f',1)+" bpm":QString(),loaded->getKeyText(),QString(),
++            QString(),loaded->getGenre(),loaded->getDateAdded().date().toString(Qt::ISODate)};
++    }
++    return info;
++}
++}
++
++// Same metadata presentation for loaded decks and the highlighted Browse row.
++// Selecting/inspecting a row never projects a new audio track or starts analysis.
++class Rx3TrackInfoPanel : public QFrame {
++  public:
++    explicit Rx3TrackInfoPanel(RekordboxFeature* feature,QWidget* parent=nullptr)
++            :QFrame(parent),m_feature(feature) {
++        setObjectName("RX3DetailedInfo");setAttribute(Qt::WA_StyledBackground);
++        setStyleSheet("#RX3DetailedInfo {background:#000;color:white;border:0;} "
++            "#RX3DetailedInfo QListWidget {background:#202020;color:white;border:0;font-family:Arial;font-size:19px;} "
++            "#RX3DetailedInfo QListWidget::item {padding:3px 12px;border-bottom:1px solid #303030;} "
++            "#RX3DetailedInfo QListWidget::item:selected {background:#007CE0;} "
++            "#RX3DetailedInfo QLabel {color:white;background:transparent;font-family:Arial;font-size:18px;} "
++            "#RX3DetailedInfo QPushButton {background:#202020;color:white;border:1px solid #777;font-family:Arial;font-size:18px;} "
++            "#RX3DetailedInfo QPushButton[chosen=\"true\"] {background:#007CE0;}");
++        auto* layout=new QHBoxLayout(this);layout->setContentsMargins(8,0,8,0);layout->setSpacing(16);
++        m_fields=new QListWidget(this);m_fields->setObjectName("RX3InfoFields");
++        m_fields->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);layout->addWidget(m_fields,6);
++        const QStringList names={"Title","Artist","Album","Duration","BPM","Key","Rating","Color","Genre","Date added"};
++        for(const auto& name:names) {auto* item=new QListWidgetItem(m_fields);item->setData(Qt::AccessibleTextRole,name);}
++        m_fields->setCurrentRow(0);
++        connect(m_fields,&QListWidget::itemClicked,this,[this](QListWidgetItem*){enter();});
++        auto* right=new QVBoxLayout;right->setSpacing(10);layout->addLayout(right,5);
++        m_trackNumber=new QLabel(this);m_trackNumber->setAlignment(Qt::AlignCenter);right->addWidget(m_trackNumber);
++        m_artwork=new QLabel(this);m_artwork->setAlignment(Qt::AlignCenter);m_artwork->setMinimumSize(1,1);right->addWidget(m_artwork,1);
++        m_comment=new QLabel(this);m_comment->setWordWrap(true);right->addWidget(m_comment,1);
++        m_ratingRow=new QFrame(this);auto* stars=new QHBoxLayout(m_ratingRow);stars->setContentsMargins(0,0,0,0);
++        for(int value=0;value<=5;++value) {
++            auto* button=new QPushButton(value==0?QString("0"):QString(QString::number(value)+" ★"),m_ratingRow);
++            button->setAccessibleName(QString("Rating %1 stars").arg(value));
++            connect(button,&QPushButton::clicked,this,[this,value]{if(!m_busy && m_data.canJump()){m_pending=value;commit();}});
++            stars->addWidget(button);m_stars.append(button);
++        }
++        right->addWidget(m_ratingRow);m_ratingRow->hide();
++        m_status=new QLabel(this);m_status->setWordWrap(true);right->addWidget(m_status);
++        connect(m_fields,&QListWidget::currentRowChanged,this,[this](int row){m_ratingRow->setVisible(row==6 && m_data.canJump());});
++    }
++    void setTrack(const rx3::InfoTrack& data) {
++        if(m_busy || m_held) return;
++        const bool changed=data.location!=m_data.location;
++        m_data=data;m_pending=data.rating;
++        if(changed) {m_status->clear();m_fields->setCurrentRow(0);}
++        if(data.artwork!=m_artworkPath) {m_artworkPath=data.artwork;m_pixmap=data.artwork.isEmpty()?QPixmap():QPixmap(data.artwork);}
++        refresh();
++    }
++    const rx3::InfoTrack& track() const {return m_data;}
++    void setJump(std::function<void(const QString&,const rx3::InfoTrack&)> callback) {m_jump=std::move(callback);}
++    void setRefresh(std::function<void()> callback) {m_refresh=std::move(callback);}
++    void move(int delta) {
++        if(m_busy) return;
++        if(m_held && m_fields->currentRow()==6 && m_data.canJump()) {
++            m_pending=std::clamp(m_pending+delta,0,5);refresh();
++        } else m_fields->setCurrentRow(std::clamp(m_fields->currentRow()+delta,0,9));
++    }
++    void hold(bool held) {
++        const bool released=m_held && !held;m_held=held;
++        if(released && m_pending!=m_data.rating) commit();
++        if(released && !m_busy && m_refresh) m_refresh();
++    }
++    void enter() {
++        if(m_busy || !m_jump) return;
++        static const QStringList keys={"title","artist","album","","bpm","key","","color","genre",""};
++        const auto key=keys.value(m_fields->currentRow());
++        if(key=="title" || (m_data.canJump() && !key.isEmpty() && !m_data.values.value(m_fields->currentRow()).isEmpty()))
++            m_jump(key,m_data);
++    }
++  protected:
++    void resizeEvent(QResizeEvent* event) override {QFrame::resizeEvent(event);refresh();}
++  private:
++    void refresh() {
++        static const QStringList prefixes={"♫  ","♙  ","▣  ","◷  ","BPM  ","♯  ","","○  ","▣  ","▦  "};
++        for(int row=0;row<10;++row) {
++            auto* item=m_fields->item(row);item->setSizeHint(QSize(1,qMax(26,m_fields->height()/10)));
++            item->setText(row==6?QString(m_pending,QChar(0x2605))+QString(5-m_pending,QChar(0x2606)):prefixes[row]+m_data.values.value(row));
++            item->setToolTip(m_data.values.value(row));
++        }
++        m_trackNumber->setText(m_data.location.isEmpty()?"No track selected":m_data.number>0?
++                QString("TRACK %1%2").arg(m_data.number,3,10,QChar('0')).arg(m_data.total>0?QString("/%1").arg(m_data.total,3,10,QChar('0')):QString()):"TRACK INFO");
++        m_comment->setText(m_data.comment);
++        m_artwork->setPixmap(m_pixmap.isNull()?QPixmap():m_pixmap.scaled(m_artwork->size(),Qt::KeepAspectRatio,Qt::SmoothTransformation));
++        m_ratingRow->setVisible(m_fields->currentRow()==6 && m_data.canJump());
++        for(int i=0;i<m_stars.size();++i) {m_stars[i]->setProperty("chosen",i==m_pending);m_stars[i]->setEnabled(!m_busy);m_stars[i]->style()->unpolish(m_stars[i]);m_stars[i]->style()->polish(m_stars[i]);}
++    }
++    void commit() {
++        if(m_busy || !m_feature || !m_data.canJump() || m_pending==m_data.rating) return;
++        m_busy=true;m_status->setText("Saving rating to USB…");refresh();
++        const int value=m_pending;const QPointer<Rx3TrackInfoPanel> guard(this);
++        m_feature->writeRating(m_data.root,m_data.record->rekordboxId,value,[guard,value](const QString& error){
++            if(!guard) return;
++            guard->m_busy=false;
++            if(error.isEmpty()) {guard->m_data.rating=value;guard->m_data.record->rating=quint32(value);guard->m_status->setText("Rating saved to USB.");}
++            else {guard->m_pending=guard->m_data.rating;guard->m_status->setText(error);}
++            guard->refresh();
++            if(guard->m_refresh) guard->m_refresh();
++        });
++    }
++    RekordboxFeature* m_feature;rx3::InfoTrack m_data;
++    QListWidget* m_fields;QLabel *m_artwork,*m_comment,*m_trackNumber,*m_status;QFrame* m_ratingRow;
++    QVector<QPushButton*> m_stars;QPixmap m_pixmap;QString m_artworkPath;int m_pending=0;bool m_held=false,m_busy=false;
++    std::function<void(const QString&,const rx3::InfoTrack&)> m_jump;
++    std::function<void()> m_refresh;
++};

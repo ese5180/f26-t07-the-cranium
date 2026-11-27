@@ -1,0 +1,276 @@
+diff --git a/src/skin/legacy/legacyskinparser.cpp b/src/skin/legacy/legacyskinparser.cpp
+index 06b2fa9..cb566aa 100644
+--- a/src/skin/legacy/legacyskinparser.cpp
++++ b/src/skin/legacy/legacyskinparser.cpp
+@@ -457,6 +457,7 @@ QWidget* LegacySkinParser::parseSkin(const QString& skinPath, QWidget* pParent)
+         new WRx3Countdown(m_pConfig,widgets[0]);
+         new WRx3Info(m_pLibrary,widgets[0]);
+         new WRx3Emergency(widgets[0]);
++        rx3State->bindCanvas(widgets[0]);
+     }
+     const QString reference = m_pContext->selectString(skinDocument, "ReferenceSize");
+     const auto dimensions = reference.split(',');
+diff --git a/src/test/rx3display_test.cpp b/src/test/rx3display_test.cpp
+index d85e390..3389aea 100644
+--- a/src/test/rx3display_test.cpp
++++ b/src/test/rx3display_test.cpp
+@@ -1599,3 +1599,158 @@ TEST_F(Rx3ReferenceScaleTest, EmergencyViewHidesOnlyLostDeckAndRestoresSharedFoo
+     EXPECT_TRUE(waveform[0]->isVisibleTo(&canvas));EXPECT_TRUE(title[0]->isVisibleTo(&canvas));
+     EXPECT_TRUE(overview[0]->isVisibleTo(&canvas));EXPECT_FALSE(message->isVisibleTo(&canvas));
+ }
++
++namespace {
++QWidget* makeEmptyLogoCanvas(UserSettingsPointer config) {
++    const QString skin = qEnvironmentVariable("NAUTIC_SKIN_DIR",
++            QDir(config->getResourcePath()).filePath("../nautic/skins/XDJ_RX3_Mixxx"));
++    QFile css(skin + "/style.qss");
++    if (!css.open(QIODevice::ReadOnly)) return nullptr;
++    auto* canvas = new QWidget;
++    canvas->setObjectName("Mixxx");
++    QString style = QString::fromUtf8(css.readAll());
++    style.replace("skin:/", skin + "/");
++    canvas->setStyleSheet(style);
++    auto* row = new QHBoxLayout(canvas);
++    row->setContentsMargins(0, 0, 0, 0);
++    auto* waves = new WWidgetGroup(canvas);
++    waves->setObjectName("Waveforms");
++    QDomDocument node;
++    node.setContent(QStringLiteral("<WidgetGroup><Layout>stacked</Layout></WidgetGroup>"));
++    SkinContext context(config, QString());
++    waves->setup(node.documentElement(), context);
++    row->addWidget(waves);
++    auto* side = new QWidget(canvas);
++    side->setFixedWidth(184);
++    row->addWidget(side);
++    auto* content = new WWidgetGroup(waves);
++    content->setObjectName("WaveformsContent");
++    node.setContent(QStringLiteral("<WidgetGroup><Layout>horizontal</Layout></WidgetGroup>"));
++    content->setup(node.documentElement(), context);
++    waves->addWidget(content);
++    auto* cards = new QWidget(content);
++    cards->setObjectName("WaveformDeckInfo");
++    cards->setFixedWidth(176);
++    content->addWidget(cards);
++    auto* signalArea = new WWidgetGroup(content);
++    signalArea->setObjectName("WaveformSignals");
++    node.setContent(QStringLiteral("<WidgetGroup><Layout>stacked</Layout></WidgetGroup>"));
++    signalArea->setup(node.documentElement(), context);
++    content->addWidget(signalArea);
++    auto* logo = new WWidgetGroup(signalArea);
++    logo->setObjectName("NauticBgLogoContainer");
++    node.setContent(QStringLiteral("<WidgetGroup><Layout>vertical</Layout></WidgetGroup>"));
++    logo->setup(node.documentElement(), context);
++    auto* label = new WLabel(logo);
++    label->setObjectName("NauticBgLogo");
++    label->setFixedSize(420, 140);
++    logo->addWidget(label);
++    signalArea->addWidget(logo);
++    auto* signalContent = new WWidgetGroup(signalArea);
++    signalContent->setObjectName("WaveformSignalContent");
++    signalContent->setup(node.documentElement(), context);
++    for (int deck = 0; deck < 2; ++deck) {
++        auto* surface = new QWidget(signalContent);
++        surface->setMinimumHeight(200);
++        surface->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
++        surface->setAutoFillBackground(true);
++        QPalette colors = surface->palette();
++        colors.setColor(QPalette::Window, Qt::black);
++        surface->setPalette(colors);
++        signalContent->addWidget(surface);
++    }
++    signalArea->addWidget(signalContent);
++    qobject_cast<QStackedLayout*>(signalArea->layout())->setCurrentWidget(signalContent);
++    return canvas;
++}
++}
++
++TEST_F(Rx3ReferenceScaleTest, EmptyLogoIsCompleteAboveRowsAndHidesForEitherLoadedDeck) {
++    ControlObject loaded1(ConfigKey("[Channel1]", "track_loaded"));
++    ControlObject loaded2(ConfigKey("[Channel2]", "track_loaded"));
++    auto* canvas = makeEmptyLogoCanvas(config());
++    ASSERT_NE(nullptr, canvas);
++    auto* waves = canvas->findChild<QWidget*>("WaveformSignals");
++    auto* stack = qobject_cast<QStackedLayout*>(waves->layout());
++    auto* logo = canvas->findChild<QWidget*>("NauticBgLogoContainer");
++    auto* label = canvas->findChild<QWidget*>("NauticBgLogo");
++    auto* content = canvas->findChild<QWidget*>("WaveformSignalContent");
++    WReferenceScaler viewport(canvas, QSize(1280, 800), nullptr, true);
++    viewport.show();
++    QCoreApplication::processEvents();
++    Rx3DisplayState state;
++    state.bindCanvas(canvas);
++    for (const auto size : {QSize(1280, 800), QSize(1920, 1080), QSize(1280, 800)}) {
++        viewport.resize(size);
++        QCoreApplication::processEvents();
++        ASSERT_EQ(logo, stack->currentWidget());
++        ASSERT_TRUE(label->isVisible());
++        EXPECT_FALSE(content->isVisible());
++        EXPECT_TRUE(canvas->findChild<QWidget*>("WaveformDeckInfo")->isVisible());
++        EXPECT_EQ(QStackedLayout::StackOne, stack->stackingMode());
++        EXPECT_TRUE(logo->testAttribute(Qt::WA_TransparentForMouseEvents));
++        // The composited image must contain every pixel of the complete label,
++        // including the top and bottom of the N rather than just the row gap.
++        const auto fullLabel = label->grab().toImage();
++        const auto fullCanvas = viewport.grab().toImage();
++        const QPoint labelPosition = label->mapTo(&viewport, QPoint(0, 0));
++        const double dpr = fullCanvas.devicePixelRatio();
++        const QRect crop(qRound(labelPosition.x() * dpr), qRound(labelPosition.y() * dpr),
++                fullLabel.width(), fullLabel.height());
++        const auto onBlack = [](const QImage& image) {
++            QImage composited(image.size(), QImage::Format_RGB32);
++            composited.setDevicePixelRatio(image.devicePixelRatio());
++            composited.fill(Qt::black);
++            QPainter painter(&composited);
++            painter.drawImage(QPoint(0, 0), image);
++            return composited;
++        };
++        EXPECT_EQ(onBlack(fullLabel), onBlack(fullCanvas.copy(crop)));
++        const auto visibleLabel = onBlack(fullLabel);
++        int lightPixels = 0;
++        for (int y = 0; y < fullLabel.height(); ++y) {
++            for (int x = 0; x < fullLabel.width(); ++x) {
++                if (qGray(visibleLabel.pixel(x, y)) > 128) ++lightPixels;
++            }
++        }
++        EXPECT_GT(lightPixels, 500);
++        const auto output = qEnvironmentVariable("NAUTIC_RX3_RENDER_DIR");
++        if (!output.isEmpty()) ASSERT_TRUE(fullCanvas.save(output +
++                QString("/empty-logo-%1.png").arg(size.width())));
++        loaded2.set(1); QCoreApplication::processEvents();
++        EXPECT_FALSE(label->isVisible()); EXPECT_EQ(content, stack->currentWidget());
++        loaded1.set(1); loaded2.set(0); QCoreApplication::processEvents();
++        EXPECT_FALSE(label->isVisible()); EXPECT_EQ(content, stack->currentWidget());
++        loaded1.set(0); QCoreApplication::processEvents();
++        EXPECT_TRUE(label->isVisible()); EXPECT_EQ(logo, stack->currentWidget());
++    }
++}
++
++TEST_F(Rx3ReferenceScaleTest, EmptyLogoRestoresAfterTimerAndDelayedStackChanges) {
++    ControlObject loaded1(ConfigKey("[Channel1]", "track_loaded"));
++    ControlObject loaded2(ConfigKey("[Channel2]", "track_loaded"));
++    auto* canvas = makeEmptyLogoCanvas(config());
++    ASSERT_NE(nullptr, canvas);
++    canvas->resize(1280, 800); canvas->show();
++    Rx3DisplayState state;
++    auto* timer = new WRx3Countdown(config(), canvas);
++    state.bindCanvas(canvas);
++    auto* waves = canvas->findChild<QWidget*>("Waveforms");
++    auto* stack = qobject_cast<QStackedLayout*>(waves->layout());
++    auto* logo = canvas->findChild<QWidget*>("NauticBgLogoContainer");
++    auto* content = canvas->findChild<QWidget*>("WaveformsContent");
++    auto* signalContent = canvas->findChild<QWidget*>("WaveformSignalContent");
++    auto* signalStack = qobject_cast<QStackedLayout*>(canvas->findChild<QWidget*>("WaveformSignals")->layout());
++    timer->setOpen(true); loaded1.set(1); QCoreApplication::processEvents();
++    EXPECT_EQ(timer, stack->currentWidget());
++    timer->setOpen(false); QCoreApplication::processEvents();
++    EXPECT_EQ(content, stack->currentWidget()); EXPECT_FALSE(logo->isVisible());
++    loaded1.set(0); QCoreApplication::processEvents();
++    EXPECT_EQ(content, stack->currentWidget()); EXPECT_TRUE(logo->isVisible());
++    EXPECT_EQ(logo, signalStack->currentWidget()); EXPECT_FALSE(signalContent->isVisible());
++    // A delayed page/layout restoration must not leave the empty logo behind.
++    signalStack->setCurrentWidget(signalContent); waves->hide(); waves->show();
++    QCoreApplication::processEvents();
++    EXPECT_EQ(logo, signalStack->currentWidget());
++    delete canvas;
++}
+diff --git a/src/widget/rx3displaystate.h b/src/widget/rx3displaystate.h
+index 8839d45..d2f3347 100644
+--- a/src/widget/rx3displaystate.h
++++ b/src/widget/rx3displaystate.h
+@@ -1,6 +1,11 @@
+ #pragma once
+ #include <QObject>
+ #include <QHash>
++#include <QEvent>
++#include <QPointer>
++#include <QStackedLayout>
++#include <QTimer>
++#include <QWidget>
+ #include <array>
+ #include <memory>
+ #include "control/controlobject.h"
+@@ -66,6 +71,19 @@ class Rx3DisplayState : public QObject {
+ 
+     int masterDeck() const { return m_selected + 1; }
+ 
++    void bindCanvas(QWidget* canvas) {
++        m_waveforms = canvas->findChild<QWidget*>("Waveforms");
++        m_emptyLogo = canvas->findChild<QWidget*>("NauticBgLogoContainer");
++        m_logoLabel = canvas->findChild<QWidget*>("NauticBgLogo");
++        m_waveformsContent = canvas->findChild<QWidget*>("WaveformsContent");
++        m_signals = canvas->findChild<QWidget*>("WaveformSignals");
++        m_signalContent = canvas->findChild<QWidget*>("WaveformSignalContent");
++        if (m_waveforms) m_waveforms->installEventFilter(this);
++        if (m_emptyLogo) m_emptyLogo->setAttribute(Qt::WA_TransparentForMouseEvents);
++        refreshEmptyLogo();
++    }
++
++
+     // track_loaded is a level: it stays at 1 when one loaded track replaces
+     // another. LegacySkinParser calls this for BaseTrackPlayer::newTrackLoaded,
+     // which is the authoritative successful-load event for both cases.
+@@ -73,7 +91,43 @@ class Rx3DisplayState : public QObject {
+         closeBrowserAfterSuccessfulLoad();
+     }
+ 
++  protected:
++    bool eventFilter(QObject* object, QEvent* event) override {
++        if (object == m_waveforms &&
++                (event->type() == QEvent::Show || event->type() == QEvent::LayoutRequest) &&
++                !m_logoRefreshQueued) {
++            // Timer/INFO/page changes can restore the stacked layout later.
++            // Refresh after Qt completes that layout without showing a new page.
++            m_logoRefreshQueued = true;
++            QTimer::singleShot(0, this, [this] {
++                m_logoRefreshQueued = false;
++                refreshEmptyLogo();
++            });
++        }
++        return QObject::eventFilter(object, event);
++    }
++
+   private:
++    void refreshEmptyLogo() {
++        if (!m_waveforms || !m_emptyLogo || !m_logoLabel || !m_waveformsContent ||
++                !m_signals || !m_signalContent) return;
++        auto* stack = qobject_cast<QStackedLayout*>(m_waveforms->layout());
++        if (!stack || stack->stackingMode() != QStackedLayout::StackAll) return;
++        auto* signalStack = qobject_cast<QStackedLayout*>(m_signals->layout());
++        if (!signalStack) return;
++        const bool empty = m_inputs[0][QStringLiteral("track_loaded")]->get() == 0 &&
++                m_inputs[1][QStringLiteral("track_loaded")]->get() == 0;
++        // Hiding the complete signal page also hides its native OpenGL window
++        // ancestors. Raising an alien logo over them alone cannot prevent
++        // clipping on macOS. Deck cards live outside this exclusive stack.
++        signalStack->setStackingMode(QStackedLayout::StackOne);
++        QWidget* foreground = empty ? m_emptyLogo.data() : m_signalContent.data();
++        if (signalStack->currentWidget() != foreground) signalStack->setCurrentWidget(foreground);
++        if (stack->currentWidget() != m_waveformsContent) stack->setCurrentWidget(m_waveformsContent);
++        m_emptyLogo->setVisible(empty);
++        m_logoLabel->setVisible(empty);
++    }
++
+     static void ensureControl(const ConfigKey& key,
+             double defaultValue,
+             std::unique_ptr<ControlObject>* owner) {
+@@ -94,6 +148,7 @@ class Rx3DisplayState : public QObject {
+     }
+ 
+     void refresh() {
++        refreshEmptyLogo();
+         // Connections are established before all output controls exist.
+         if (!m_bpm) return;
+         std::array<bool, 2> loaded, playing;
+@@ -129,5 +184,12 @@ class Rx3DisplayState : public QObject {
+     std::unique_ptr<ControlProxy> m_tabCurrent;
+     std::unique_ptr<ControlProxy> m_autoClose;
+     std::vector<std::unique_ptr<ControlObject>> m_settingsIndicators;
++    QPointer<QWidget> m_waveforms;
++    QPointer<QWidget> m_emptyLogo;
++    QPointer<QWidget> m_logoLabel;
++    QPointer<QWidget> m_waveformsContent;
++    QPointer<QWidget> m_signals;
++    QPointer<QWidget> m_signalContent;
++    bool m_logoRefreshQueued = false;
+     int m_selected = -1;
+ };

@@ -1,0 +1,1269 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5f8d504..955f148 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -2143,6 +2143,7 @@ if(BUILD_TESTING)
+     src/test/rekordboxdatabase_test.cpp
+     src/test/rekordboxdevice_test.cpp
+     src/test/rx3display_test.cpp
++    src/test/rx3beatfx_test.cpp
+     src/test/soundreconfiguration_test.cpp
+     src/test/analyserwaveformtest.cpp
+     src/test/analyzersilence_test.cpp
+diff --git a/src/skin/legacy/legacyskinparser.cpp b/src/skin/legacy/legacyskinparser.cpp
+index cb566aa..1ebcd42 100644
+--- a/src/skin/legacy/legacyskinparser.cpp
++++ b/src/skin/legacy/legacyskinparser.cpp
+@@ -62,6 +62,7 @@
+ #include "widget/wreferencescaler.h"
+ #include "widget/rx3displaystate.h"
+ #include "widget/wrx3shortcut.h"
++#include "widget/wrx3beatfx.h"
+ #include "widget/wrx3info.h"
+ #include "widget/wrx3emergency.h"
+ #include "widget/wrx3countdown.h"
+@@ -453,6 +454,9 @@ QWidget* LegacySkinParser::parseSkin(const QString& skinPath, QWidget* pParent)
+                 QStringLiteral("Skin produced more than 1 widget!"));
+     }
+     if (rx3State) {
++        if (auto* strip = widgets[0]->findChild<QWidget*>("RX3BeatStrip")) {
++            if (strip->layout()) strip->layout()->addWidget(new WRx3BeatFx(m_pConfig, m_pEffectsManager, strip));
++        }
+         new WRx3Shortcut(m_pConfig,m_pEffectsManager,widgets[0]);
+         new WRx3Countdown(m_pConfig,widgets[0]);
+         new WRx3Info(m_pLibrary,widgets[0]);
+diff --git a/src/test/rx3beatfx_test.cpp b/src/test/rx3beatfx_test.cpp
+new file mode 100644
+index 0000000..2540e7d
+--- /dev/null
++++ b/src/test/rx3beatfx_test.cpp
+@@ -0,0 +1,553 @@
++#include <QtTest>
++#include <QStackedWidget>
++#include <QTextDocument>
++
++#include "test/mixxxtest.h"
++#include "widget/wrx3beatfx.h"
++#include "widget/weffectselector.h"
++#include "skin/legacy/skincontext.h"
++#include "widget/wwidgetgroup.h"
++#include "widget/wnumber.h"
++
++namespace {
++QString readoutText(WLabel* label) {
++    QTextDocument text;
++    text.setHtml(label->text());
++    return text.toPlainText();
++}
++}
++
++class Rx3BeatFxTest : public MixxxTest {
++  protected:
++    void SetUp() override {
++        factory = std::make_shared<ChannelHandleFactory>();
++        effects = std::make_unique<EffectsManager>(config(), factory);
++        effects->registerInputChannel(ChannelHandleAndGroup(
++                factory->getOrCreateHandle("[MasterOutput]"), "[MasterOutput]"));
++        effects->setup();
++        slot = effects->getEffectChain(WRx3BeatFx::unitGroup())->getEffectSlot(0);
++        slot->loadEffectWithDefaults(nullptr);
++        ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(), "enabled"), 0);
++    }
++    void TearDown() override { slot.clear(); effects.reset(); factory.reset(); }
++    void load(const QString& id) {
++        const auto manifest = effects->getBackendManager()->getManifestFromUniqueId(id);
++        ASSERT_TRUE(manifest) << qPrintable(id);
++        slot->loadEffectWithDefaults(manifest);
++    }
++    QPushButton* bank(WRx3BeatFx& panel, int index) {
++        return panel.findChild<QPushButton*>(QString("RX3BankSlot%1").arg(index + 1));
++    }
++    double enabled() { return ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(), "enabled")); }
++    void choose(WRx3BeatFx& panel, int index, const QString& effectId) {
++        panel.window()->show(); panel.resize(1240, 60); panel.show();
++        QTest::mouseClick(bank(panel, index), Qt::LeftButton);
++        QCoreApplication::processEvents();
++        QMenu* menu = nullptr;
++        for (auto* candidate : panel.findChildren<QMenu*>("RX3BankEffectMenu"))
++            if (candidate->isVisible()) menu = candidate;
++        ASSERT_TRUE(menu);
++        const auto manifest = effects->getBackendManager()->getManifestFromUniqueId(effectId);
++        ASSERT_TRUE(manifest);
++        QAction* selected = nullptr;
++        for (auto* action : menu->actions())
++            if (action->data().toString() == manifest->uniqueId()) selected = action;
++        ASSERT_TRUE(selected);
++        QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier, menu->actionGeometry(selected).center());
++        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
++        QCoreApplication::processEvents();
++    }
++    std::shared_ptr<ChannelHandleFactory> factory;
++    std::unique_ptr<EffectsManager> effects;
++    EffectSlotPointer slot;
++};
++
++TEST_F(Rx3BeatFxTest, FourRegistrationsPersistWithoutReplacingOccupiedSlots) {
++    QWidget parent;
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    EXPECT_EQ(4, panel.findChildren<QPushButton*>(QRegularExpression("RX3BankSlot[1-4]")).size());
++    const QStringList ids{"org.mixxx.effects.echo", "org.mixxx.effects.reverb",
++            "org.mixxx.effects.phaser", "org.mixxx.effects.flanger"};
++    for (int index = 0; index < 4; ++index) {
++        choose(panel, index, ids[index]);
++        EXPECT_EQ(slot->getManifest()->uniqueId(), panel.bankId(index));
++        EXPECT_EQ(0, enabled()); // Registration alone does not start an effect.
++    }
++    const auto saved = panel.bankId(0);
++    bank(panel, 0)->click();
++    EXPECT_EQ(saved, panel.bankId(0));
++    EXPECT_EQ(saved, slot->getManifest()->uniqueId());
++    EXPECT_EQ(1, enabled());
++    saveAndReloadConfig();
++    WRx3BeatFx restored(config(), effects.get(), &parent);
++    for (int index = 0; index < 4; ++index) EXPECT_EQ(panel.bankId(index), restored.bankId(index));
++}
++
++TEST_F(Rx3BeatFxTest, DeleteClearsOnlyTheChosenRegistrationAndUnavailableSlotIsRetained) {
++    config()->setValue(ConfigKey("[RX3BeatFxBank]", "slot4"), QStringLiteral("missing.external.effect BuiltIn"));
++    QWidget parent;
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    load("org.mixxx.effects.echo");
++    choose(panel, 0, "org.mixxx.effects.echo");
++    choose(panel, 1, "org.mixxx.effects.echo");
++    const auto current = slot->getManifest()->uniqueId();
++    auto* remove = panel.findChild<QPushButton*>("RX3BankDelete");
++    remove->click(); bank(panel, 0)->click();
++    EXPECT_TRUE(panel.bankId(0).isEmpty());
++    EXPECT_EQ(current, panel.bankId(1));
++    EXPECT_EQ(current, slot->getManifest()->uniqueId());
++    EXPECT_EQ(0, enabled());
++    EXPECT_FALSE(remove->isChecked());
++    bank(panel, 3)->click();
++    EXPECT_EQ("missing.external.effect BuiltIn", panel.bankId(3));
++    EXPECT_EQ(current, slot->getManifest()->uniqueId());
++    remove->click(); bank(panel, 3)->click();
++    EXPECT_TRUE(panel.bankId(3).isEmpty());
++}
++
++TEST_F(Rx3BeatFxTest, XPadChangesEffectTimeAndIsMomentaryWithoutChangingDeckLoops) {
++    ControlObject loop(ConfigKey("[Channel1]", "loop_enabled"), false, false, false, 1);
++    ControlObject size(ConfigKey("[Channel1]", "beatloop_size"), false, false, false, 8);
++    ControlObject play(ConfigKey("[Channel1]", "play"), false, false, false, 1);
++    ControlObject color(ConfigKey("[QuickEffectRack1_[Channel1]]", "super1"), false, false, false, 0.3);
++    ControlObject::set(ConfigKey("[EffectRack1_EffectUnit2]", "enabled"), 1);
++    QWidget parent;
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    panel.resize(1240, 60); parent.resize(1280, 80); parent.show(); panel.show();
++    load("org.mixxx.effects.echo");
++    auto* pad = panel.findChild<QSlider*>("RX3XPadSlider");
++    QCoreApplication::processEvents();
++    ASSERT_TRUE(pad->isEnabled());
++    EXPECT_EQ("delay_time", panel.parameterId());
++    const double before = WRx3BeatFx::parameterForId(slot, "delay_time")->getValue();
++    QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() / 4, 20));
++    EXPECT_EQ(1, enabled());
++    QMouseEvent move(QEvent::MouseMove, QPointF(pad->width() * 3 / 4, 20),
++            pad->mapToGlobal(QPoint(pad->width() * 3 / 4, 20)), Qt::NoButton,
++            Qt::LeftButton, Qt::NoModifier);
++    QCoreApplication::sendEvent(pad, &move);
++    EXPECT_GT(WRx3BeatFx::parameterForId(slot, "delay_time")->getValue(), before);
++    QTest::mouseRelease(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() * 3 / 4, 20));
++    EXPECT_EQ(0, enabled());
++    EXPECT_EQ(1, loop.get()); EXPECT_EQ(8, size.get()); EXPECT_EQ(1, play.get());
++    EXPECT_DOUBLE_EQ(0.3, color.get());
++    EXPECT_EQ(1, ControlObject::get(ConfigKey("[EffectRack1_EffectUnit2]", "enabled")));
++    // Touching an effect already enabled by the bank still turns it off on release.
++    ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(), "enabled"), 1);
++    QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() / 4, 20));
++    QTest::mouseRelease(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() / 4, 20));
++    EXPECT_EQ(0, enabled());
++}
++
++TEST_F(Rx3BeatFxTest, ParameterSelectionIsContextualAndControllerChangesRefreshXPad) {
++    QWidget parent;
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    auto* pad = panel.findChild<QSlider*>("RX3XPadSlider");
++    EXPECT_FALSE(pad->isEnabled());
++    for (const auto& pair : QList<QPair<QString, QString>>{
++                 {"org.mixxx.effects.echo", "delay_time"}, {"org.mixxx.effects.reverb", "bandwidth"},
++                 {"org.mixxx.effects.phaser", "lfo_period"}, {"org.mixxx.effects.flanger", "speed"},
++                 {"org.mixxx.effects.filter", "lpf"}, {"org.mixxx.effects.pitchshift", "pitch"},
++                 {"org.mixxx.effects.distortion", "drive"}}) {
++        load(pair.first);
++        ASSERT_TRUE(slot->isLoaded());
++        EXPECT_EQ(pair.second, panel.parameterId());
++        ASSERT_TRUE(pad->isEnabled());
++        pad->setValue(750);
++        auto parameter = WRx3BeatFx::parameterForId(slot, pair.second);
++        ASSERT_TRUE(parameter);
++        const double value = parameter->getValue();
++        pad->setValue(250);
++        EXPECT_NE(parameter->getValue(), value);
++        EXPECT_EQ(0, enabled());
++    }
++    load("org.mixxx.effects.echo");
++    ControlObject::set(ConfigKey(slot->getGroup(), "parameter1"), 1.5);
++    EXPECT_NEAR(750, pad->value(), 1);
++    slot->loadEffectWithDefaults(nullptr);
++    EXPECT_FALSE(pad->isEnabled());
++}
++
++TEST_F(Rx3BeatFxTest, StatusBeatFxSwitchDoesNotEnableDisableOrReplaceEffect) {
++    QStackedWidget pages;
++    pages.addWidget(new QWidget);
++    auto* panel = new WRx3BeatFx(config(), effects.get(), &pages);
++    pages.addWidget(panel); pages.resize(1280, 80); pages.show();
++    load("org.mixxx.effects.echo");
++    const auto id = slot->getManifest()->uniqueId();
++    for (int state : {0, 1}) {
++        ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(), "enabled"), state);
++        for (int repeat = 0; repeat < 3; ++repeat) {
++            pages.setCurrentIndex(1); QCoreApplication::processEvents();
++            pages.setCurrentIndex(0); QCoreApplication::processEvents();
++            EXPECT_EQ(state, enabled());
++            EXPECT_EQ(id, slot->getManifest()->uniqueId());
++        }
++    }
++}
++
++TEST_F(Rx3BeatFxTest, HidingPressedXPadCancelsMomentaryEffectAndReadoutFollowsTime) {
++    QWidget parent;
++    auto* time = new WLabel(&parent); time->setObjectName("RX3BeatFxMilliseconds");
++    auto* beat = new WLabel(&parent); beat->setObjectName("RX3BeatFxBeat");
++    ControlObject bpm(ConfigKey("[RX3Display]", "master_bpm"), false, false, false, 120);
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    parent.resize(1280, 100); panel.resize(1240, 60); parent.show(); panel.show();
++    load("org.mixxx.effects.echo");
++    ControlObject::set(ConfigKey(slot->getGroup(), "parameter1"), 1);
++    EXPECT_EQ("1 BEAT", readoutText(beat)); EXPECT_EQ("500 msec", readoutText(time));
++    bpm.set(100); EXPECT_EQ("600 msec", readoutText(time));
++    time->resize(180, 30); beat->resize(180, 30);
++    QCoreApplication::processEvents();
++    EXPECT_EQ("600 msec", readoutText(time)); EXPECT_EQ("1 BEAT", readoutText(beat));
++    auto* pad = panel.findChild<QSlider*>("RX3XPadSlider");
++    QCoreApplication::processEvents();
++    QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() / 4, 20));
++    EXPECT_EQ(1, enabled());
++    panel.hide();
++    EXPECT_EQ(0, enabled());
++    EXPECT_FALSE(pad->isSliderDown());
++    const auto output = qEnvironmentVariable("NAUTIC_RX3_PANEL_QA_DIR");
++    if (!output.isEmpty()) {
++        const auto skin = qEnvironmentVariable("NAUTIC_RX3_SKIN_PATH");
++        QFile xml(skin + "/beffect.xml"), css(skin + "/style.qss");
++        ASSERT_TRUE(xml.open(QIODevice::ReadOnly)); ASSERT_TRUE(css.open(QIODevice::ReadOnly));
++        QDomDocument doc; ASSERT_TRUE(doc.setContent(xml.readAll()));
++        QWidget canvas; canvas.setObjectName("SidePanel_Container");
++        canvas.setStyleSheet(QString::fromUtf8(css.readAll()));
++        SkinContext context(config(), skin);
++        std::function<QWidget*(QDomElement, QWidget*)> create;
++        create = [&](QDomElement node, QWidget* owner) -> QWidget* {
++            QWidget* widget = nullptr;
++            const auto name = node.firstChildElement("ObjectName").text();
++            if (node.tagName() == "WidgetGroup") {
++                auto* group = new WWidgetGroup(owner); group->setObjectName(name);
++                group->setup(node, context); widget = group;
++                const auto children = node.firstChildElement("Children");
++                for (auto child = children.firstChildElement(); !child.isNull(); child = child.nextSiblingElement())
++                    group->layout()->addWidget(create(child, group));
++            } else if (node.tagName() == "PushButton") {
++                auto* button = new QPushButton(owner); widget = button;
++                button->setText(node.firstChildElement("State").firstChildElement("Text").text());
++                button->setProperty("displayValue", name == "RX3FxMaster" || button->text() == "BEAT FX" ? 1 : 0);
++            } else if (node.tagName() == "EffectSelector") {
++                auto* selector = new WEffectSelector(owner, effects.get()); widget = selector;
++                selector->setObjectName(name); selector->setup(node, context);
++            } else if (node.tagName() == "Number") {
++                auto* number = new WNumber(owner); widget = number;
++                number->setObjectName(name); number->setup(node, context); number->setValue(87);
++            } else {
++                auto* label = new WLabel(owner); widget = label;
++                label->setObjectName(name); label->setup(node, context);
++            }
++            widget->setObjectName(name);
++            const auto size = node.firstChildElement("Size").text().split(',');
++            if (size.size() == 2) {
++                if (size[0].endsWith('f')) widget->setFixedWidth(size[0].chopped(1).toInt());
++                if (size[1].endsWith('f')) widget->setFixedHeight(size[1].chopped(1).toInt());
++            }
++            return widget;
++        };
++        auto* body = create(doc.documentElement().firstChildElement("WidgetGroup"), &canvas);
++        body->setGeometry(0, 0, 184, 428); canvas.resize(184, 428);
++        WRx3BeatFx bindings(config(), effects.get(), &canvas); bindings.hide();
++        bpm.set(87); ControlObject::set(ConfigKey(slot->getGroup(), "parameter1"), 1);
++        canvas.show(); body->show(); QCoreApplication::processEvents();
++        ASSERT_TRUE(canvas.grab().save(output + "/beatfx-panel.png"));
++    }
++}
++
++TEST_F(Rx3BeatFxTest, TouchSlideAndCancelAreMomentary) {
++    QWidget parent;
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    parent.resize(1280, 100); panel.resize(1240, 60); parent.show(); panel.show();
++    load("org.mixxx.effects.echo");
++    auto* pad = panel.findChild<QSlider*>("RX3XPadSlider");
++    QCoreApplication::processEvents();
++    const auto renderDirectory = qEnvironmentVariable("RX3_XPAD_RENDER_DIR");
++    auto capture = [pad, renderDirectory](const QString& name) {
++        if (!renderDirectory.isEmpty()) {
++            QDir().mkpath(renderDirectory);
++            EXPECT_TRUE(pad->grab().save(renderDirectory + "/" + name + ".png"));
++        }
++    };
++    capture("idle");
++    auto* device = QTest::createTouchDevice(QInputDevice::DeviceType::TouchScreen);
++    QTest::touchEvent(pad, device).press(0, QPoint(pad->width() / 4, 20), pad);
++    QCoreApplication::processEvents();
++    EXPECT_EQ(1, enabled());
++    const auto parameter = WRx3BeatFx::parameterForId(slot, "delay_time");
++    const double before = parameter->getValue();
++    capture("pressed");
++    QTest::touchEvent(pad, device).move(0, QPoint(pad->width() * 3 / 4, 20), pad);
++    QCoreApplication::processEvents();
++    EXPECT_GT(parameter->getValue(), before);
++    QTouchEvent cancel(QEvent::TouchCancel, device);
++    QCoreApplication::sendEvent(pad, &cancel);
++    EXPECT_EQ(0, enabled());
++    EXPECT_FALSE(pad->isSliderDown());
++    capture("released");
++}
++
++TEST_F(Rx3BeatFxTest, ReadoutRespectsProcessorQuantizeTripletAndReciprocalRate) {
++    QWidget parent;
++    auto* time = new WLabel(&parent); time->setObjectName("RX3BeatFxMilliseconds");
++    auto* beat = new WLabel(&parent); beat->setObjectName("RX3BeatFxBeat");
++    ControlObject bpm(ConfigKey("[RX3Display]", "master_bpm"), false, false, false, 120);
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    auto setButton = [this](const QString& id, double value) {
++        for (unsigned int index = 0; index < slot->numParameters(EffectParameterType::Button); ++index) {
++            const auto button = slot->getEffectParameterSlot(EffectParameterType::Button, index);
++            if (button->getManifest() && button->getManifest()->id() == id) {
++                button->setParameter(value); return;
++            }
++        }
++        FAIL() << "Missing button " << qPrintable(id);
++    };
++    load("org.mixxx.effects.echo");
++    ControlObject::set(ConfigKey(slot->getGroup(), "parameter1"), 1);
++    setButton("triplet", 1);
++    EXPECT_EQ("0.333 BEAT", readoutText(beat));
++    setButton("quantize", 0);
++    EXPECT_EQ("1 BEAT", readoutText(beat));
++    bpm.set(0);
++    EXPECT_EQ("1 SEC", readoutText(beat)); EXPECT_EQ("1000 msec", readoutText(time));
++    bpm.set(120);
++    load("org.mixxx.effects.tremolo");
++    ASSERT_EQ("rate", panel.parameterId());
++    for (unsigned int index = 0; index < slot->numParameters(EffectParameterType::Knob); ++index) {
++        const auto knob = slot->getEffectParameterSlot(EffectParameterType::Knob, index);
++        if (knob->getManifest() && knob->getManifest()->id() == "rate")
++            ControlObject::set(ConfigKey(slot->getGroup(), QString("parameter%1").arg(index + 1)), 2);
++    }
++    EXPECT_EQ("0.5 BEAT", readoutText(beat)); EXPECT_EQ("250 msec", readoutText(time));
++    setButton("triplet", 1);
++    EXPECT_EQ("0.167 BEAT", readoutText(beat));
++    setButton("quantize", 0);
++    EXPECT_EQ("0.5 BEAT", readoutText(beat));
++}
++
++TEST_F(Rx3BeatFxTest, XPadUsesFractionsForTimeAndGradientForContinuousParameters) {
++    QWidget parent;
++    auto* beat = new WLabel(&parent); beat->setObjectName("RX3BeatFxBeat");
++    ControlObject bpm(ConfigKey("[RX3Display]", "master_bpm"), false, false, false, 120);
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    parent.resize(1280, 100); panel.resize(1240, 60); parent.show(); panel.show();
++    auto* pad = panel.findChild<WRx3XPad*>("RX3XPadSlider");
++    ASSERT_TRUE(pad);
++    const auto renderDirectory = qEnvironmentVariable("RX3_XPAD_RENDER_DIR");
++    auto capture = [pad, renderDirectory](const QString& name) {
++        if (!renderDirectory.isEmpty()) {
++            QDir().mkpath(renderDirectory);
++            EXPECT_TRUE(pad->grab().save(renderDirectory + "/" + name + ".png"));
++        }
++    };
++    EXPECT_EQ(WRx3XPad::Layout::Empty, pad->presentation());
++    QCoreApplication::processEvents();
++    capture("empty-idle");
++    load("org.mixxx.effects.echo");
++    QCoreApplication::processEvents();
++    EXPECT_EQ(WRx3XPad::Layout::Beats, pad->presentation());
++    ASSERT_EQ(8, pad->cells().size());
++    EXPECT_EQ("1/16", pad->cells()[0].label);
++    EXPECT_EQ("4", pad->cells()[7].label);
++    EXPECT_FALSE(pad->cells()[0].enabled); EXPECT_FALSE(pad->cells()[7].enabled);
++    const auto before = WRx3BeatFx::parameterForId(slot, "delay_time")->getValue();
++    QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(2, 20));
++    QTest::mouseRelease(pad, Qt::LeftButton, Qt::NoModifier, QPoint(2, 20));
++    EXPECT_EQ(0, enabled());
++    EXPECT_EQ(before, WRx3BeatFx::parameterForId(slot, "delay_time")->getValue());
++    QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() * 3 / 16, 20));
++    EXPECT_EQ(1, enabled()); EXPECT_EQ("0.125 BEAT", readoutText(beat));
++    capture("echo-pressed");
++    QTest::mouseRelease(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() * 3 / 16, 20));
++    load("org.mixxx.effects.reverb");
++    EXPECT_EQ(WRx3XPad::Layout::Continuous, pad->presentation());
++    capture("reverb-idle");
++    const auto cutoff = WRx3BeatFx::parameterForId(slot, "bandwidth");
++    QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() / 4, 20));
++    const double first = cutoff->getValue();
++    QMouseEvent move(QEvent::MouseMove, QPointF(pad->width() * 3 / 4, 20),
++            pad->mapToGlobal(QPoint(pad->width() * 3 / 4, 20)), Qt::NoButton,
++            Qt::LeftButton, Qt::NoModifier);
++    QCoreApplication::sendEvent(pad, &move);
++    EXPECT_NE(first, cutoff->getValue());
++    capture("reverb-pressed");
++    QTest::mouseRelease(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() * 3 / 4, 20));
++    EXPECT_EQ(0, enabled());
++    capture("reverb-released");
++    load("org.mixxx.effects.flanger");
++    EXPECT_EQ(WRx3XPad::Layout::Continuous, pad->presentation());
++    load("org.mixxx.effects.phaser");
++    EXPECT_EQ(WRx3XPad::Layout::Beats, pad->presentation());
++}
++
++TEST_F(Rx3BeatFxTest, PitchCellsSetSemitonesAndEffectChangeCancelsHeldPad) {
++    QWidget parent;
++    auto* beat = new WLabel(&parent); beat->setObjectName("RX3BeatFxBeat");
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    parent.resize(1280, 100); panel.resize(1240, 60); parent.show(); panel.show();
++    auto* pad = panel.findChild<WRx3XPad*>("RX3XPadSlider");
++    load("org.mixxx.effects.pitchshift");
++    QCoreApplication::processEvents();
++    EXPECT_EQ(WRx3XPad::Layout::Pitch, pad->presentation());
++    ASSERT_EQ(7, pad->cells().size());
++    EXPECT_EQ("-12", pad->cells().first().label); EXPECT_EQ("+12", pad->cells().last().label);
++    QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() * 9 / 14, 20));
++    EXPECT_EQ(1, enabled()); EXPECT_EQ("5 ST", readoutText(beat));
++    EXPECT_EQ(1, WRx3BeatFx::parameterForId(slot, "range")->getValue());
++    EXPECT_NEAR(5.0 / 12, WRx3BeatFx::parameterForId(slot, "pitch")->getValue(), 0.00001);
++    const auto renderDirectory = qEnvironmentVariable("RX3_XPAD_RENDER_DIR");
++    if (!renderDirectory.isEmpty()) EXPECT_TRUE(pad->grab().save(renderDirectory + "/pitch-pressed.png"));
++    QMouseEvent move(QEvent::MouseMove, QPointF(pad->width() * 3 / 14, 20),
++            pad->mapToGlobal(QPoint(pad->width() * 3 / 14, 20)), Qt::NoButton,
++            Qt::LeftButton, Qt::NoModifier);
++    QCoreApplication::sendEvent(pad, &move);
++    EXPECT_EQ("-7 ST", readoutText(beat));
++    EXPECT_NEAR(-7.0 / 12, WRx3BeatFx::parameterForId(slot, "pitch")->getValue(), 0.00001);
++    load("org.mixxx.effects.echo");
++    EXPECT_FALSE(pad->isSliderDown()); EXPECT_EQ(0, enabled());
++    EXPECT_EQ(WRx3XPad::Layout::Beats, pad->presentation());
++}
++
++TEST_F(Rx3BeatFxTest, EmptyBankSlotOpensMouseChooserAndRegistersWithoutActivation) {
++    QWidget parent;
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    parent.resize(1280, 100); panel.resize(1240, 60); parent.show(); panel.show();
++    QCoreApplication::processEvents();
++    for (int index = 0; index < 4; ++index) EXPECT_TRUE(bank(panel, index)->isEnabled());
++    QTest::mouseClick(bank(panel, 2), Qt::LeftButton);
++    QCoreApplication::processEvents();
++    auto* menu = panel.findChild<QMenu*>("RX3BankEffectMenu");
++    ASSERT_TRUE(menu); ASSERT_TRUE(menu->isVisible());
++    QAction* echo = nullptr;
++    for (auto* action : menu->actions())
++        if (action->data().toString().startsWith("org.mixxx.effects.echo ")) echo = action;
++    ASSERT_TRUE(echo);
++    const auto id = echo->data().toString();
++    QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier, menu->actionGeometry(echo).center());
++    QCoreApplication::processEvents();
++    EXPECT_EQ(id, panel.bankId(2)); EXPECT_EQ(id, slot->getManifest()->uniqueId());
++    EXPECT_EQ(0, enabled());
++    EXPECT_EQ(0, ControlObject::get(ConfigKey(slot->getGroup(), "enabled")));
++    QTest::mouseClick(bank(panel, 2), Qt::LeftButton);
++    EXPECT_EQ(1, enabled());
++    slot->loadEffectWithDefaults(nullptr);
++    ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(), "enabled"), 0);
++    QTest::mouseClick(bank(panel, 0), Qt::LeftButton);
++    QCoreApplication::processEvents();
++    menu = panel.findChild<QMenu*>("RX3BankEffectMenu");
++    ASSERT_TRUE(menu); menu->close(); QCoreApplication::processEvents();
++    EXPECT_TRUE(panel.bankId(0).isEmpty()); EXPECT_EQ(0, enabled());
++}
++
++TEST_F(Rx3BeatFxTest, EveryEmptySlotOffersOnlyPerformanceEffectsEvenWithAnEffectSelected) {
++    QWidget parent;
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    parent.resize(1280, 100); panel.resize(1240, 60); parent.show(); panel.show();
++    const QStringList ids{"org.mixxx.effects.echo", "org.mixxx.effects.reverb",
++            "org.mixxx.effects.flanger", "org.mixxx.effects.pitchshift"};
++    for (int index = 0; index < 4; ++index) {
++        QTest::mouseClick(bank(panel, index), Qt::LeftButton);
++        QCoreApplication::processEvents();
++        auto* menu = panel.findChild<QMenu*>("RX3BankEffectMenu");
++        ASSERT_TRUE(menu); ASSERT_TRUE(menu->isVisible());
++        EXPECT_EQ(8, menu->actions().size());
++        for (auto* action : menu->actions()) {
++            const auto manifest = effects->getBackendManager()->getManifestFromUniqueId(action->data().toString());
++            ASSERT_TRUE(manifest);
++            EXPECT_TRUE(isRx3BeatFx(manifest));
++            EXPECT_FALSE(manifest->name().contains("Loudness"));
++        }
++        menu->close(); QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
++        choose(panel, index, ids[index]);
++        EXPECT_EQ(effects->getBackendManager()->getManifestFromUniqueId(ids[index])->uniqueId(), panel.bankId(index));
++        EXPECT_EQ(0, enabled());
++    }
++    bank(panel, 0)->click();
++    EXPECT_EQ(1, enabled());
++    for (int index = 1; index < 4; ++index) EXPECT_NE(panel.bankId(0), panel.bankId(index));
++}
++
++TEST_F(Rx3BeatFxTest, RegisteringThePlayingEffectPreservesParametersAndActivation) {
++    QWidget parent;
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    load("org.mixxx.effects.echo");
++    ControlObject::set(ConfigKey(slot->getGroup(), "parameter1"), 1.5);
++    slot->setEnabled(true);
++    ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(), "enabled"), 1);
++    choose(panel, 0, "org.mixxx.effects.echo");
++    EXPECT_EQ(1, enabled());
++    EXPECT_EQ(1, ControlObject::get(ConfigKey(slot->getGroup(), "enabled")));
++    EXPECT_DOUBLE_EQ(1.5, WRx3BeatFx::parameterForId(slot, "delay_time")->getValue());
++}
++
++TEST_F(Rx3BeatFxTest, Rx3SelectorIsCuratedWithoutRestrictingOtherSkins) {
++    effects->getVisibleEffectsList()->setList(effects->getBackendManager()->getManifests());
++    QWidget parent;
++    WEffectSelector rx3(&parent, effects.get()), generic(&parent, effects.get());
++    rx3.setObjectName("RX3BeatFxSelector");
++    SkinContext context(config(), QString()); QDomDocument node;
++    ASSERT_TRUE(node.setContent(QStringLiteral("<EffectSelector><EffectUnit>1</EffectUnit><Effect>1</Effect></EffectSelector>")));
++    rx3.setup(node.documentElement(), context); generic.setup(node.documentElement(), context);
++    EXPECT_EQ(9, rx3.count()); // Eight processors plus the no-effect item.
++    EXPECT_GT(generic.count(), rx3.count());
++    for (int index = 1; index < rx3.count(); ++index)
++        EXPECT_TRUE(isRx3BeatFx(effects->getBackendManager()->getManifestFromUniqueId(rx3.itemData(index).toString())));
++}
++
++TEST_F(Rx3BeatFxTest, OldUtilityFavoriteOpensChooserAndCanBeRepairedIndependently) {
++    const auto utility = effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.loudnesscontour");
++    ASSERT_TRUE(utility);
++    config()->setValue(ConfigKey("[RX3BeatFxBank]", "slot1"), utility->uniqueId());
++    config()->setValue(ConfigKey("[RX3BeatFxBank]", "slot2"), utility->uniqueId());
++    QWidget parent;
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    EXPECT_TRUE(bank(panel, 0)->text().isEmpty());
++    EXPECT_TRUE(bank(panel, 0)->property("empty").toBool());
++    EXPECT_EQ(utility->uniqueId(), panel.bankId(0));
++    choose(panel, 0, "org.mixxx.effects.reverb");
++    EXPECT_EQ("REVERB", bank(panel, 0)->text());
++    EXPECT_EQ(utility->uniqueId(), panel.bankId(1));
++    EXPECT_TRUE(bank(panel, 1)->text().isEmpty());
++    EXPECT_TRUE(bank(panel, 1)->property("empty").toBool());
++    EXPECT_EQ(0, enabled());
++}
++
++TEST_F(Rx3BeatFxTest, SelectedFavoriteAndBeatOutlineSurviveMomentaryXPadRelease) {
++    QWidget parent;
++    WRx3BeatFx panel(config(), effects.get(), &parent);
++    parent.resize(1280, 100); panel.resize(1240, 60);
++    choose(panel, 0, "org.mixxx.effects.echo");
++    choose(panel, 1, "org.mixxx.effects.reverb");
++    bank(panel, 0)->click();
++    const auto echoId = panel.bankId(0);
++    auto* pad = panel.findChild<WRx3XPad*>("RX3XPadSlider");
++    ASSERT_TRUE(pad);
++    const QPoint halfBeat(pad->width() * 7 / 16, 20);
++    QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, halfBeat);
++    EXPECT_TRUE(bank(panel, 0)->property("selected").toBool());
++    EXPECT_FALSE(bank(panel, 1)->property("selected").toBool());
++    QTest::mouseRelease(pad, Qt::LeftButton, Qt::NoModifier, halfBeat);
++    EXPECT_EQ(0, enabled()); // Momentary activation ends; selection remains.
++    EXPECT_EQ(echoId, slot->getManifest()->uniqueId());
++    EXPECT_TRUE(bank(panel, 0)->property("selected").toBool());
++    EXPECT_FALSE(bank(panel, 1)->property("selected").toBool());
++    EXPECT_DOUBLE_EQ(0.5, WRx3BeatFx::parameterForId(slot, "delay_time")->getValue());
++    const auto image = pad->grab().toImage();
++    const qreal ratio = image.devicePixelRatio();
++    const auto color = [&](int x, int y) {
++        return image.pixelColor(qRound(x * ratio), qRound(y * ratio));
++    };
++    EXPECT_EQ(QColor(Qt::white), color(halfBeat.x(), 1));
++    EXPECT_NE(QColor(Qt::white), color(halfBeat.x(), 2));
++    EXPECT_NE(QColor(Qt::white), color(pad->width() / 16, 1));
++    const auto directory = qEnvironmentVariable("RX3_XPAD_RENDER_DIR");
++    if (!directory.isEmpty()) EXPECT_TRUE(image.save(directory + "/echo-half-selected-released.png"));
++    QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, halfBeat);
++    QTest::mouseRelease(pad, Qt::LeftButton, Qt::NoModifier, halfBeat);
++    EXPECT_TRUE(bank(panel, 0)->property("selected").toBool());
++    bank(panel, 1)->click();
++    EXPECT_FALSE(bank(panel, 0)->property("selected").toBool());
++    EXPECT_TRUE(bank(panel, 1)->property("selected").toBool());
++}
+diff --git a/src/widget/rx3beatfxeffects.h b/src/widget/rx3beatfxeffects.h
+new file mode 100644
+index 0000000..c910921
+--- /dev/null
++++ b/src/widget/rx3beatfxeffects.h
+@@ -0,0 +1,24 @@
++#pragma once
++
++#include "effects/backends/effectsbackendmanager.h"
++#include "effects/backends/effectmanifest.h"
++
++// A performance-oriented subset of the actual built-in processors. Do not
++// expose utility/EQ processors here or invent names for missing RX3 algorithms.
++inline bool isRx3BeatFx(const EffectManifestPointer& manifest) {
++    if (!manifest) return false;
++    static const QStringList ids{
++            "org.mixxx.effects.echo", "org.mixxx.effects.reverb",
++            "org.mixxx.effects.flanger", "org.mixxx.effects.phaser",
++            "org.mixxx.effects.filter", "org.mixxx.effects.pitchshift",
++            "org.mixxx.effects.tremolo", "org.mixxx.effects.glitch"};
++    return ids.contains(manifest->id());
++}
++
++inline QList<EffectManifestPointer> rx3BeatFxManifests(
++        const EffectsBackendManagerPointer& backend) {
++    QList<EffectManifestPointer> result;
++    for (const auto& manifest : backend->getManifests())
++        if (isRx3BeatFx(manifest)) result.append(manifest);
++    return result;
++}
+diff --git a/src/widget/weffectselector.cpp b/src/widget/weffectselector.cpp
+index 03552ed..9c46c3e 100644
+--- a/src/widget/weffectselector.cpp
++++ b/src/widget/weffectselector.cpp
+@@ -1,12 +1,14 @@
+ #include "widget/weffectselector.h"
+ 
+ #include <QAbstractItemView>
++#include <QStylePainter>
+ #include <QtDebug>
+ 
+ #include "effects/effectsmanager.h"
+ #include "effects/visibleeffectslist.h"
+ #include "moc_weffectselector.cpp"
+ #include "widget/effectwidgetutils.h"
++#include "widget/rx3beatfxeffects.h"
+ 
+ WEffectSelector::WEffectSelector(QWidget* pParent, EffectsManager* pEffectsManager)
+         : QComboBox(pParent),
+@@ -54,7 +56,9 @@ void WEffectSelector::populate() {
+     blockSignals(true);
+     clear();
+ 
+-    const QList<EffectManifestPointer> visibleEffectManifests = m_pVisibleEffectsList->getList();
++    const QList<EffectManifestPointer> visibleEffectManifests =
++            objectName() == "RX3BeatFxSelector" ?
++            rx3BeatFxManifests(m_pEffectsManager->getBackendManager()) : m_pVisibleEffectsList->getList();
+     QFontMetrics metrics(font());
+ 
+     // Add empty item: no effect
+@@ -63,7 +67,9 @@ void WEffectSelector::populate() {
+ 
+     for (int i = 0; i < visibleEffectManifests.size(); ++i) {
+         const EffectManifestPointer pManifest = visibleEffectManifests.at(i);
+-        QString elidedDisplayName = metrics.elidedText(pManifest->displayName(),
++        const QString displayName = objectName() == "RX3BeatFxSelector" ?
++                pManifest->displayName().toUpper() : pManifest->displayName();
++        QString elidedDisplayName = metrics.elidedText(displayName,
+                 Qt::ElideMiddle,
+                 view()->width() - 2);
+         addItem(elidedDisplayName, QVariant(pManifest->uniqueId()));
+@@ -131,3 +137,19 @@ bool WEffectSelector::event(QEvent* pEvent) {
+ 
+     return QComboBox::event(pEvent);
+ }
++
++void WEffectSelector::paintEvent(QPaintEvent* event) {
++    if (objectName() != "RX3BeatFxSelector") {
++        QComboBox::paintEvent(event);
++        return;
++    }
++    QStylePainter painter(this);
++    QStyleOptionComboBox option;
++    initStyleOption(&option);
++    painter.drawComplexControl(QStyle::CC_ComboBox, option);
++    const auto field = style()->subControlRect(
++            QStyle::CC_ComboBox, &option, QStyle::SC_ComboBoxEditField, this);
++    painter.drawItemText(field, Qt::AlignCenter, option.palette, isEnabled(),
++            fontMetrics().elidedText(option.currentText, Qt::ElideRight, field.width()),
++            QPalette::ButtonText);
++}
+diff --git a/src/widget/weffectselector.h b/src/widget/weffectselector.h
+index ace12b2..3306257 100644
+--- a/src/widget/weffectselector.h
++++ b/src/widget/weffectselector.h
+@@ -16,6 +16,9 @@ class WEffectSelector : public QComboBox, public WBaseWidget {
+ 
+     void setup(const QDomNode& node, const SkinContext& context);
+ 
++  protected:
++    void paintEvent(QPaintEvent* event) override;
++
+   private slots:
+     void slotEffectUpdated();
+     void slotEffectSelected(int newIndex);
+diff --git a/src/widget/wrx3beatfx.h b/src/widget/wrx3beatfx.h
+new file mode 100644
+index 0000000..12e68f0
+--- /dev/null
++++ b/src/widget/wrx3beatfx.h
+@@ -0,0 +1,565 @@
++#pragma once
++
++#include <QHideEvent>
++#include <QFontInfo>
++#include <QHBoxLayout>
++#include <QLabel>
++#include <QMouseEvent>
++#include <QMenu>
++#include <QPainter>
++#include <QPointer>
++#include <QPushButton>
++#include <QSignalBlocker>
++#include <QSlider>
++#include <QStyle>
++#include <QTouchEvent>
++#include <QVBoxLayout>
++#include <array>
++#include <cmath>
++#include <functional>
++
++#include "control/controlproxy.h"
++#include "effects/effectchain.h"
++#include "effects/effectknobparameterslot.h"
++#include "effects/effectparameter.h"
++#include "effects/effectslot.h"
++#include "effects/effectsmanager.h"
++#include "effects/visibleeffectslist.h"
++#include "widget/wlabel.h"
++#include "widget/rx3displayformat.h"
++#include "widget/rx3beatfxeffects.h"
++
++// Absolute horizontal position, including touch input, rather than QSlider's
++// page-step clicks. The engine retains responsibility for effect quantization.
++class WRx3XPad : public QSlider {
++  public:
++    enum class Layout { Empty, Continuous, Beats, Pitch };
++    struct Cell { QString label; double target; bool enabled; };
++    Layout presentation() const { return m_layout; }
++    const QList<Cell>& cells() const { return m_cells; }
++    std::function<void(double)> activateCell;
++    void present(Layout layout, const QList<Cell>& cells, double current) {
++        m_layout = layout;
++        m_cells = cells;
++        m_currentCell = -1;
++        for (int index = 0; index < cells.size(); ++index)
++            if (cells[index].enabled && std::abs(cells[index].target - current) < 0.00001)
++                m_currentCell = index;
++        update();
++    }
++    explicit WRx3XPad(QWidget* parent) : QSlider(Qt::Horizontal, parent) {
++        setObjectName("RX3XPadSlider");
++        setAttribute(Qt::WA_AcceptTouchEvents);
++        setRange(0, 1000);
++        setAccessibleName("X-PAD");
++        connect(this, &QSlider::sliderPressed, this, [this] { update(); });
++        connect(this, &QSlider::sliderReleased, this, [this] { update(); });
++    }
++  protected:
++    void paintEvent(QPaintEvent*) override {
++        QPainter painter(this);
++        painter.setRenderHint(QPainter::Antialiasing);
++        const bool pressed = isEnabled() && isSliderDown() && m_layout == Layout::Continuous;
++        const QColor accent = pressed ? QColor("#00afff") : QColor("#a0a0a0");
++        const double scale = height() / 40.0;
++        const double center = height() / 2.0;
++        const double left = 12 * scale;
++        const double right = width() - left;
++        painter.fillRect(rect(), QColor("#202020"));
++        painter.setPen(QPen(QColor(pressed ? "#0088c4" : "#626262"), 1));
++        painter.setBrush(Qt::NoBrush);
++        painter.drawRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5));
++        if (m_layout == Layout::Beats || m_layout == Layout::Pitch) {
++            const double cellWidth = width() / double(qMax(1, m_cells.size()));
++            auto face = font(); face.setPixelSize(qRound(16 * scale)); face.setBold(true);
++            painter.setFont(face);
++            for (int index = 0; index < m_cells.size(); ++index) {
++                const QRectF cell(index * cellWidth, 0.5, cellWidth, height() - 1);
++                const bool selected = index == m_currentCell && m_cells[index].enabled;
++                if (selected) painter.fillRect(cell, QColor("#777b78"));
++                painter.setPen(QPen(QColor("#929292"), 1));
++                if (index > 0) painter.drawLine(cell.topLeft(), cell.bottomLeft());
++                painter.setPen(QColor(m_cells[index].enabled ? "#eeeeee" : "#666666"));
++                painter.drawText(cell, Qt::AlignCenter, m_cells[index].label);
++            }
++            if (m_currentCell >= 0 && m_cells[m_currentCell].enabled) {
++                // Paint after the dividers so the selected cell keeps a
++                // complete one-pixel white outline, including on release.
++                painter.setRenderHint(QPainter::Antialiasing, false);
++                painter.setPen(QPen(Qt::white, 1));
++                painter.setBrush(Qt::NoBrush);
++                painter.drawRect(QRectF(m_currentCell * cellWidth + 1.5,
++                        1.5, cellWidth - 3, height() - 3));
++            }
++            return;
++        }
++        if (right - left < 30 * scale) return;
++        QLinearGradient railColor(left, 0, right, 0);
++        railColor.setColorAt(0, accent);
++        railColor.setColorAt(0.12, accent);
++        railColor.setColorAt(0.5, QColor("#65696b"));
++        railColor.setColorAt(0.88, accent);
++        railColor.setColorAt(1, accent);
++        if (pressed) {
++            QLinearGradient glow(left, 0, right, 0);
++            glow.setColorAt(0, QColor(0, 175, 255, 45));
++            glow.setColorAt(0.5, QColor(0, 175, 255, 0));
++            glow.setColorAt(1, QColor(0, 175, 255, 45));
++            painter.fillRect(QRectF(left, center - 9 * scale,
++                    right - left, 18 * scale), glow);
++        }
++        // RX3's long tapered rail and open end arrows, with no slider thumb.
++        const double inset = 13 * scale;
++        const double tip = 7 * scale;
++        QPolygonF rail;
++        rail << QPointF(left + inset, center - 4.5 * scale)
++             << QPointF(right - inset, center - 4.5 * scale)
++             << QPointF(right - tip, center)
++             << QPointF(right - inset, center + 4.5 * scale)
++             << QPointF(left + inset, center + 4.5 * scale)
++             << QPointF(left + tip, center);
++        painter.setPen(Qt::NoPen);
++        painter.setBrush(railColor);
++        painter.drawPolygon(rail);
++        painter.setPen(QPen(accent, 2 * scale, Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
++        painter.setBrush(Qt::NoBrush);
++        QPolygonF arrow;
++        arrow << QPointF(left + 5 * scale, center - 4 * scale)
++              << QPointF(left, center)
++              << QPointF(left + 5 * scale, center + 4 * scale);
++        painter.drawPolyline(arrow);
++        arrow.clear();
++        arrow << QPointF(right - 5 * scale, center - 4 * scale)
++              << QPointF(right, center)
++              << QPointF(right - 5 * scale, center + 4 * scale);
++        painter.drawPolyline(arrow);
++    }
++    void mousePressEvent(QMouseEvent* event) override {
++        if (event->button() != Qt::LeftButton) { event->ignore(); return; }
++        if (!position(event->position().x())) { event->ignore(); return; }
++        setSliderDown(true);
++        event->accept();
++    }
++    void mouseMoveEvent(QMouseEvent* event) override {
++        if (!isSliderDown()) { event->ignore(); return; }
++        position(event->position().x());
++        event->accept();
++    }
++    void mouseReleaseEvent(QMouseEvent* event) override {
++        if (event->button() != Qt::LeftButton) { event->ignore(); return; }
++        setSliderDown(false);
++        event->accept();
++    }
++    void hideEvent(QHideEvent* event) override {
++        setSliderDown(false);
++        QSlider::hideEvent(event);
++    }
++    bool event(QEvent* event) override {
++        if (event->type() == QEvent::TouchBegin || event->type() == QEvent::TouchUpdate) {
++            auto* touch = static_cast<QTouchEvent*>(event);
++            const bool valid = !touch->points().isEmpty() &&
++                    position(touch->points().first().position().x());
++            if (valid) setSliderDown(true);
++            event->accept();
++            return true;
++        }
++        if (event->type() == QEvent::TouchEnd || event->type() == QEvent::TouchCancel ||
++                event->type() == QEvent::UngrabMouse) {
++            setSliderDown(false);
++            if (event->type() != QEvent::UngrabMouse) { event->accept(); return true; }
++        }
++        return QSlider::event(event);
++    }
++  private:
++    bool position(double x) {
++        if (!isEnabled() || m_layout == Layout::Empty) return false;
++        if (m_layout != Layout::Continuous) {
++            if (m_cells.isEmpty()) return false;
++            const int index = qBound(0, int(x * m_cells.size() / qMax(1, width())), int(m_cells.size()) - 1);
++            if (!m_cells[index].enabled) return false;
++            if (activateCell) activateCell(m_cells[index].target);
++        } else {
++            setValue(qRound(qBound(0.0, x / qMax(1, width() - 1), 1.0) * maximum()));
++        }
++        return true;
++    }
++    Layout m_layout = Layout::Empty;
++    QList<Cell> m_cells;
++    int m_currentCell = -1;
++};
++
++class WRx3BeatFx : public QWidget {
++  public:
++    WRx3BeatFx(UserSettingsPointer config, EffectsManager* effects, QWidget* parent)
++            : QWidget(parent), m_config(config), m_effects(effects) {
++        setObjectName("RX3BeatFxControls");
++        auto* row = new QHBoxLayout(this);
++        row->setContentsMargins(0, 0, 0, 0);
++        row->setSpacing(12);
++        auto* bank = new QVBoxLayout;
++        bank->setSpacing(2);
++        bank->addWidget(caption("BEAT FX SELECT"));
++        auto* bankRow = new QHBoxLayout;
++        bankRow->setSpacing(8);
++        bank->addLayout(bankRow);
++        for (int index = 0; index < 4; ++index) {
++            m_ids[index] = m_config->getValueString(bankKey(index));
++            auto* button = new QPushButton(this);
++            button->setObjectName(QString("RX3BankSlot%1").arg(index + 1));
++            button->setProperty("rx3Bank", true);
++            button->setMinimumWidth(0);
++            button->setFixedHeight(40);
++            bankRow->addWidget(button, 1);
++            m_buttons[index] = button;
++            connect(button, &QPushButton::clicked, this, [this, index] { useBank(index); });
++        }
++        m_delete = new QPushButton(QString::fromUtf8("⌫"), this);
++        m_delete->setObjectName("RX3BankDelete");
++        m_delete->setCheckable(true);
++        m_delete->setFixedSize(36, 40);
++        m_delete->setToolTip("Delete a bank registration: touch this button, then its slot.");
++        connect(m_delete, &QPushButton::toggled, this, [this] { refresh(); });
++        bankRow->addWidget(m_delete);
++        row->addLayout(bank, 1);
++        auto* pad = new QVBoxLayout;
++        pad->setSpacing(2);
++        pad->addWidget(caption("X-PAD"));
++        m_pad = new WRx3XPad(this);
++        m_pad->setFixedHeight(40);
++        m_pad->activateCell = [this](double value) {
++            if (!m_slot || !m_parameter) return;
++            // A zero Pitch Shift range cannot transpose. Initialize one octave
++            // only on touch, keeping effect selection/view changes passive.
++            if (m_slot->id().endsWith(".pitchshift")) {
++                const auto range = parameterForId(m_slot, "range");
++                if (range && range->getValue() <= 0)
++                    for (unsigned int index = 0; index < m_slot->numParameters(EffectParameterType::Knob); ++index) {
++                        const auto knob = m_slot->getEffectParameterSlot(EffectParameterType::Knob, index);
++                        if (knob->getManifest() && knob->getManifest()->id() == "range")
++                            ControlObject::set(ConfigKey(m_slot->getGroup(),
++                                    EffectKnobParameterSlot::formatItemPrefix(knob->slotNumber())), 1);
++                    }
++            }
++            // Discrete cells specify real processor values, not slider positions.
++            ControlObject::set(ConfigKey(m_slot->getGroup(),
++                    EffectKnobParameterSlot::formatItemPrefix(m_parameter->slotNumber())), value);
++        };
++        pad->addWidget(m_pad);
++        row->addLayout(pad, 1);
++        connect(m_pad, &QSlider::valueChanged, this, [this](int value) { changeParameter(value); });
++        connect(m_pad, &QSlider::sliderPressed, this, [this] {
++            if (!m_slot || !m_slot->isLoaded()) return;
++            m_touching = true;
++            m_slot->setEnabled(true);
++            ControlObject::set(ConfigKey(unitGroup(), "enabled"), 1);
++        });
++        connect(m_pad, &QSlider::sliderReleased, this, [this] { releasePad(); });
++        if (m_effects) {
++            const auto chain = m_effects->getEffectChain(unitGroup());
++            if (chain) m_slot = chain->getEffectSlot(0);
++        }
++        if (m_slot) {
++            connect(m_slot.data(), &EffectSlot::effectChanged, this, [this] { bindParameter(); });
++            connect(m_slot.data(), &EffectSlot::parametersChanged, this, [this] { bindParameter(); });
++        }
++        auto* enabled = new ControlProxy(unitGroup(), "enabled", this, ControlFlag::NoAssertIfMissing);
++        enabled->connectValueChanged(this, [this] { refresh(); });
++        auto* bpm = new ControlProxy("[RX3Display]", "master_bpm", this, ControlFlag::NoAssertIfMissing);
++        bpm->connectValueChanged(this, [this] { refresh(); });
++        auto* effectEnabled = new ControlProxy("[EffectRack1_EffectUnit1_Effect1]", "enabled", this,
++                ControlFlag::NoAssertIfMissing);
++        effectEnabled->connectValueChanged(this, [this] { refresh(); });
++        auto* meta = new ControlProxy("[EffectRack1_EffectUnit1_Effect1]", "meta", this,
++                ControlFlag::NoAssertIfMissing);
++        meta->connectValueChanged(this, [this] { refresh(); });
++        bindParameter();
++    }
++    ~WRx3BeatFx() override {
++        m_pad->setSliderDown(false);
++        releasePad();
++    }
++    static QString unitGroup() { return QStringLiteral("[EffectRack1_EffectUnit1]"); }
++    static EffectParameterPointer parameterForId(const EffectSlotPointer& slot, const QString& id) {
++        if (!slot) return {};
++        for (const auto& map : {slot->getLoadedParameters(), slot->getHiddenParameters()})
++            for (auto list = map.cbegin(); list != map.cend(); ++list)
++                for (const auto& parameter : list.value())
++                    if (parameter->manifest()->id() == id) return parameter;
++        return {};
++    }
++    QString bankId(int index) const { return m_ids.at(index); }
++    QString parameterId() const { return m_parameter ? m_parameter->getManifest()->id() : QString(); }
++  protected:
++    void hideEvent(QHideEvent* event) override {
++        m_pad->setSliderDown(false);
++        m_delete->setChecked(false);
++        if (m_effectMenu) m_effectMenu->close();
++        QWidget::hideEvent(event);
++    }
++  private:
++    using Units = EffectManifestParameter::UnitsHint;
++    static ConfigKey bankKey(int index) {
++        return ConfigKey("[RX3BeatFxBank]", QString("slot%1").arg(index + 1));
++    }
++    QLabel* caption(const QString& text) {
++        auto* label = new QLabel(text, this);
++        label->setObjectName("RX3StripCaption");
++        label->setAlignment(Qt::AlignCenter);
++        label->setFixedHeight(16);
++        return label;
++    }
++    void releasePad() {
++        if (!m_touching) return;
++        m_touching = false;
++        ControlObject::set(ConfigKey(unitGroup(), "enabled"), 0);
++    }
++    void chooseEffect(int index) {
++        if (m_effectMenu) m_effectMenu->close();
++        auto* menu = new QMenu(this);
++        menu->setObjectName("RX3BankEffectMenu");
++        menu->setAttribute(Qt::WA_DeleteOnClose);
++        m_effectMenu = menu;
++        const auto previousId = m_ids[index];
++        const auto manifests = rx3BeatFxManifests(m_effects->getBackendManager());
++        for (const auto& manifest : manifests) {
++            auto* action = menu->addAction(manifest->displayName().toUpper());
++            const auto id = manifest->uniqueId();
++            action->setData(id);
++            connect(action, &QAction::triggered, this, [this, index, id, previousId] {
++                if (!m_slot || m_ids[index] != previousId) return;
++                const auto selected = m_effects->getBackendManager()->getManifestFromUniqueId(id);
++                if (!isRx3BeatFx(selected)) return;
++                if (!m_slot->getManifest() || m_slot->getManifest()->uniqueId() != id) {
++                    m_slot->loadEffectWithDefaults(selected);
++                    m_slot->setEnabled(false);
++                }
++                m_ids[index] = id;
++                m_config->setValue(bankKey(index), id);
++                m_config->save();
++                refresh();
++            });
++        }
++        if (menu->isEmpty()) {
++            menu->addAction("No effects available")->setEnabled(false);
++        }
++        menu->popup(m_buttons[index]->mapToGlobal(QPoint(0, m_buttons[index]->height())));
++    }
++    void useBank(int index) {
++        if (!m_slot) return;
++        if (m_delete->isChecked()) {
++            m_ids[index].clear();
++            m_config->setValue(bankKey(index), QString());
++            m_config->save();
++            m_delete->setChecked(false);
++        } else if (m_ids[index].isEmpty()) {
++            chooseEffect(index);
++            return;
++        } else {
++            const auto manifest = m_effects->getBackendManager()->getManifestFromUniqueId(m_ids[index]);
++            if (!manifest) return;
++            // Repair a previously saved utility processor only after an
++            // explicit choice; keep unavailable registrations recoverable.
++            if (!isRx3BeatFx(manifest)) { chooseEffect(index); return; }
++            if (!m_slot->getManifest() || m_slot->getManifest()->uniqueId() != m_ids[index])
++                m_slot->loadEffectWithDefaults(manifest);
++            m_slot->setEnabled(true);
++            ControlObject::set(ConfigKey(unitGroup(), "enabled"), 1);
++        }
++        refresh();
++    }
++    void bindParameter() {
++        m_pad->setSliderDown(false);
++        for (const auto& connection : m_parameterConnections) disconnect(connection);
++        m_parameterConnections.clear();
++        m_parameter.clear();
++        if (m_slot && m_slot->isLoaded()) {
++            const auto effect = m_slot->id();
++            // Contextual controls for available Mixxx processors. Other effects
++            // use their beat/time/pitch/frequency control or first exposed knob.
++            QString preferred;
++            if (effect.endsWith(".reverb")) preferred = "bandwidth";
++            else if (effect.endsWith(".flanger")) preferred = "speed";
++            else if (effect.endsWith(".phaser")) preferred = "lfo_period";
++            else if (effect.endsWith(".pitchshift")) preferred = "pitch";
++            else if (effect.endsWith(".filter")) preferred = "lpf";
++            int best = -1;
++            for (unsigned int index = 0; index < m_slot->numParameters(EffectParameterType::Knob); ++index) {
++                auto parameter = m_slot->getEffectParameterSlot(EffectParameterType::Knob, index);
++                const auto manifest = parameter->getManifest();
++                if (!manifest) continue;
++                const auto units = manifest->unitsHint();
++                const int score = !preferred.isEmpty() && manifest->id() == preferred ? 100 :
++                        units == Units::Beats || units == Units::Beat ? 80 :
++                        units == Units::Seconds || units == Units::Millisecond ? 60 :
++                        units == Units::Semitone12tet || units == Units::Hertz ? 40 : 0;
++                if (score > best) { best = score; m_parameter = parameter; }
++            }
++            for (const auto type : {EffectParameterType::Knob, EffectParameterType::Button})
++                for (unsigned int index = 0; index < m_slot->numParameters(type); ++index)
++                    m_parameterConnections.push_back(connect(
++                            m_slot->getEffectParameterSlot(type, index).data(),
++                            &EffectParameterSlotBase::valueChanged, this, [this] { refresh(); }));
++        }
++        refresh();
++    }
++    void changeParameter(int value) {
++        if (!m_slot || !m_slot->isLoaded()) return;
++        const double normalized = value / 1000.0;
++        if (m_parameter) m_parameter->setParameter(normalized);
++        else m_slot->setMetaParameter(normalized, true);
++        refresh();
++    }
++    void refresh() {
++        const bool loaded = m_slot && m_slot->isLoaded();
++        const auto current = loaded ? m_slot->getManifest()->uniqueId() : QString();
++        for (int index = 0; index < 4; ++index) {
++            const auto manifest = m_effects && !m_ids[index].isEmpty() ?
++                    m_effects->getBackendManager()->getManifestFromUniqueId(m_ids[index]) : EffectManifestPointer();
++            const bool supported = isRx3BeatFx(manifest);
++            m_buttons[index]->setText(supported ? manifest->displayName().toUpper() : QString());
++            m_buttons[index]->setToolTip(m_ids[index].isEmpty() ? "Choose a Beat FX for this empty slot." :
++                    supported ? manifest->displayName() : manifest ? "Choose a supported Beat FX to replace this registration." :
++                    "This saved effect is unavailable. Delete the registration to reuse this slot.");
++            m_buttons[index]->setEnabled(m_slot != nullptr);
++            const bool selected = supported && current == m_ids[index];
++            const bool empty = !supported;
++            if (m_buttons[index]->property("selected").toBool() != selected ||
++                    !m_buttons[index]->property("empty").isValid() ||
++                    m_buttons[index]->property("empty").toBool() != empty) {
++                m_buttons[index]->setProperty("selected", selected);
++                m_buttons[index]->setProperty("empty", empty);
++                m_buttons[index]->style()->unpolish(m_buttons[index]);
++                m_buttons[index]->style()->polish(m_buttons[index]);
++            }
++        }
++        QSignalBlocker blocker(m_pad);
++        m_pad->setEnabled(loaded);
++        if (!loaded) m_pad->present(WRx3XPad::Layout::Empty, {}, 0);
++        QString readout = "—", milliseconds = "—";
++        if (loaded) {
++            double normalized = m_slot->getMetaParameter();
++            if (auto knob = qSharedPointerDynamicCast<EffectKnobParameterSlot>(m_parameter))
++                normalized = knob->getValueParameter();
++            m_pad->setValue(qRound(qBound(0.0, normalized, 1.0) * 1000));
++            if (m_parameter) {
++                const auto manifest = m_parameter->getManifest();
++                const auto parameter = parameterForId(m_slot, manifest->id());
++                double value = parameter ? parameter->getValue() : 0;
++                const auto units = manifest->unitsHint();
++                const bool flanger = m_slot->id().endsWith(".flanger") && manifest->id() == "speed";
++                QList<WRx3XPad::Cell> cells;
++                auto layout = WRx3XPad::Layout::Continuous;
++                if (units == Units::Beats || units == Units::Beat) {
++                    layout = WRx3XPad::Layout::Beats;
++                    const QStringList labels{"1/16", "1/8", "1/4", "1/2", "3/4", "1", "2", "4"};
++                    const double beats[] = {0.0625, 0.125, 0.25, 0.5, 0.75, 1, 2, 4};
++                    for (int index = 0; index < 8; ++index) {
++                        double target = beats[index];
++                        double minimumBeat = manifest->getMinimum();
++                        if (m_slot->id().endsWith(".echo")) {
++                            minimumBeat = 0.125;
++                            // Echo rounds to quarters before applying its eighth-beat minimum.
++                            if (index == 1) target = 0;
++                        } else if (m_slot->id().endsWith(".glitch")) minimumBeat = 0.125;
++                        else if (m_slot->id().endsWith(".phaser")) {
++                            minimumBeat = 0.25;
++                            if (index == 2) target = 0;
++                        } else if (m_slot->id().endsWith(".tremolo")) {
++                            minimumBeat = 0;
++                            target = 1 / target;
++                        }
++                        const auto quantize = parameterForId(m_slot, "quantize");
++                        const bool exactRate = !m_slot->id().endsWith(".tremolo") ||
++                                !quantize || quantize->getValue() <= 0 || index != 4;
++                        const bool supported = exactRate && beats[index] >= minimumBeat &&
++                                target >= manifest->getMinimum() && target <= manifest->getMaximum();
++                        cells.append({labels[index], target, supported});
++                    }
++                } else if (m_slot->id().endsWith(".pitchshift") && manifest->id() == "pitch") {
++                    layout = WRx3XPad::Layout::Pitch;
++                    const auto range = parameterForId(m_slot, "range");
++                    const double span = 12 * (range && range->getValue() > 0 ? range->getValue() : 1);
++                    for (const double semitones : {-12.0, -7.0, -5.0, 0.0, 5.0, 7.0, 12.0}) {
++                        const double target = span > 0 ? semitones / span : 0;
++                        cells.append({(semitones > 0 ? "+" : "") + QString::number(semitones),
++                                target, std::abs(target) <= 1});
++                    }
++                }
++                const auto pitchRange = layout == WRx3XPad::Layout::Pitch ? parameterForId(m_slot, "range") : EffectParameterPointer();
++                m_pad->present(layout, cells, pitchRange && pitchRange->getValue() <= 0 ? 0 : value);
++                if (units == Units::Beat || units == Units::Beats || flanger) {
++                    const double bpm = ControlObject::get(ConfigKey("[RX3Display]", "master_bpm"));
++                    const bool beatTime = bpm > 0 && std::isfinite(bpm);
++                    const auto quantize = parameterForId(m_slot, "quantize");
++                    const auto triplet = parameterForId(m_slot, "triplet");
++                    const bool quantized = quantize && quantize->getValue() > 0;
++                    const bool triplets = triplet && triplet->getValue() > 0;
++                    if (m_slot->id().endsWith(".echo")) {
++                        if (beatTime && quantized) value = std::round(value * 4) / 4;
++                        value = qMax(0.125, value);
++                        if (beatTime && quantized && triplets) value /= 3;
++                    } else if (flanger || m_slot->id().endsWith(".phaser")) {
++                        if (beatTime) value = std::round(value * 2) / 2;
++                        value = qMax(0.25, value);
++                        if (beatTime && triplets) value /= 3;
++                    } else if (m_slot->id().endsWith(".glitch")) {
++                        if (beatTime && quantized) {
++                            value = std::round(value * 8) / 8;
++                            if (triplets) value /= 3;
++                        }
++                        if (beatTime) value = qMax(0.125, value);
++                    } else if (m_slot->id().endsWith(".tremolo") && manifest->id() == "rate") {
++                        // Tremolo stores cycles per beat (or per second), not period.
++                        if (beatTime && quantized) {
++                            value = std::pow(2.0, static_cast<int>(std::log2(value)));
++                            if (triplets) value *= 3;
++                        }
++                        value = 1.0 / value;
++                    }
++                    readout = QString::number(value, 'g', 3) + (beatTime ? " BEAT" : " SEC");
++                    milliseconds = QString::number(qRound(value * (beatTime ? 60000 / bpm : 1000)));
++                } else {
++                    if (layout == WRx3XPad::Layout::Pitch) {
++                        const auto range = parameterForId(m_slot, "range");
++                        readout = QString::number(value * 12 * (range ? range->getValue() : 1), 'g', 3) + " ST";
++                    } else readout = manifest->shortName() + " " + QString::number(value, 'g', 3);
++                    if (units == Units::Seconds) milliseconds = QString::number(qRound(value * 1000));
++                    else if (units == Units::Millisecond) milliseconds = QString::number(qRound(value));
++                }
++                m_pad->setToolTip(manifest->name());
++            } else {
++                m_pad->present(WRx3XPad::Layout::Continuous, {}, 0);
++                readout = QString("%1%").arg(qRound(normalized * 100));
++                m_pad->setToolTip("Effect metaknob");
++            }
++        }
++        auto* canvas = parentWidget()->window();
++        auto setReadout = [canvas](const QString& name, const QString& text) {
++            if (auto* label = canvas->findChild<QLabel*>(name)) {
++                QString formatted = text;
++                const int fontPixels = QFontInfo(label->font()).pixelSize();
++                if (name == "RX3BeatFxMilliseconds")
++                    formatted = rx3::smallSuffix(text, " msec", fontPixels);
++                else if (name == "RX3BeatFxBeat" && text.endsWith(" BEAT"))
++                    formatted = rx3::smallSuffix(text.left(text.size() - 5), " BEAT", fontPixels);
++                // WLabel stores its full text separately and reapplies it on
++                // resize. Calling only QLabel::setText would lose this update.
++                if (auto* skinLabel = qobject_cast<WLabel*>(label)) skinLabel->setText(formatted);
++                else label->setText(formatted);
++            }
++        };
++        setReadout("RX3BeatFxBeat", readout);
++        setReadout("RX3BeatFxMilliseconds", milliseconds);
++    }
++    UserSettingsPointer m_config;
++    EffectsManager* m_effects;
++    EffectSlotPointer m_slot;
++    EffectParameterSlotBasePointer m_parameter;
++    QList<QMetaObject::Connection> m_parameterConnections;
++    std::array<QString, 4> m_ids;
++    std::array<QPushButton*, 4> m_buttons{};
++    QPushButton* m_delete;
++    WRx3XPad* m_pad;
++    QPointer<QMenu> m_effectMenu;
++    bool m_touching = false;
++};

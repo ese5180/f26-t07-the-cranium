@@ -194,3 +194,14 @@ Program. The model assumes 20,000 units. Fixed costs are \$171,634: product NRE 
 Recurring costs. Cloud and fleet costs (see Software BOM) are not in the Cost Model tab yet. At today’s reporting rate they come to roughly \$0.35 to \$0.45 per board per month, about \$13 to \$16 per unit over three years, which the \$73 profit per unit covers without a subscription.
 
 Not included. The nRF7002 DK sits outside the BOM, so every figure above leaves it out (see Hardware BOM).
+
+
+## CRANIUM Mix touchscreen application
+
+The full editable CRANIUM Mix application is in
+[`pi/cranium-mix/`](pi/cranium-mix/README.md), including the patched C++ engine,
+800 x 480 touchscreen layout, CRANIUM branding, FLX4 mappings and Pi build tools.
+The latest saved feature version includes waveform/encoder zoom and Beat FX
+routing, selection, enable and timing fixes. See its README for current
+validation limits and the Bookworm build steps. Existing Nordic firmware,
+cloud/apps and Pi telemetry remain separate and unchanged by this source import.

@@ -1,0 +1,17 @@
+# Audited false positives in the immutable imported upstream Mixxx snapshot.
+# Stanton: keylock control bindings to LED callbacks. Numark: inKey/outKey
+# beatloop control names. These are MIDI/audio controls, not credentials.
+# Scope is exact import-commit/path/rule/line fingerprints; all other
+# source and full-history secret scanning remain enabled.
+da24d8fd1d16263a2f6dc524c928032d170f35c8:pi/cranium-mix/cranium-nauticmixxx-engine/res/controllers/Numark-Mixtrack-Platinum-scripts.js:generic-api-key:780
+da24d8fd1d16263a2f6dc524c928032d170f35c8:pi/cranium-mix/cranium-nauticmixxx-engine/res/controllers/Numark-Mixtrack-Platinum-scripts.js:generic-api-key:781
+da24d8fd1d16263a2f6dc524c928032d170f35c8:pi/cranium-mix/cranium-nauticmixxx-engine/res/controllers/Numark-Mixtrack-Platinum-scripts.js:generic-api-key:784
+da24d8fd1d16263a2f6dc524c928032d170f35c8:pi/cranium-mix/cranium-nauticmixxx-engine/res/controllers/Numark-Mixtrack-Platinum-scripts.js:generic-api-key:785
+da24d8fd1d16263a2f6dc524c928032d170f35c8:pi/cranium-mix/cranium-nauticmixxx-engine/res/controllers/Numark-Mixtrack-Platinum-scripts.js:generic-api-key:788
+da24d8fd1d16263a2f6dc524c928032d170f35c8:pi/cranium-mix/cranium-nauticmixxx-engine/res/controllers/Numark-Mixtrack-Platinum-scripts.js:generic-api-key:789
+da24d8fd1d16263a2f6dc524c928032d170f35c8:pi/cranium-mix/cranium-nauticmixxx-engine/res/controllers/Numark-Mixtrack-Platinum-scripts.js:generic-api-key:792
+da24d8fd1d16263a2f6dc524c928032d170f35c8:pi/cranium-mix/cranium-nauticmixxx-engine/res/controllers/Numark-Mixtrack-Platinum-scripts.js:generic-api-key:793
+da24d8fd1d16263a2f6dc524c928032d170f35c8:pi/cranium-mix/cranium-nauticmixxx-engine/res/controllers/Stanton-SCS1d-scripts.js:generic-api-key:933
+da24d8fd1d16263a2f6dc524c928032d170f35c8:pi/cranium-mix/cranium-nauticmixxx-engine/res/controllers/Stanton-SCS1d-scripts.js:generic-api-key:939
+da24d8fd1d16263a2f6dc524c928032d170f35c8:pi/cranium-mix/cranium-nauticmixxx-engine/res/controllers/Stanton-SCS3d-scripts.js:generic-api-key:197
+da24d8fd1d16263a2f6dc524c928032d170f35c8:pi/cranium-mix/cranium-nauticmixxx-engine/res/controllers/Stanton-SCS3d-scripts.js:generic-api-key:200

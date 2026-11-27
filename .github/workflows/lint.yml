@@ -62,7 +62,12 @@ jobs:
       - name: Shell scripts (shellcheck, warnings and errors)
         # build_image.sh is a zsh script, which shellcheck does not read.
         run: |
-          git ls-files -z '*.sh' ':!firmware/tests/hil/build_image.sh' | xargs -0 shellcheck -S warning -f gcc
+          # The imported Mixxx/NauticMixxx snapshot retains upstream scripts unchanged.
+          # Its maintained handoff scripts are still included here; the application's
+          # own controller/package checks run in cranium-mix.yml. Secret scans remain global.
+          git ls-files -z '*.sh' ':!firmware/tests/hil/build_image.sh' \
+            ':!pi/cranium-mix/cranium-nauticmixxx-engine/**' \
+            ':!pi/cranium-mix/cranium-nauticmixxx/**' | xargs -0 shellcheck -S warning -f gcc
 
       - name: Release notes script (scripts/tests/notes-test.sh)
         run: scripts/tests/notes-test.sh

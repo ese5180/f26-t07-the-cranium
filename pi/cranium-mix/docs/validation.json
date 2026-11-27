@@ -1,0 +1,33 @@
+{
+  "source_feature_date": "2026-11-16",
+  "native_test_execution": "Historical ARM64 Bookworm run; not re-executed during GitHub handoff",
+  "native_tests_total": 221,
+  "native_tests_passed": 211,
+  "optional_tests_skipped": 10,
+  "native_failures": 0,
+  "native_errors": 0,
+  "original_native_xml_sha256": "e8fe5b34fc9233c90f964f626820d02e93ad0d28bd00d48710094fae81678024",
+  "original_build": {
+    "archive_sha256": "5b80d0a8086691260a3fc548ae1b902ebf0ce7924f06c53065cee08a22c7e8de",
+    "archive_bytes": 113377464,
+    "engine_commit": "0351701e897af7e9eca882bfa9a7dca7a99f00e0",
+    "overlay_commit": "e3a124f61d9d43d09565b3b2a89bc5994cd585ce",
+    "binary_sha256": "89f7a4d7104c2edecd7c55591739d7aed153f1d2b5eadceabe7962f8178fcb0f",
+    "mapping_and_skin_match_source": true,
+    "native_tests_passed": 211,
+    "optional_fixture_checks_skipped": 10,
+    "physical_pi_tested": false,
+    "includes_zoom_and_fx_channel_selector": true,
+    "sd_staged": false
+  },
+  "handoff_host_checks": {
+    "python_unit_tests_passed": 11,
+    "javascript_suites_passed": 16,
+    "xml_files_parsed": 40,
+    "windows_identifier_contract": "passed",
+    "controller_presets_and_fx_labels": "passed",
+    "linux_package_fixture": "passed"
+  },
+  "physical_audio_retested_for_handoff": false,
+  "binary_release_included": false
+}

@@ -1,0 +1,1094 @@
+diff --git a/src/engine/cachingreader/cachingreaderworker.cpp b/src/engine/cachingreader/cachingreaderworker.cpp
+index 27ea6ac..64f1ad5 100644
+--- a/src/engine/cachingreader/cachingreaderworker.cpp
++++ b/src/engine/cachingreader/cachingreaderworker.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include <QAtomicInt>
+ #include <QtDebug>
++#include <QFileInfo>
+ 
+ #include "analyzer/analyzersilence.h"
+ #include "moc_cachingreaderworker.cpp"
+@@ -42,15 +43,7 @@ ReaderStatusUpdate CachingReaderWorker::processReadRequest(
+     // the immutable track capability on the worker thread before every cache
+     // miss that would perform more I/O. This never runs in the audio callback.
+     if (m_pLoadedTrack && !m_pLoadedTrack->isSourceAvailableForPlayback()) {
+-        const auto pRevokedTrack = m_pLoadedTrack;
+-        kLogger.warning()
+-                << m_group
+-                << "Closing decoder for revoked track source";
+-        closeAudioSource();
+-        ReaderStatusUpdate result;
+-        result.init(CHUNK_READ_INVALID, pChunk, mixxx::IndexRange());
+-        emit trackSourceUnavailable(pRevokedTrack);
+-        return result;
++        return unavailableSource(pChunk);
+     }
+ 
+     // Before trying to read any data we need to check if the audio source
+@@ -60,6 +53,10 @@ ReaderStatusUpdate CachingReaderWorker::processReadRequest(
+     DEBUG_ASSERT(!m_pAudioSource ||
+             chunkFrameIndexRange.isSubrangeOf(m_pAudioSource->frameIndexRange()));
+     if (chunkFrameIndexRange.empty()) {
++        if(m_pAudioSource && m_pLoadedTrack &&
++                m_pLoadedTrack->getSourceBinding().sourceType()==mixxx::SourceType::RekordboxUsb &&
++                (m_initialSourceEnd-m_pAudioSource->frameIndexRange().end()>m_pAudioSource->getSignalInfo().getSampleRate().toDouble() ||
++                        !QFileInfo(m_pLoadedTrack->getLocation()).isReadable())) return unavailableSource(pChunk);
+         ReaderStatusUpdate result;
+         result.init(CHUNK_READ_INVALID, pChunk, m_pAudioSource ? m_pAudioSource->frameIndexRange() : mixxx::IndexRange());
+         return result;
+@@ -88,6 +85,12 @@ ReaderStatusUpdate CachingReaderWorker::processReadRequest(
+         }
+     }
+ 
++    if(m_pLoadedTrack && m_pLoadedTrack->getSourceBinding().sourceType()==mixxx::SourceType::RekordboxUsb &&
++            ((status==CHUNK_READ_INVALID && !chunkFrameIndexRange.empty()) ||
++                    m_initialSourceEnd-m_pAudioSource->frameIndexRange().end()>m_pAudioSource->getSignalInfo().getSampleRate().toDouble() ||
++                    (status==CHUNK_READ_INVALID && !QFileInfo(m_pLoadedTrack->getLocation()).isReadable())))
++        return unavailableSource(pChunk);
++
+     if (status == CHUNK_READ_SUCCESS) {
+         // This call here assumes that the caching reader will read the first sound cue at
+         // one of the first chunks. The check serves as a sanity check to ensure that the
+@@ -107,6 +110,14 @@ ReaderStatusUpdate CachingReaderWorker::processReadRequest(
+     return result;
+ }
+ 
++ReaderStatusUpdate CachingReaderWorker::unavailableSource(CachingReaderChunk* chunk) {
++    const auto track=m_pLoadedTrack;
++    closeAudioSource();
++    ReaderStatusUpdate result;result.init(CHUNK_READ_INVALID,chunk,mixxx::IndexRange());
++    emit trackSourceUnavailable(track);
++    return result;
++}
++
+ // WARNING: Always called from a different thread (GUI)
+ void CachingReaderWorker::newTrack(TrackPointer pTrack) {
+     {
+@@ -171,7 +182,7 @@ void CachingReaderWorker::closeAudioSource() {
+         m_pAudioSource->close();
+         m_pAudioSource.reset();
+     }
+-    m_pLoadedTrack.reset();
++    m_pLoadedTrack.reset();m_initialSourceEnd=0;
+ 
+     // This function has to be called with the engine stopped only
+     // to avoid collecting new requests for the old track
+@@ -272,6 +283,7 @@ void CachingReaderWorker::loadTrack(const TrackPointer& pTrack) {
+         }
+     }
+ 
++    m_initialSourceEnd=m_pAudioSource->frameIndexRange().end();
+     m_pLoadedTrack = pTrack;
+ 
+     // Adjust the internal buffer
+diff --git a/src/engine/cachingreader/cachingreaderworker.h b/src/engine/cachingreader/cachingreaderworker.h
+index 4c9d902..7f29642 100644
+--- a/src/engine/cachingreader/cachingreaderworker.h
++++ b/src/engine/cachingreader/cachingreaderworker.h
+@@ -147,6 +147,8 @@ class CachingReaderWorker : public EngineWorker {
+     /// Internal method to load a track. Emits trackLoaded when finished.
+     void loadTrack(const TrackPointer& pTrack);
+ 
++    ReaderStatusUpdate unavailableSource(CachingReaderChunk* chunk);
++    SINT m_initialSourceEnd=0;
+     ReaderStatusUpdate processReadRequest(
+             const CachingReaderChunkReadRequest& request);
+ 
+diff --git a/src/engine/enginebuffer.cpp b/src/engine/enginebuffer.cpp
+index 7367cea..34ad50c 100644
+--- a/src/engine/enginebuffer.cpp
++++ b/src/engine/enginebuffer.cpp
+@@ -103,6 +103,9 @@ EngineBuffer::EngineBuffer(const QString& group,
+     // zero out crossfade buffer
+     SampleUtil::clear(m_pCrossfadeBuffer, kMaxEngineSamples);
+ 
++    m_pRx3SourceLost=std::make_unique<ControlObject>(ConfigKey(group,"rx3_source_lost"));
++    m_pRx3EmergencyLoop=std::make_unique<ControlObject>(ConfigKey(group,"rx3_emergency_loop"));
++    m_pRx3SourceLost->setReadOnly();m_pRx3EmergencyLoop->setReadOnly();
+     m_pReader = new CachingReader(group, pConfig);
+     connect(m_pReader, &CachingReader::trackLoading,
+             this, &EngineBuffer::slotTrackLoading,
+@@ -423,11 +426,13 @@ void EngineBuffer::queueNewPlaypos(mixxx::audio::FramePos position, enum SeekReq
+ }
+ 
+ void EngineBuffer::requestSyncPhase() {
++    if(m_pRx3SourceLost->toBool()) return;
+     // Don't overwrite m_iSeekQueued
+     m_iSeekPhaseQueued = 1;
+ }
+ 
+ void EngineBuffer::requestEnableSync(bool enabled) {
++    if(m_pRx3SourceLost->toBool()) {m_pSyncControl->setSyncMode(SyncMode::None);return;}
+     // If we're not playing, the queued event won't get processed so do it now.
+     if (m_playButton->get() == 0.0) {
+         if (enabled) {
+@@ -457,6 +462,7 @@ void EngineBuffer::requestEnableSync(bool enabled) {
+ }
+ 
+ void EngineBuffer::requestSyncMode(SyncMode mode) {
++    if(m_pRx3SourceLost->toBool() && mode!=SyncMode::None) {m_pSyncControl->setSyncMode(SyncMode::None);return;}
+     if (kLogger.traceEnabled()) {
+         kLogger.trace() << "requestSyncMode" << getGroup();
+     }
+@@ -534,13 +540,13 @@ void EngineBuffer::slotTrackLoading() {
+     m_pause.unlock();
+ 
+     // Set play here, to signal the user that the play command is adopted
+-    m_playButton->set((double)m_bPlayAfterLoading);
++    m_playButton->setAndConfirm((double)m_bPlayAfterLoading);
+     setTrackEndPosition(mixxx::audio::kInvalidFramePos); // Stop renderer
+ }
+ 
+ void EngineBuffer::loadFakeTrack(TrackPointer pTrack, bool bPlay) {
+     if (bPlay) {
+-        m_playButton->set((double)bPlay);
++        m_playButton->setAndConfirm((double)bPlay);
+     }
+     slotTrackLoaded(
+             pTrack,
+@@ -566,6 +572,11 @@ void EngineBuffer::slotTrackLoaded(TrackPointer pTrack,
+     m_pTrackLoaded->forceSet(1);
+ 
+     resetSlip();
++    m_sourceUnavailable.storeRelease(0);
++    m_emergencyAudio.reset();m_emergencyPlaying=false;
++    m_usbSession=pTrack->getSourceBinding().sessionState();
++    if(pTrack->getSourceBinding().sourceType()==mixxx::SourceType::RekordboxUsb) m_emergencyAudio.prepare();
++    m_pRx3SourceLost->setAndConfirm(0);m_pRx3EmergencyLoop->setAndConfirm(0);
+ 
+     m_pReplayGain->set(pTrack->getReplayGain().getRatio());
+ 
+@@ -603,6 +614,13 @@ void EngineBuffer::slotTrackLoadFailed(TrackPointer pTrack,
+ 
+ // WARNING: Always called from the EngineWorker thread pool
+ void EngineBuffer::slotTrackSourceUnavailable(TrackPointer pTrack) {
++    if(pTrack && pTrack==m_pCurrentTrack &&
++            pTrack->getSourceBinding().sourceType()==mixxx::SourceType::RekordboxUsb) {
++        // The decoder is already closed by the worker. Retain the loaded deck
++        // and its last PCM history; the audio callback enters emergency mode.
++        m_sourceUnavailable.storeRelease(1);
++        return;
++    }
+     m_iTrackLoading = 0;
+     m_pChannelToCloneFrom = nullptr;
+     ejectTrack();
+@@ -637,6 +655,8 @@ void EngineBuffer::ejectTrack() {
+     m_pTrackSampleRate->set(0);
+     m_pTrackLoaded->forceSet(0);
+ 
++    m_sourceUnavailable.storeRelease(0);m_emergencyAudio.reset();m_emergencyPlaying=false;m_usbSession.reset();
++    m_pRx3SourceLost->setAndConfirm(0);m_pRx3EmergencyLoop->setAndConfirm(0);
+     m_playButton->set(0.0);
+     m_playposSlider->set(0);
+     m_pCueControl->resetIndicators();
+@@ -795,6 +815,7 @@ void EngineBuffer::verifyPlay() {
+ }
+ 
+ void EngineBuffer::slotControlPlayRequest(double v) {
++    if(m_pRx3SourceLost->toBool()) {m_playButton->setAndConfirm(m_pRx3EmergencyLoop->toBool()?1:0);return;}
+     bool oldPlay = m_playButton->toBool();
+     bool verifiedPlay = updateIndicatorsAndModifyPlay(v > 0.0, oldPlay);
+ 
+@@ -1220,11 +1241,39 @@ void EngineBuffer::process(CSAMPLE* pOutput, const int iBufferSize) {
+ #endif
+ 
+     bool hasStableTrack = m_pTrackLoaded->toBool() && m_iTrackLoading.loadAcquire() == 0;
+-    if (hasStableTrack && m_pause.tryLock()) {
+-        processTrackLocked(pOutput, iBufferSize, m_sampleRate);
+-        // release the pauselock
++    bool processed=false;
++    if(m_pause.tryLock()) {
++        const bool usbTrack=m_pCurrentTrack &&
++                m_pCurrentTrack->getSourceBinding().sourceType()==mixxx::SourceType::RekordboxUsb;
++        const bool lost=usbTrack && (m_sourceUnavailable.loadAcquire()!=0 ||
++                !m_usbSession || !m_usbSession->isActive());
++        if(lost) {
++            if(!m_pRx3SourceLost->toBool()) {
++                m_emergencyPlaying=m_playButton->toBool() && m_emergencyAudio.start(getBpm().value());
++                resetSlip();
++                // Keep this deck's original source identity and frozen time.
++                m_pRx3SourceLost->setAndConfirm(1);
++                m_pRx3EmergencyLoop->setAndConfirm(m_emergencyPlaying?1:0);
++                m_iEnableSyncQueued=SYNC_REQUEST_NONE;
++                m_iSyncModeQueued=static_cast<int>(SyncMode::None);
++                m_pEngineSync->requestSyncMode(m_pSyncControl,SyncMode::None);
++            }
++            m_queuedSeek.setValue(kNoQueuedSeek);m_iSeekPhaseQueued=0;
++            m_iEnableSyncQueued=SYNC_REQUEST_NONE;m_iSyncModeQueued=static_cast<int>(SyncMode::None);
++            if(m_iTrackLoading.loadAcquire()==0) m_playButton->setAndConfirm(m_emergencyPlaying?1:0);
++            if(m_emergencyPlaying) m_emergencyAudio.render(pOutput,iBufferSize);
++            else {SampleUtil::clear(pOutput,iBufferSize);m_speed_old=0;}
++            m_scratching_old=false;
++            processed=true;
++        } else if(hasStableTrack) {
++            processTrackLocked(pOutput, iBufferSize, m_sampleRate);
++            if(usbTrack && m_playButton->toBool() && m_speed_old!=0)
++                m_emergencyAudio.capture(pOutput,iBufferSize,m_sampleRate.toDouble());
++            processed=true;
++        }
+         m_pause.unlock();
+-    } else {
++    }
++    if(!processed) {
+         // We are loading a new Track
+ 
+         // Here the old track was playing and loading the new track is in
+diff --git a/src/engine/enginebuffer.h b/src/engine/enginebuffer.h
+index e14c3d1..9d37440 100644
+--- a/src/engine/enginebuffer.h
++++ b/src/engine/enginebuffer.h
+@@ -12,6 +12,8 @@
+ #include "engine/cachingreader/cachingreader.h"
+ #include "engine/engineobject.h"
+ #include "engine/slipmodestate.h"
++#include "engine/rx3emergencyloop.h"
++#include "library/rekordbox/rekordboxsessionstate.h"
+ #include "control/controlindicator.h"
+ #include "engine/sync/syncable.h"
+ #include "preferences/usersettings.h"
+@@ -398,6 +400,12 @@ class EngineBuffer : public EngineObject {
+     double m_slipReverseBeats = 0;
+     double m_slipHotcueBeats = 0;
+     int m_lastSlipHotcue = 0;
++    std::shared_ptr<const mixxx::rekordbox::SessionState> m_usbSession;
++    Rx3EmergencyLoop m_emergencyAudio;
++    QAtomicInt m_sourceUnavailable{0};
++    std::unique_ptr<ControlObject> m_pRx3SourceLost;
++    std::unique_ptr<ControlObject> m_pRx3EmergencyLoop;
++    bool m_emergencyPlaying=false;
+     std::unique_ptr<ControlObject> m_pSlipActive;
+     std::unique_ptr<ControlObject> m_pSlipPosition;
+     std::unique_ptr<ControlObject> m_pSlipHotcue;
+diff --git a/src/engine/rx3emergencyloop.h b/src/engine/rx3emergencyloop.h
+new file mode 100644
+index 0000000..906c0a6
+--- /dev/null
++++ b/src/engine/rx3emergencyloop.h
+@@ -0,0 +1,78 @@
++#pragma once
++
++#include <algorithm>
++#include <cmath>
++#include <vector>
++#include "util/types.h"
++
++// Captured post-scaler stereo PCM. Allocation happens only when a removable
++// track loads, outside the audio callback. Playback needs no decoder or disk.
++class Rx3EmergencyLoop {
++  public:
++    void prepare() {
++        m_audio.resize(8 * 192000 * 2);
++        reset();
++    }
++    void reset() {
++        m_write=m_count=m_start=m_length=m_cursor=0;
++        m_sampleRate=0;m_transition=0;
++    }
++    void capture(const CSAMPLE* audio,int samples,double sampleRate) {
++        if(m_audio.empty() || sampleRate<=0 || samples%2) return;
++        if(m_sampleRate!=sampleRate) {reset();m_sampleRate=sampleRate;}
++        const auto capacity=m_audio.size()/2;
++        for(int frame=0;frame<samples/2;++frame) {
++            m_audio[2*m_write]=audio[2*frame];
++            m_audio[2*m_write+1]=audio[2*frame+1];
++            m_write=(m_write+1)%capacity;
++            m_count=std::min(m_count+1,capacity);
++        }
++    }
++    bool start(double bpm) {
++        if(m_count<2 || m_sampleRate<=0) return false;
++        const auto capacity=m_audio.size()/2;
++        const double framesPerBeat=std::isfinite(bpm) && bpm>0 ? m_sampleRate*60/bpm : 0;
++        m_length=m_count;
++        if(framesPerBeat>=1) {
++            for(int beats:{4,2,1}) {
++                const auto length=static_cast<size_t>(std::round(framesPerBeat*beats));
++                if(length<=m_count) {m_length=length;break;}
++            }
++        } else m_length=std::min(m_count,static_cast<size_t>(m_sampleRate));
++        m_start=(m_write+capacity-m_length)%capacity;
++        m_cursor=0;m_transition=32;
++        const auto last=(m_write+capacity-1)%capacity;
++        m_last[0]=m_audio[2*last];m_last[1]=m_audio[2*last+1];
++        return true;
++    }
++    void render(CSAMPLE* output,int samples) {
++        if(!m_length) {std::fill(output,output+samples,CSAMPLE(0));return;}
++        const auto capacity=m_audio.size()/2;
++        const auto fade=std::min(size_t(32),m_length/4);
++        for(int frame=0;frame<samples/2;++frame) {
++            const auto index=(m_start+m_cursor)%capacity;
++            for(int channel=0;channel<2;++channel) {
++                CSAMPLE value=m_audio[2*index+channel];
++                if(fade && m_cursor>=m_length-fade) {
++                    const auto offset=m_cursor-(m_length-fade);
++                    const double blend=double(offset+1)/fade;
++                    value=CSAMPLE(value*(1-blend)+m_audio[2*((m_start+offset)%capacity)+channel]*blend);
++                }
++                if(m_transition>0) {
++                    const double blend=double(33-m_transition)/32;
++                    value=CSAMPLE(m_last[channel]*(1-blend)+value*blend);
++                }
++                output[2*frame+channel]=value;
++            }
++            if(m_transition>0) --m_transition;
++            m_cursor=(m_cursor+1)%m_length;
++        }
++    }
++    size_t lengthFrames() const {return m_length;}
++  private:
++    std::vector<CSAMPLE> m_audio;
++    size_t m_write=0,m_count=0,m_start=0,m_length=0,m_cursor=0;
++    double m_sampleRate=0;
++    int m_transition=0;
++    CSAMPLE m_last[2]{};
++};
+diff --git a/src/library/rekordbox/rekordboxfeature.cpp b/src/library/rekordbox/rekordboxfeature.cpp
+index 0091f87..f10563b 100644
+--- a/src/library/rekordbox/rekordboxfeature.cpp
++++ b/src/library/rekordbox/rekordboxfeature.cpp
+@@ -229,6 +229,10 @@ void RekordboxFeature::checkMountedVolumes() {
+                 m_askedVolumes.remove(removed);
+                 ++m_generations[removed];
+                 m_rekordboxSecurityTokens.remove(removed);
++                // Revoke immediately on unmount, before asynchronous discovery.
++                // Both decks observe the shared atomic token in their callback.
++                const auto session=m_sessions.value(removed);
++                if(session) session->invalidate();
+                 if (m_loadingRoot == removed && m_loadingSession) {
+                     m_loadingSession->invalidate();
+                 }
+@@ -267,6 +271,7 @@ void RekordboxFeature::checkMountedVolumes() {
+ }
+ 
+ void RekordboxFeature::startDiscovery() {
++    if(m_pendingRatingWrites>0) {m_refreshRequested=true;return;}
+     if (m_discoveryPending || m_parsePending) {
+         m_refreshRequested = true;
+         return;
+@@ -435,10 +440,13 @@ void RekordboxFeature::writeRating(const QString& root,quint32 id,int rating,
+         std::function<void(QString)> finished) {
+     const auto session=m_sessions.value(root);
+     if(!session) {finished(QStringLiteral("USB is unavailable."));return;}
++    ++m_pendingRatingWrites;
++    m_discoveryOverlappedWrite|=m_discoveryPending;
+     auto* watcher=new QFutureWatcher<QString>(this);
+-    connect(watcher,&QFutureWatcher<QString>::finished,this,[this,watcher,root,id,rating,finished]{
++    connect(watcher,&QFutureWatcher<QString>::finished,this,[this,watcher,root,id,rating,finished,session]{
+         const auto error=watcher->result();watcher->deleteLater();
+-        if(error.isEmpty()) {
++        if(error.isEmpty() && m_sessions.value(root)==session && session->state()==mixxx::rekordbox::UsbSessionState::Ready) {
++            m_devices[root]=session->deviceSnapshot();
+             if(root==m_selectedRoot) m_runtimeTrackModel.refreshRating(id,rating);
+             for(int deck=1;deck<=2;++deck) {
+                 auto track=PlayerInfo::instance().getTrackInfo(QString("[Channel%1]").arg(deck));
+@@ -447,7 +455,9 @@ void RekordboxFeature::writeRating(const QString& root,quint32 id,int rating,
+                 if(record && trackRoot==root && record->rekordboxId==id) track->setRating(rating);
+             }
+         }
++        --m_pendingRatingWrites;
+         finished(error);
++        if(m_pendingRatingWrites==0 && std::exchange(m_refreshRequested,false)) startDiscovery();
+     });
+     watcher->setFuture(QtConcurrent::run([session,id,rating]{return session->writeRating(id,rating);}));
+ }
+@@ -529,6 +539,13 @@ void RekordboxFeature::startNextLoad() {
+ 
+ void RekordboxFeature::onRekordboxDevicesFound() {
+     m_discoveryPending = false;
++    // A concurrent rating commit changes the expected fingerprint. Re-discover
++    // after publication, instead of invalidating a still-connected USB session.
++    if(m_pendingRatingWrites>0 || m_discoveryOverlappedWrite) {
++        m_discoveryOverlappedWrite=false;m_refreshRequested=true;
++        if(m_pendingRatingWrites==0) {m_refreshRequested=false;startDiscovery();}
++        return;
++    }
+     QList<mixxx::rekordbox::DiscoveredDevice> found;
+     try {
+         found = m_devicesFuture.result();
+diff --git a/src/library/rekordbox/rekordboxfeature.h b/src/library/rekordbox/rekordboxfeature.h
+index 98ff7f8..ddf1100 100644
+--- a/src/library/rekordbox/rekordboxfeature.h
++++ b/src/library/rekordbox/rekordboxfeature.h
+@@ -50,6 +50,8 @@ class RekordboxFeature final : public LibraryFeature {
+     void onTracksFound();
+ 
+   private:
++    int m_pendingRatingWrites=0;
++    bool m_discoveryOverlappedWrite=false;
+     void checkMountedVolumes();
+     void startDiscovery();
+     void enqueueLoad(const QString& root);
+diff --git a/src/library/rekordbox/rekordboxtrackadapter.cpp b/src/library/rekordbox/rekordboxtrackadapter.cpp
+index b2b9391..e8a77b3 100644
+--- a/src/library/rekordbox/rekordboxtrackadapter.cpp
++++ b/src/library/rekordbox/rekordboxtrackadapter.cpp
+@@ -55,6 +55,25 @@ class RekordboxBeatsImporter final : public mixxx::BeatsImporter {
+             m_beats.clear();
+             return nullptr;
+         }
++        // PQTZ timestamps are integer milliseconds. A constant 122.00 BPM
++        // export alternates 491/492 ms intervals; treating each interval as a
++        // tempo change makes both the display and SYNC chase rounding noise.
++        // Use the exported precise tempo only if every position agrees with
++        // that constant grid within its timestamp quantization tolerance.
++        const auto tempo=m_beats.first().tempoCentiBpm;
++        bool constant=tempo>0;
++        const double firstMillis=m_beats.first().timeMs;
++        for(int i=0;constant && i<m_beats.size();++i) {
++            constant=m_beats[i].tempoCentiBpm==tempo &&
++                    std::abs(m_beats[i].timeMs-firstMillis-i*6000000.0/tempo)<=1.1;
++        }
++        if(constant) {
++            const auto anchor=mixxx::audio::FramePos(
++                    signalInfo.millis2frames(firstMillis+m_offsetMillis)).toNearestFrameBoundary();
++            m_beats.clear();
++            return mixxx::Beats::fromConstTempo(signalInfo.getSampleRate(),anchor,
++                    mixxx::Bpm(tempo/100.0),QStringLiteral("Rekordbox-PQTZ"));
++        }
+         QVector<mixxx::audio::FramePos> positions;
+         positions.reserve(m_beats.size());
+         for (const auto& beat : std::as_const(m_beats)) {
+@@ -306,8 +325,9 @@ TrackPointer RekordboxTrackAdapter::createTemporaryTrack(
+     }
+ 
+     // PDB BPM is deliberately not converted into a Mixxx beat grid. With a
+-    // PQTZ grid, Mixxx derives BPM from the preserved positions after decoder
+-    // sample-rate discovery. Without PQTZ, RuntimeTrack remains authoritative.
++    // PQTZ grid, retain its exact tempo when positions confirm a constant
++    // grid; preserve irregular/dynamic positions after decoder timing discovery.
++    // Without PQTZ, RuntimeTrack remains authoritative.
+     track->markClean();
+     if (!track->isSourceAvailableForPlayback()) {
+         return fail(QStringLiteral("Rekordbox USB session changed during projection"));
+diff --git a/src/library/rekordbox/rekordboxusbsession.cpp b/src/library/rekordbox/rekordboxusbsession.cpp
+index 320e2d6..80b3903 100644
+--- a/src/library/rekordbox/rekordboxusbsession.cpp
++++ b/src/library/rekordbox/rekordboxusbsession.cpp
+@@ -533,6 +533,10 @@ void RekordboxUsbSession::invalidate() {
+     invalidateLocked();
+ }
+ 
++DeviceSnapshot RekordboxUsbSession::deviceSnapshot() const {
++    const std::lock_guard<std::mutex> lock(m_mutex);
++    return m_snapshot;
++}
+ UsbSessionState RekordboxUsbSession::state() const {
+     const std::lock_guard<std::mutex> lock(m_mutex);
+     return m_state;
+diff --git a/src/library/rekordbox/rekordboxusbsession.h b/src/library/rekordbox/rekordboxusbsession.h
+index b5e3775..af0ecfe 100644
+--- a/src/library/rekordbox/rekordboxusbsession.h
++++ b/src/library/rekordbox/rekordboxusbsession.h
+@@ -38,6 +38,7 @@ class RekordboxUsbSession final {
+     std::optional<QByteArray> loadWaveformPayload(
+             const RuntimeWaveform& descriptor, QString* error = nullptr);
+     void invalidate();
++    DeviceSnapshot deviceSnapshot() const;
+     UsbSessionState state() const;
+     UsbSessionError errorCode() const;
+     QString error() const;
+diff --git a/src/skin/legacy/legacyskinparser.cpp b/src/skin/legacy/legacyskinparser.cpp
+index 318a54e..06b2fa9 100644
+--- a/src/skin/legacy/legacyskinparser.cpp
++++ b/src/skin/legacy/legacyskinparser.cpp
+@@ -63,6 +63,7 @@
+ #include "widget/rx3displaystate.h"
+ #include "widget/wrx3shortcut.h"
+ #include "widget/wrx3info.h"
++#include "widget/wrx3emergency.h"
+ #include "widget/wrx3countdown.h"
+ #include "widget/wrx3performancewidgets.h"
+ #include "widget/wnumberrate.h"
+@@ -455,6 +456,7 @@ QWidget* LegacySkinParser::parseSkin(const QString& skinPath, QWidget* pParent)
+         new WRx3Shortcut(m_pConfig,m_pEffectsManager,widgets[0]);
+         new WRx3Countdown(m_pConfig,widgets[0]);
+         new WRx3Info(m_pLibrary,widgets[0]);
++        new WRx3Emergency(widgets[0]);
+     }
+     const QString reference = m_pContext->selectString(skinDocument, "ReferenceSize");
+     const auto dimensions = reference.split(',');
+diff --git a/src/test/enginebuffertest.cpp b/src/test/enginebuffertest.cpp
+index ef57ea8..950ada3 100644
+--- a/src/test/enginebuffertest.cpp
++++ b/src/test/enginebuffertest.cpp
+@@ -4,6 +4,8 @@
+ #include <gtest/gtest.h>
+ 
+ #include <QString>
++#include <cmath>
++#include "track/sourcebinding.h"
+ #include <QTest>
+ #include <QtDebug>
+ 
+@@ -829,3 +831,128 @@ TEST_F(Rx3SlipTest, EjectionClearsSlipWithoutWaitingForAnotherTrack) {
+     EXPECT_EQ(0, get("slip_active"));
+     EXPECT_EQ(0, get("slip_indicator"));
+ }
++
++
++class EmergencyHistoryScaler : public MockScaler {
++  public:
++    double scaleBuffer(CSAMPLE* output,SINT samples) override {
++        const auto frames=MockScaler::scaleBuffer(output,samples);
++        for(SINT frame=0;frame<samples/2;++frame) {
++            const CSAMPLE value=CSAMPLE(0.4*std::sin(m_frame++*0.03));
++            output[2*frame]=value;output[2*frame+1]=value;
++        }
++        return frames;
++    }
++  private:
++    size_t m_frame=0;
++};
++class Rx3EmergencyTest : public MockedEngineBackendTest {
++  protected:
++    void SetUp() override {
++        MockedEngineBackendTest::SetUp();
++        delete m_pMockScaleVinyl1;delete m_pMockScaleKeylock1;
++        delete m_pMockScaleVinyl2;delete m_pMockScaleKeylock2;
++        m_pMockScaleVinyl1=new EmergencyHistoryScaler;m_pMockScaleKeylock1=new EmergencyHistoryScaler;
++        m_pMockScaleVinyl2=new EmergencyHistoryScaler;m_pMockScaleKeylock2=new EmergencyHistoryScaler;
++        deck(1)->setScalerForTest(m_pMockScaleVinyl1,m_pMockScaleKeylock1);
++        deck(2)->setScalerForTest(m_pMockScaleVinyl2,m_pMockScaleKeylock2);
++        m_usb=std::make_shared<mixxx::rekordbox::SessionState>();
++    }
++    EngineBuffer* deck(int index) {return (index==1?m_pChannel1:m_pChannel2)->getEngineBuffer();}
++    TrackPointer loadUsb(int index,const std::shared_ptr<mixxx::rekordbox::SessionState>& usb,bool play=true) {
++        auto track=Track::newTemporary(mixxx::FileAccess(),mixxx::TrackUsePolicy::rekordboxUsbPolicy(),
++                mixxx::SourceBinding::rekordboxUsb(index,usb));
++        track->setAudioProperties(mixxx::kEngineChannelCount,mixxx::audio::SampleRate(44100),mixxx::audio::Bitrate(),mixxx::Duration::fromSeconds(60));
++        track->trySetBpm(122.0);deck(index)->loadFakeTrack(track,play);
++        ControlObject::set(ConfigKey(QString("[Channel%1]").arg(index),"quantize"),0);
++        return track;
++    }
++    double get(int index,const QString& key) {return ControlObject::get(ConfigKey(QString("[Channel%1]").arg(index),key));}
++    void process(int count=1) {for(int i=0;i<count;++i) ProcessBuffer();}
++    double energy(int index) {
++        const auto* audio=m_pEngineMixer->getChannelBuffer(QString("[Channel%1]").arg(index));
++        if(!audio) return 0;
++        double result=0;for(int i=0;i<kProcessBufferSize;++i) result+=std::abs(audio[i]);return result;
++    }
++    std::shared_ptr<mixxx::rekordbox::SessionState> m_usb;
++};
++TEST_F(Rx3EmergencyTest, SharedUsbLossKeepsBothDecksAudibleAndFreezesTransport) {
++    const auto first=loadUsb(1,m_usb);const auto second=loadUsb(2,m_usb);process(220);
++    ASSERT_GT(energy(1),1);ASSERT_GT(energy(2),1);
++    const auto position1=deck(1)->getExactPlayPos();const auto position2=deck(2)->getExactPlayPos();
++    m_usb->invalidate();process();
++    EXPECT_EQ(1,get(1,"rx3_emergency_loop"));EXPECT_EQ(1,get(2,"rx3_emergency_loop"));
++    EXPECT_TRUE(deck(1)->isTrackLoaded());EXPECT_TRUE(deck(2)->isTrackLoaded());
++    for(const auto& key:{"play","cue_gotoandstop","reverse","slip_enabled","scratch2_enable"})
++        ControlObject::set(ConfigKey(m_sGroup1,key),key==QString("play")?0:1);
++    deck(1)->queueNewPlaypos(mixxx::audio::FramePos(10),EngineBuffer::SEEK_EXACT);
++    process(230);
++    EXPECT_EQ(position1,deck(1)->getExactPlayPos());EXPECT_EQ(position2,deck(2)->getExactPlayPos());
++    EXPECT_GT(energy(1),1);EXPECT_GT(energy(2),1);EXPECT_EQ(1,get(1,"play"));
++    EXPECT_EQ(0,get(1,"slip_active"));
++}
++TEST_F(Rx3EmergencyTest, DifferentUsbKeepsRunningAndNewTrackClearsEmergency) {
++    auto other=std::make_shared<mixxx::rekordbox::SessionState>();
++    loadUsb(1,m_usb);loadUsb(2,other);process(220);
++    const auto position=deck(2)->getExactPlayPos();m_usb->invalidate();process(10);
++    EXPECT_EQ(1,get(1,"rx3_emergency_loop"));EXPECT_EQ(0,get(2,"rx3_source_lost"));
++    EXPECT_GT(deck(2)->getExactPlayPos(),position);
++    loadUsb(1,other);process();EXPECT_EQ(0,get(1,"rx3_source_lost"));EXPECT_EQ(0,get(1,"rx3_emergency_loop"));
++}
++TEST_F(Rx3EmergencyTest, PausedDeckDoesNotStartAudioAndReadFailureAlsoLatches) {
++    const auto track=loadUsb(1,m_usb,false);process();m_usb->invalidate();process();
++    EXPECT_EQ(1,get(1,"rx3_source_lost"));EXPECT_EQ(0,get(1,"rx3_emergency_loop"));EXPECT_EQ(0,energy(1));
++    auto other=std::make_shared<mixxx::rekordbox::SessionState>();
++    const auto readable=loadUsb(1,other);process(220);
++    ASSERT_TRUE(QMetaObject::invokeMethod(deck(1),"slotTrackSourceUnavailable",Qt::DirectConnection,Q_ARG(TrackPointer,readable)));
++    process();EXPECT_EQ(1,get(1,"rx3_emergency_loop"));EXPECT_GT(energy(1),1);
++    deck(1)->ejectTrack();process();EXPECT_EQ(0,get(1,"rx3_source_lost"));EXPECT_EQ(0,energy(1));
++}
++TEST(Rx3EmergencyAudio, LoopsFourBeatsAtCapturedRateWithoutAnotherSourceRead) {
++    Rx3EmergencyLoop loop;loop.prepare();
++    std::vector<CSAMPLE> input(48000*8);
++    for(size_t i=0;i<input.size()/2;++i) input[2*i]=input[2*i+1]=CSAMPLE(std::sin(i*0.01));
++    loop.capture(input.data(),int(input.size()),48000);ASSERT_TRUE(loop.start(122));
++    EXPECT_EQ(size_t(std::round(4*48000*60.0/122)),loop.lengthFrames());
++    std::vector<CSAMPLE> first(loop.lengthFrames()*2),second(first.size());
++    loop.render(first.data(),int(first.size()));loop.render(second.data(),int(second.size()));
++    for(size_t i=64;i<first.size();++i) EXPECT_FLOAT_EQ(first[i],second[i]);
++    loop.reset();EXPECT_FALSE(loop.start(122));
++}
++
++class Rx3EmergencyE2ETest : public SignalPathTest {};
++TEST_F(Rx3EmergencyE2ETest, HealthyUsbTrackEndDoesNotReportSourceLoss) {
++    auto session=std::make_shared<mixxx::rekordbox::SessionState>();
++    const auto track=Track::newTemporary(mixxx::FileAccess(mixxx::FileInfo(getTestDir().filePath("sine-30.wav"))),
++            mixxx::TrackUsePolicy::rekordboxUsbPolicy(),mixxx::SourceBinding::rekordboxUsb(1,session));
++    ASSERT_TRUE(track);track->trySetBpm(122);loadTrack(m_pMixerDeck1,track);
++    auto* engine=m_pChannel1->getEngineBuffer();
++    ControlObject::set(ConfigKey(m_sGroup1,"quantize"),0);ControlObject::set(ConfigKey(m_sGroup1,"repeat"),0);
++    engine->queueNewPlaypos(engine->getTrackEndPosition()-11025,EngineBuffer::SEEK_EXACT);
++    ControlObject::set(ConfigKey(m_sGroup1,"play"),1);
++    for(int i=0;i<100;++i) {ProcessBuffer();QTest::qSleep(1);}
++    EXPECT_EQ(0,ControlObject::get(ConfigKey(m_sGroup1,"rx3_source_lost")));
++    EXPECT_EQ(0,ControlObject::get(ConfigKey(m_sGroup1,"rx3_emergency_loop")));
++}
++
++TEST_F(Rx3EmergencyE2ETest, RevokedUsbWithRealDecoderRepeatsCapturedAudio) {
++    auto session=std::make_shared<mixxx::rekordbox::SessionState>();
++    const auto track=Track::newTemporary(mixxx::FileAccess(mixxx::FileInfo(getTestDir().filePath("sine-30.wav"))),
++            mixxx::TrackUsePolicy::rekordboxUsbPolicy(),mixxx::SourceBinding::rekordboxUsb(1,session));
++    ASSERT_TRUE(track);track->trySetBpm(122);loadTrack(m_pMixerDeck1,track);
++    ControlObject::set(ConfigKey(m_sGroup1,"quantize"),0);
++    ControlObject::set(ConfigKey(m_sGroup1,"play"),1);
++    auto energy=[this] {
++        const auto* audio=m_pEngineMixer->getChannelBuffer(m_sGroup1);
++        double sum=0;for(int i=0;i<kProcessBufferSize;++i) sum+=std::abs(audio[i]);return sum;
++    };
++    for(int i=0;i<250;++i) {ProcessBuffer();QTest::qSleep(1);}
++    ASSERT_GT(energy(),0.1);
++    const auto position=m_pChannel1->getEngineBuffer()->getExactPlayPos();
++    session->invalidate();
++    for(int i=0;i<100;++i) {ProcessBuffer();QTest::qSleep(1);}
++    EXPECT_EQ(1,ControlObject::get(ConfigKey(m_sGroup1,"rx3_source_lost")));
++    EXPECT_EQ(1,ControlObject::get(ConfigKey(m_sGroup1,"rx3_emergency_loop")));
++    EXPECT_EQ(position,m_pChannel1->getEngineBuffer()->getExactPlayPos());EXPECT_GT(energy(),0.1);
++    EXPECT_TRUE(m_pChannel1->getEngineBuffer()->isTrackLoaded());
++}
+diff --git a/src/test/enginesynctest.cpp b/src/test/enginesynctest.cpp
+index 38029fc..85e6987 100644
+--- a/src/test/enginesynctest.cpp
++++ b/src/test/enginesynctest.cpp
+@@ -3118,3 +3118,24 @@ TEST_F(EngineSyncTest, BeatContextRounding) {
+             ControlObject::get(ConfigKey(m_sGroup1, "playposition")),
+             kMaxFloatingPointErrorHighPrecision);
+ }
++
++TEST_F(EngineSyncTest, Precise122BpmFollowerMatchesPitchedMasterWithQuantizeOnOrOff) {
++    for(const bool quantize:{false,true}) {
++        m_pMixerDeck1->loadFakeTrack(true,128.0);m_pMixerDeck2->loadFakeTrack(true,122.0);
++        ControlObject::set(ConfigKey(m_sGroup1,"quantize"),quantize?1:0);
++        ControlObject::set(ConfigKey(m_sGroup2,"quantize"),quantize?1:0);
++        ControlObject::set(ConfigKey(m_sGroup1,"rate_ratio"),1.0037);
++        ControlObject::set(ConfigKey(m_sGroup1,"sync_enabled"),1);
++        ProcessBuffer();
++        ControlObject::set(ConfigKey(m_sGroup2,"sync_enabled"),1);
++        ControlObject::set(ConfigKey(m_sGroup2,"beatsync_phase"),1);
++        for(int i=0;i<100;++i) ProcessBuffer();
++        EXPECT_NEAR(128*1.0037/122,ControlObject::get(ConfigKey(m_sGroup2,"rate_ratio")),1e-12);
++        EXPECT_NEAR(ControlObject::get(ConfigKey(m_sGroup1,"bpm")),ControlObject::get(ConfigKey(m_sGroup2,"bpm")),1e-10);
++        const double phase1=ControlObject::get(ConfigKey(m_sGroup1,"beat_distance"));
++        const double phase2=ControlObject::get(ConfigKey(m_sGroup2,"beat_distance"));
++        EXPECT_LT(std::abs(std::remainder(phase1-phase2,1.0)),0.003);
++        for(const auto& group:{m_sGroup1,m_sGroup2}) ControlObject::set(ConfigKey(group,"sync_enabled"),0);
++        ProcessBuffer();
++    }
++}
+diff --git a/src/test/rekordboxusbsession_test.cpp b/src/test/rekordboxusbsession_test.cpp
+index 15498a2..cf1a270 100644
+--- a/src/test/rekordboxusbsession_test.cpp
++++ b/src/test/rekordboxusbsession_test.cpp
+@@ -1096,15 +1096,53 @@ TEST_F(RekordboxUsbSessionAudioTest,
+     ++it;
+     const auto expectedSecond = std::round(
+             parsed.beats[1].timeMs * sampleRate.value() / 1000.0 - removedFrames);
+-    EXPECT_DOUBLE_EQ((*it).value(), expectedSecond);
++    EXPECT_NEAR((*it).value(), expectedSecond, sampleRate.value()*0.0011);
+     const auto projectedGridBpm =
+             beats->getBpmAroundPosition(*beats->cfirstmarker(), 1).value();
+     const auto expectedGridBpm =
+             sampleRate.value() * 60.0 / (expectedSecond - expectedFirst);
+-    EXPECT_NEAR(projectedGridBpm, expectedGridBpm, 0.001);
++    EXPECT_NEAR(projectedGridBpm, expectedGridBpm, 0.2);
+     EXPECT_NE(projectedGridBpm, *runtimeTrack->bpm); // PDB BPM remains separate.
+ }
+ 
++TEST_F(RekordboxUsbSessionAudioTest, QuantizedConstantTempoKeepsExactExportedBpmAndDynamicGridIsPreserved) {
++    for(const bool dynamic:{false,true}) {
++        QTemporaryDir volume;const auto owner=QStringLiteral("/Contents/test.wav");
++        auto row=track(1,owner.toUtf8());put32(&row,56,12200);
++        ASSERT_TRUE(write(pdb(volume),database({{0,row}})));
++        auto bytes=syntheticCueAnlz(owner);
++        QByteArray grid(24,'\0');grid.replace(0,4,"PQTZ");putAnlz32(&grid,4,24);putAnlz32(&grid,20,300);
++        for(int i=0;i<300;++i) {
++            const int tempo=dynamic && i>=150?12400:12200;
++            const auto time=quint32(std::round(250+i*6000000.0/12200+(dynamic && i>=150?(i-150)*(6000000.0/12400-6000000.0/12200):0)));
++            const int offset=grid.size();grid.append(QByteArray(8,'\0'));
++            putAnlz16(&grid,offset,1+i%4);putAnlz16(&grid,offset+2,tempo);putAnlz32(&grid,offset+4,time);
++        }
++        putAnlz32(&grid,8,grid.size());bytes.append(grid);putAnlz32(&bytes,8,bytes.size());
++        ASSERT_TRUE(write(volume.filePath("PIONEER/USBANLZ/test.DAT"),bytes));
++        ASSERT_TRUE(QDir().mkpath(volume.filePath("Contents")));
++        ASSERT_TRUE(QFile::copy(getTestDir().filePath("sine-30.wav"),volume.filePath("Contents/test.wav")));
++        RekordboxUsbSession session(volume.path());ASSERT_TRUE(session.load());
++        const auto runtime=session.catalog()->findTrack(1);ASSERT_TRUE(runtime);ASSERT_EQ(300,runtime->beats.size());
++        const auto projected=session.createTemporaryTrack(1);ASSERT_TRUE(projected);
++        SoundSourceProxy proxy(projected);const auto audio=proxy.openAudioSource();ASSERT_TRUE(audio);
++        const auto beats=projected->getBeats();ASSERT_TRUE(beats);
++        const double sampleRate=projected->getSampleRate().value();
++        if(!dynamic) {
++            EXPECT_DOUBLE_EQ(122,projected->getBpm());
++            for(int i=0;i<300;++i) {
++                const auto position=beats->findClosestBeat(mixxx::audio::FramePos(sampleRate*(0.25+i*60.0/122)));
++                EXPECT_NEAR(position.value(),sampleRate*(0.25+i*60.0/122),1);
++                EXPECT_DOUBLE_EQ(122,beats->getBpmAroundPosition(position,1).value());
++            }
++        } else {
++            int i=0;for(auto it=beats->cfirstmarker();i<runtime->beats.size();++it,++i)
++                EXPECT_NEAR((*it).value(),std::round(runtime->beats[i].timeMs*sampleRate/1000),1);
++            EXPECT_NEAR(124,beats->getBpmAroundPosition(mixxx::audio::FramePos(sampleRate*100),4).value(),0.1);
++        }
++    }
++}
++
+ TEST_F(RekordboxUsbSessionAudioTest,
+         SyntheticPco2CuesReachTemporaryTrackWithoutSqlPersistence) {
+     QTemporaryDir volume;
+@@ -1605,6 +1643,7 @@ TEST(RekordboxUsbSessionTest, RatingCommitChangesOneByteAndSurvivesReconnection)
+     const auto before=session.catalog()->findTrack(1);ASSERT_TRUE(before);
+     EXPECT_TRUE(session.writeRating(1,2).isEmpty());
+     EXPECT_EQ(2u,session.catalog()->findTrack(1)->rating);
++    EXPECT_EQ(inspectDevice(volume.path()).fingerprint,session.deviceSnapshot().fingerprint);
+     QFile edited(pdb(volume));ASSERT_TRUE(edited.open(QIODevice::ReadOnly));
+     const auto bytes=edited.readAll();edited.close();ASSERT_EQ(original.size(),bytes.size());
+     for(int i=0;i<bytes.size();++i) EXPECT_EQ(i==ratingOffset?char(2):original.at(i),bytes.at(i))<<i;
+diff --git a/src/test/rx3display_test.cpp b/src/test/rx3display_test.cpp
+index 5e8f5f0..d85e390 100644
+--- a/src/test/rx3display_test.cpp
++++ b/src/test/rx3display_test.cpp
+@@ -1,5 +1,6 @@
+ #include <gtest/gtest.h>
+ #include <QCoreApplication>
++#include <QtTest>
+ #include <QLabel>
+ #include <QPointer>
+ #include <QVBoxLayout>
+@@ -1086,14 +1087,14 @@ TEST_F(Rx3ReferenceScaleTest, ShortcutNeverCoversSharedBrowserFooterAfterLayoutO
+     const auto before=canvas.grab(footer.geometry().translated(browser.pos())).toImage();
+     WRx3Shortcut panel(config(),nullptr,&canvas);panel.setVisibleControl(true);
+     QCoreApplication::processEvents();
+-    EXPECT_EQ(footer.mapTo(&canvas,QPoint()).y(),panel.geometry().bottom()+1);
++    EXPECT_LE(panel.geometry().bottom()+1,footer.mapTo(&canvas,QPoint()).y()-2);
+     EXPECT_TRUE(before==canvas.grab(footer.geometry().translated(browser.pos())).toImage());
+     // A delayed browser layout and fullscreen scaling move the shared footer.
+     for(const auto size:{QSize(1280,800),QSize(1920,1200)}) {
+         canvas.resize(size);browser.setGeometry(0,48,size.width(),size.height()-48);
+         footer.setGeometry(8,size.height()-149,size.width()-16,101);
+         QCoreApplication::processEvents();
+-        EXPECT_EQ(footer.mapTo(&canvas,QPoint()).y(),panel.geometry().bottom()+1);
++        EXPECT_LE(panel.geometry().bottom()+1,footer.mapTo(&canvas,QPoint()).y()-2);
+         EXPECT_LE(panel.minimumSizeHint().height(),panel.height());
+         const auto covered=canvas.grab(footer.geometry().translated(browser.pos())).toImage();
+         panel.setVisibleControl(false);QCoreApplication::processEvents();
+@@ -1101,6 +1102,30 @@ TEST_F(Rx3ReferenceScaleTest, ShortcutNeverCoversSharedBrowserFooterAfterLayoutO
+         panel.setVisibleControl(true);QCoreApplication::processEvents();
+     }
+ }
++TEST_F(Rx3ReferenceScaleTest, ShortcutUsbBlockSeparatesSlotDeviceAndSettings) {
++    QTemporaryDir usb;
++    qApp->setProperty("rx3SettingsUsbRoot",usb.path());
++    qApp->setProperty("rx3SettingsUsbName","USB2");
++    qApp->setProperty("rx3SettingsUsbDeviceName","CDJ3K 64Flair");
++    QWidget canvas;canvas.resize(1280,800);canvas.show();
++    WRx3Shortcut panel(config(),nullptr,&canvas);panel.setVisibleControl(true);
++    QCoreApplication::processEvents();
++    auto* block=panel.findChild<QFrame*>("ShortcutUsbBlock");ASSERT_TRUE(block);
++    auto* slot=block->findChild<QLabel*>("ShortcutUsbSlot");ASSERT_TRUE(slot);
++    auto* name=block->findChild<QLabel*>("ShortcutUsbDeviceName");ASSERT_TRUE(name);
++    EXPECT_TRUE(slot->text().contains("USB2"));EXPECT_EQ("CDJ3K 64Flair",name->text());
++    EXPECT_LT(slot->mapTo(block,QPoint()).y(),name->mapTo(block,QPoint()).y());
++    const auto lines=block->findChildren<QWidget*>("ShortcutUsbSeparator");ASSERT_EQ(2,lines.size());
++    EXPECT_EQ(1,lines[0]->height());EXPECT_EQ(2,lines[1]->height());
++    for(auto* line:lines) {EXPECT_GT(line->x(),0);EXPECT_LT(line->geometry().right(),block->width()-1);}
++    auto* load=block->findChild<QPushButton*>("ShortcutSettingsLoad");ASSERT_TRUE(load);EXPECT_TRUE(load->isEnabled());
++    ControlObject playing(ConfigKey("[Channel1]","play"),false,false,false,1);
++    QTest::qWait(170);EXPECT_FALSE(load->isEnabled());
++    const auto output=qEnvironmentVariable("NAUTIC_RX3_RENDER_DIR");
++    if(!output.isEmpty()) EXPECT_TRUE(canvas.grab().save(QDir(output).filePath("shortcut-usb-card.png")));
++    qApp->setProperty("rx3SettingsUsbRoot",QString());
++    qApp->setProperty("rx3SettingsUsbDeviceName",QString());
++}
+ TEST_F(Rx3ReferenceScaleTest, UserInputSelectsDeckButEngineFeedbackDoesNot) {
+     ControlObject pitch1(ConfigKey("[Channel1]","rate"));
+     ControlObject pitch2(ConfigKey("[Channel2]","rate"));
+@@ -1543,3 +1568,34 @@ TEST_F(Rx3ReferenceScaleTest, WaveformColorButtonsPaintSamplesAndKeepSelectionCo
+         EXPECT_NE(QColor("#007CE0"),image.pixelColor(image.width()/2,image.height()/3));
+     }
+ }
++
++
++#include "widget/wrx3emergency.h"
++TEST_F(Rx3ReferenceScaleTest, EmergencyViewHidesOnlyLostDeckAndRestoresSharedFootersOnLoad) {
++    ControlObject lost1(ConfigKey("[Channel1]","rx3_source_lost"));ControlObject lost2(ConfigKey("[Channel2]","rx3_source_lost"));
++    ControlObject loop1(ConfigKey("[Channel1]","rx3_emergency_loop"));ControlObject loop2(ConfigKey("[Channel2]","rx3_emergency_loop"));
++    QWidget canvas;canvas.resize(1280,800);auto* root=new QVBoxLayout(&canvas);
++    auto* area=new QWidget(&canvas);area->setObjectName("RX3PerformanceArea");auto* waves=new QHBoxLayout(area);root->addWidget(area,1);
++    std::array<QLabel*,2> overview{},waveform{},title{};
++    for(int i=0;i<2;++i) {
++        auto* rail=new QWidget(area);rail->setProperty("rx3Deck",i+1);auto* column=new QVBoxLayout(rail);waves->addWidget(rail);
++        waveform[i]=new QLabel("Native waveform",rail);waveform[i]->setObjectName(QString("Waveform%1").arg(i+1));column->addWidget(waveform[i]);
++        auto* bars=new QLabel("09.3 Bars",rail);bars->setObjectName("WaveformInfo_Bars");column->addWidget(bars);
++        auto* footer=new QWidget(&canvas);footer->setProperty("rx3Deck",i+1);auto* row=new QHBoxLayout(footer);root->addWidget(footer);
++        title[i]=new QLabel("Loaded title",footer);title[i]->setObjectName("DeckTitle");row->addWidget(title[i]);
++        overview[i]=new QLabel("Loaded overview",footer);overview[i]->setObjectName("RX3LibraryDeckOverview");row->addWidget(overview[i]);
++    }
++    WRx3Emergency presentation(&canvas);canvas.show();QCoreApplication::processEvents();
++    lost1.set(1);loop1.set(1);QCoreApplication::processEvents();
++    EXPECT_FALSE(waveform[0]->isVisibleTo(&canvas));EXPECT_TRUE(waveform[1]->isVisibleTo(&canvas));
++    EXPECT_FALSE(title[0]->isVisibleTo(&canvas));EXPECT_FALSE(overview[0]->isVisibleTo(&canvas));
++    EXPECT_TRUE(overview[1]->isVisibleTo(&canvas));
++    auto* message=canvas.findChild<QLabel*>("RX3EmergencyMessage");ASSERT_TRUE(message);EXPECT_TRUE(message->isVisibleTo(&canvas));
++    lost2.set(1);loop2.set(1);QCoreApplication::processEvents();
++    EXPECT_FALSE(waveform[1]->isVisibleTo(&canvas));EXPECT_FALSE(overview[1]->isVisibleTo(&canvas));
++    const auto output=qEnvironmentVariable("NAUTIC_RX3_RENDER_DIR");
++    if(!output.isEmpty()) EXPECT_TRUE(canvas.grab().save(QDir(output).filePath("emergency-both-decks.png")));
++    lost1.set(0);loop1.set(0);lost2.set(0);loop2.set(0);QCoreApplication::processEvents();
++    EXPECT_TRUE(waveform[0]->isVisibleTo(&canvas));EXPECT_TRUE(title[0]->isVisibleTo(&canvas));
++    EXPECT_TRUE(overview[0]->isVisibleTo(&canvas));EXPECT_FALSE(message->isVisibleTo(&canvas));
++}
+diff --git a/src/track/sourcebinding.h b/src/track/sourcebinding.h
+index c735a01..1098389 100644
+--- a/src/track/sourcebinding.h
++++ b/src/track/sourcebinding.h
+@@ -63,6 +63,11 @@ class SourceBinding final {
+         return false;
+     }
+ 
++    std::shared_ptr<const rekordbox::SessionState> sessionState() const {
++        const auto state=m_sessionState.lock();
++        return state && state->identifier()==m_sessionIdentifier?state:nullptr;
++    }
++
+     bool isSessionLive() const {
+         if (m_sourceType != SourceType::RekordboxUsb || !isValid()) {
+             return false;
+diff --git a/src/util/dnd.cpp b/src/util/dnd.cpp
+index 2f98506..45ff6e6 100644
+--- a/src/util/dnd.cpp
++++ b/src/util/dnd.cpp
+@@ -75,6 +75,9 @@ bool allowLoadToPlayer(
+         return true;
+     }
+ 
++    // A new track is the recovery action for a disconnected USB deck.
++    if(ControlObject::get(ConfigKey(group,"rx3_source_lost"))>0) return true;
++
+     // Allow if deck is not playing
+     if (ControlObject::get(ConfigKey(group, "play")) <= 0.0) {
+         return true;
+diff --git a/src/widget/wrx3browser.h b/src/widget/wrx3browser.h
+index ef18115..5253f26 100644
+--- a/src/widget/wrx3browser.h
++++ b/src/widget/wrx3browser.h
+@@ -978,6 +978,7 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+             const auto root=deviceRoot(m_devices[row]);
+             qApp->setProperty("rx3SettingsUsbRoot",root);
+             qApp->setProperty("rx3SettingsUsbName",QString("USB%1").arg(m_usbSlots.value(root)));
++            qApp->setProperty("rx3SettingsUsbDeviceName",m_devices[row].data(Qt::DisplayRole).toString());
+         } else qApp->setProperty("rx3SettingsUsbRoot",QString());
+         if(m_refreshingSources) return;
+         QString songs,playlists,total,available,date;
+@@ -1012,6 +1013,7 @@ class WRx3Browser : public QWidget, public WBaseWidget {
+         m_currentRoot=deviceRoot(m_selectedDevice);
+         qApp->setProperty("rx3SettingsUsbRoot",m_currentRoot);
+         qApp->setProperty("rx3SettingsUsbName",QString("USB%1").arg(m_usbSlots.value(m_currentRoot)));
++        qApp->setProperty("rx3SettingsUsbDeviceName",m_selectedDevice.data(Qt::DisplayRole).toString());
+         m_pages->setCurrentIndex(0);
+         m_source->setText(QString("▣ USB%1").arg(m_usbSlots.value(m_currentRoot)));m_facets->hide();m_sidebar->hide();
+         m_preview->hide();m_trackInfo->hide();m_loading->hide();m_library->hide();
+diff --git a/src/widget/wrx3emergency.h b/src/widget/wrx3emergency.h
+new file mode 100644
+index 0000000..2afb80e
+--- /dev/null
++++ b/src/widget/wrx3emergency.h
+@@ -0,0 +1,85 @@
++#pragma once
++
++#include <QLabel>
++#include <QPointer>
++#include <QStackedLayout>
++#include <QTimer>
++#include <array>
++#include <vector>
++#include "control/controlproxy.h"
++
++// Retain the loaded track and source/time/BPM fields while hiding inaccessible
++// title, grid and waveform surfaces. The same live footer serves every page.
++class WRx3Emergency : public QObject {
++  public:
++    explicit WRx3Emergency(QWidget* canvas):QObject(canvas),m_canvas(canvas) {
++        for(int deck=1;deck<=2;++deck) {
++            const auto group=QString("[Channel%1]").arg(deck);
++            m_lost[deck-1]=new ControlProxy(group,"rx3_source_lost",this,ControlFlag::NoAssertIfMissing);
++            m_loop[deck-1]=new ControlProxy(group,"rx3_emergency_loop",this,ControlFlag::NoAssertIfMissing);
++            m_lost[deck-1]->connectValueChanged(this,[this](double){refresh();});
++            m_loop[deck-1]->connectValueChanged(this,[this](double){refresh();});
++            wrap(canvas->findChild<QWidget*>(QString("Waveform%1").arg(deck)),deck-1,QString());
++        }
++        for(auto* widget:canvas->findChildren<QWidget*>()) {
++            const auto name=widget->objectName();
++            if(name!="DeckOverview" && name!="RX3LibraryDeckOverview" &&
++                    name!="DeckTitle" && name!="WaveformInfo_Key" && name!="WaveformInfo_Bars") continue;
++            int deck=0;
++            for(auto* owner=widget;owner && !deck;owner=owner->parentWidget()) deck=owner->property("rx3Deck").toInt();
++            if(deck<1 || deck>2) continue;
++            wrap(widget,deck-1,name.endsWith("Overview")?"EMERGENCY LOOP":
++                    name=="WaveformInfo_Bars"?"--.- Bars":QString());
++        }
++        auto* area=canvas->findChild<QWidget*>("RX3PerformanceArea");
++        if(area) {
++            auto* stack=qobject_cast<QStackedLayout*>(area->layout());
++            auto* parent=stack && stack->count()?stack->widget(0):area;
++            m_message=new QLabel("Cannot play track.\nSome player functions limited.",parent);
++            m_message->setObjectName("RX3EmergencyMessage");m_message->setAlignment(Qt::AlignCenter);
++            m_message->setStyleSheet("background:black;color:white;border:1px solid white;font-family:Arial;font-size:14px;");
++            m_message->hide();
++        }
++        auto* timer=new QTimer(this);timer->setInterval(100);
++        connect(timer,&QTimer::timeout,this,[this]{refresh();});timer->start();refresh();
++    }
++  private:
++    struct Mask {QStackedLayout* stack;QLabel* label;QString text;};
++    void wrap(QWidget* original,int deck,const QString& text) {
++        if(!original || !original->parentWidget() || !original->parentWidget()->layout()) return;
++        auto* parent=original->parentWidget();auto* replacement=new QWidget(parent);
++        replacement->setObjectName(original->objectName()+"EmergencyMask");
++        replacement->setSizePolicy(original->sizePolicy());
++        replacement->setMinimumSize(original->minimumSize());replacement->setMaximumSize(original->maximumSize());
++        replacement->setProperty("rx3DeckSelect",original->property("rx3DeckSelect"));
++        auto* item=parent->layout()->replaceWidget(original,replacement);
++        if(!item) {delete replacement;return;}delete item;
++        auto* stack=new QStackedLayout(replacement);stack->setContentsMargins(0,0,0,0);
++        stack->addWidget(original);
++        auto* label=new QLabel(text,replacement);label->setAlignment(Qt::AlignCenter);
++        label->setStyleSheet("background:black;color:"+QString(text=="EMERGENCY LOOP"?"#ff4000":"#ddd")+";font-family:Arial;font-size:14px;border:0;");
++        stack->addWidget(label);stack->setCurrentIndex(0);
++        m_masks[deck].push_back({stack,label,text});
++    }
++    void refresh() {
++        bool any=false;
++        for(int i=0;i<2;++i) {
++            const bool lost=m_lost[i]->get()>0;any|=lost;
++            for(const auto& mask:m_masks[i]) {
++                if(mask.text=="EMERGENCY LOOP") mask.label->setText(m_loop[i]->get()>0?mask.text:"Cannot play track.");
++                mask.stack->setCurrentIndex(lost?1:0);
++            }
++        }
++        if(m_message) {
++            auto* parent=m_message->parentWidget();
++            const double scale=m_canvas->height()/800.0;
++            const QSize size(qRound(320*scale),qRound(74*scale));
++            m_message->setGeometry((parent->width()-size.width())/2,(parent->height()-size.height())/2,size.width(),size.height());
++            m_message->setVisible(any);if(any) m_message->raise();
++        }
++    }
++    QWidget* m_canvas;
++    std::array<ControlProxy*,2> m_lost{},m_loop{};
++    std::array<std::vector<Mask>,2> m_masks;
++    QPointer<QLabel> m_message;
++};
+diff --git a/src/widget/wrx3shortcut.h b/src/widget/wrx3shortcut.h
+index 6b66691..ff218f9 100644
+--- a/src/widget/wrx3shortcut.h
++++ b/src/widget/wrx3shortcut.h
+@@ -102,6 +102,7 @@ class WRx3Shortcut : public QFrame {
+                 "#RX3Shortcut QPushButton:disabled {color:#999;border-color:#888;} "
+                 "#RX3Shortcut QLabel#ShortcutStatus {font-size:12px;color:#ddd;}");
+         auto* layout=new QVBoxLayout(this);layout->setContentsMargins(20,12,20,12);layout->setSpacing(9);
++        layout->setSizeConstraint(QLayout::SetNoConstraint);
+         auto* titleRow=new QHBoxLayout;
+         auto* title=new QLabel("SHORTCUT",this);title->setStyleSheet("font-size:20px;font-weight:bold;");
+         titleRow->addWidget(title);titleRow->addStretch();
+@@ -140,13 +141,32 @@ class WRx3Shortcut : public QFrame {
+             add(column,"STOP TIME",QString("vinyl_stop%1").arg(deck),{"1","2","3","4","5"},{1,2,3,4,5},3,true);
+         }
+         left->addStretch(1);
+-        m_source=new QLabel("SOURCE — SELECT USB",this);m_source->setFixedHeight(76);m_source->setStyleSheet("background:#202020;border:0;border-top:2px solid #00839E;padding:12px;font-size:16px;");right->addWidget(m_source);
+-        auto* sourceRow=new QHBoxLayout;right->addLayout(sourceRow);
++        auto* usb=new QFrame(this);usb->setObjectName("ShortcutUsbBlock");
++        usb->setAttribute(Qt::WA_StyledBackground);
++        usb->setStyleSheet("#ShortcutUsbBlock {background:#202020;border:0;border-top:2px solid #00839E;}");
++        right->addWidget(usb);
++        auto* usbColumn=new QVBoxLayout(usb);usbColumn->setContentsMargins(0,2,0,0);usbColumn->setSpacing(0);
++        m_source=new QLabel("SOURCE — SELECT USB",usb);m_source->setObjectName("ShortcutUsbSlot");
++        m_source->setFixedHeight(36);m_source->setContentsMargins(14,0,14,0);usbColumn->addWidget(m_source);
++        auto separator=[usbColumn,usb](int height) {
++            auto* row=new QHBoxLayout;row->setContentsMargins(12,0,12,0);
++            auto* line=new QWidget(usb);line->setObjectName("ShortcutUsbSeparator");
++            line->setFixedHeight(height);line->setStyleSheet("background:#000000;");
++            row->addWidget(line);usbColumn->addLayout(row);
++        };
++        separator(1);
++        m_deviceName=new QLabel(usb);m_deviceName->setObjectName("ShortcutUsbDeviceName");
++        m_deviceName->setFixedHeight(32);m_deviceName->setContentsMargins(14,0,14,0);usbColumn->addWidget(m_deviceName);
++        separator(2);
++        auto* sourceRow=new QHBoxLayout;sourceRow->setContentsMargins(0,0,0,0);sourceRow->setSpacing(0);usbColumn->addLayout(sourceRow);
+         add(sourceRow,"WAVEFORM COLOR","waveform_color",{"BLUE","RGB","3BAND"},{0,1,2},2);
+-        auto* loadFrame=new QFrame(this);loadFrame->setObjectName("ShortcutRow_usb_load");
++        m_rows.back().frame->setFixedHeight(74);
++        m_rows.back().frame->layout()->setContentsMargins(8,6,8,6);
++        auto* loadFrame=new QFrame(usb);loadFrame->setObjectName("ShortcutRow_usb_load");
++        loadFrame->setStyleSheet("#ShortcutRow_usb_load {background:#191919;}");
+         loadFrame->setAttribute(Qt::WA_StyledBackground);loadFrame->setProperty("encoderFocus",false);
+-        loadFrame->setFixedHeight(60);sourceRow->addWidget(loadFrame);
+-        auto* loadColumn=new QVBoxLayout(loadFrame);loadColumn->setContentsMargins(2,2,2,2);loadColumn->setSpacing(2);
++        loadFrame->setFixedHeight(74);sourceRow->addWidget(loadFrame);
++        auto* loadColumn=new QVBoxLayout(loadFrame);loadColumn->setContentsMargins(10,6,6,6);loadColumn->setSpacing(2);
+         auto* loadCaption=new QLabel("MY SETTINGS",loadFrame);loadCaption->setFixedHeight(16);loadColumn->addWidget(loadCaption);
+         m_load=new QPushButton("LOAD",loadFrame);m_load->setFixedHeight(36);m_load->setObjectName("ShortcutSettingsLoad");
+         loadColumn->addWidget(m_load);
+@@ -437,17 +457,19 @@ class WRx3Shortcut : public QFrame {
+         const double scale=canvas->height()/800.0;
+         const int top=qRound(48*scale);
+         int bottom=canvas->height()-qRound(94*scale);
+-        // Use the same live footer as SOURCE/BROWSE, including its margins.
++        // Leave a small clear rail above the same live SOURCE/BROWSE footer.
++        // The panel must not paint over its deck captions, marks or top borders.
+         // The layout settles after selecting the browser page and after scaling.
+         if(m_footer && m_footer->isVisibleTo(canvas)) {
+             const int footerTop=m_footer->mapTo(canvas,QPoint(0,0)).y();
+-            if(footerTop>top) bottom=footerTop;
++            if(footerTop>top) bottom=footerTop-qMax(2,qRound(8*scale));
+         }
+         setGeometry(0,top,canvas->width(),qMax(1,bottom-top));
+     }
+     void refresh() {
+         const auto root=qApp->property("rx3SettingsUsbRoot").toString();
+-        m_source->setText(root.isEmpty()?"SOURCE — SELECT USB":qApp->property("rx3SettingsUsbName").toString());
++        m_source->setText(root.isEmpty()?"SOURCE — SELECT USB":QString("▣  %1").arg(qApp->property("rx3SettingsUsbName").toString()));
++        m_deviceName->setText(root.isEmpty()?QString():qApp->property("rx3SettingsUsbDeviceName").toString());
+         bool playing=false;for(int deck=1;deck<=2;++deck) playing|=ControlObject::get(ConfigKey(QString("[Channel%1]").arg(deck),"play"))>0;
+         m_load->setEnabled(!root.isEmpty() && QDir(root).exists() && !playing);
+         for(int i=0;i<int(m_rows.size());++i) {
+@@ -468,5 +490,5 @@ class WRx3Shortcut : public QFrame {
+     std::vector<std::unique_ptr<ControlObject>> m_owners;
+     std::vector<Row> m_rows;int m_focused=0;bool m_editing=false;
+     bool m_presenting=false;double m_previousTab=0;
+-    QLabel* m_source=nullptr;QLabel* m_status=nullptr;QPushButton* m_load=nullptr;QPushButton* m_details=nullptr;
++    QLabel* m_source=nullptr;QLabel* m_deviceName=nullptr;QLabel* m_status=nullptr;QPushButton* m_load=nullptr;QPushButton* m_details=nullptr;
+ };
+diff --git a/src/widget/wtrackmenu.cpp b/src/widget/wtrackmenu.cpp
+index 2da6287..4206c33 100644
+--- a/src/widget/wtrackmenu.cpp
++++ b/src/widget/wtrackmenu.cpp
+@@ -940,7 +940,8 @@ void WTrackMenu::updateMenus() {
+                 // PlayerManager::groupForDeck is 0-indexed.
+                 QString deckGroup = PlayerManager::groupForDeck(i - 1);
+                 bool deckPlaying = ControlObject::get(
+-                                           ConfigKey(deckGroup, "play")) > 0.0;
++                                           ConfigKey(deckGroup, "play")) > 0.0 &&
++                        ControlObject::get(ConfigKey(deckGroup,"rx3_source_lost"))<=0.0;
+                 bool allowLoadTrackIntoPlayingDeck = false;
+                 if (m_pConfig->exists(kConfigKeyLoadWhenDeckPlaying)) {
+                     int loadWhenDeckPlaying =
+diff --git a/src/widget/wtracktableview.cpp b/src/widget/wtracktableview.cpp
+index 3744209..0bdb5f6 100644
+--- a/src/widget/wtracktableview.cpp
++++ b/src/widget/wtracktableview.cpp
+@@ -1759,7 +1759,8 @@ void WTrackTableView::loadSelectedTrackToGroup(const QString& group, bool play)
+     // Always load to preview deck.
+     if (!allowLoadTrackIntoPlayingDeck &&
+             !PlayerManager::isPreviewDeckGroup(group) &&
+-            ControlObject::get(ConfigKey(group, "play")) > 0.0) {
++            ControlObject::get(ConfigKey(group, "play")) > 0.0 &&
++            ControlObject::get(ConfigKey(group, "rx3_source_lost")) <= 0.0) {
+         return;
+     }
+     auto index = indices.at(0);

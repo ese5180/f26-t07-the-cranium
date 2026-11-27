@@ -1,0 +1,37 @@
+name: CRANIUM Mix host checks
+
+on:
+  pull_request:
+    paths:
+      - 'pi/cranium-mix/**'
+      - '.github/workflows/cranium-mix.yml'
+  push:
+    branches: [main, 'feature/**']
+    paths:
+      - 'pi/cranium-mix/**'
+      - '.github/workflows/cranium-mix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cranium-mix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+        working-directory: pi/cranium-mix
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - name: Controller, Pi helper, package and source-layout checks
+        run: bash tools/test.sh

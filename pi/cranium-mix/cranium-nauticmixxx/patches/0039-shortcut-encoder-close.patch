@@ -1,0 +1,71 @@
+diff --git a/src/widget/wrx3shortcut.h b/src/widget/wrx3shortcut.h
+--- a/src/widget/wrx3shortcut.h
++++ b/src/widget/wrx3shortcut.h
+@@ -112,8 +112,12 @@
+         auto* titleRow=new QHBoxLayout;
+         auto* title=new QLabel("SHORTCUT",this);title->setStyleSheet("font-size:20px;font-weight:bold;");
+         titleRow->addWidget(title);titleRow->addStretch();
+-        auto* close=new QPushButton("CLOSE",this);close->setObjectName("ShortcutClose");
+-        connect(close,&QPushButton::clicked,this,[this]{setVisibleControl(false);});titleRow->addWidget(close);
++        auto* closeFrame=new QFrame(this);closeFrame->setObjectName("ShortcutRow_close");
++        closeFrame->setAttribute(Qt::WA_StyledBackground);closeFrame->setFixedHeight(30);
++        auto* closeLayout=new QVBoxLayout(closeFrame);closeLayout->setContentsMargins(0,0,0,0);
++        auto* close=new QPushButton("CLOSE",closeFrame);close->setObjectName("ShortcutClose");
++        closeLayout->addWidget(close);
++        connect(close,&QPushButton::clicked,this,[this]{setVisibleControl(false);});titleRow->addWidget(closeFrame);
+         layout->addLayout(titleRow);
+         auto* columns=new QHBoxLayout;columns->setSpacing(24);layout->addLayout(columns,1);
+         auto* left=new QVBoxLayout;auto* right=new QVBoxLayout;left->setSpacing(4);right->setSpacing(12);
+@@ -187,6 +191,7 @@
+         auto* tools=new QPushButton("TOOLS",toolsFrame);
+         toolsLayout->addWidget(tools);toolsFrame->setFixedHeight(30);titleRow->insertWidget(titleRow->count()-1,toolsFrame);connect(tools,&QPushButton::clicked,this,[this]{openTools();});
+         Row toolsRow;toolsRow.key="browser_tools";toolsRow.frame=toolsFrame;toolsRow.buttons={tools};m_rows.push_back(toolsRow);
++        Row closeRow;closeRow.key="close";closeRow.frame=closeFrame;closeRow.buttons={close};m_rows.push_back(closeRow);
+         section(right,"MIXER SETTING");
+         auto* mixerTop=new QHBoxLayout;right->addLayout(mixerTop);
+         add(mixerTop,"EQ / ISO","eq_mode",{"EQ","ISO"},{0,1},0);
+@@ -266,6 +271,7 @@
+     }
+     void enter() {
+         if(m_rows[m_focused].key=="browser_tools") {openTools();return;}
++        if(m_rows[m_focused].key=="close") {setVisibleControl(false);return;}
+         if(m_rows[m_focused].key=="usb_save") {saveSettings();return;}
+         if(m_rows[m_focused].key=="usb_load") {loadSettings();return;}
+         m_editing=!m_editing;refresh();
+diff --git a/src/test/rx3display_test.cpp b/src/test/rx3display_test.cpp
+--- a/src/test/rx3display_test.cpp
++++ b/src/test/rx3display_test.cpp
+@@ -1536,6 +1536,33 @@
+     panel.setVisibleControl(true);EXPECT_EQ(1,page.get());panel.setVisibleControl(false);EXPECT_EQ(0,page.get());
+     page.set(1);panel.setVisibleControl(true);panel.setVisibleControl(false);EXPECT_EQ(1,page.get());
+ }
++TEST_F(Rx3ReferenceScaleTest, ShortcutEncoderCanReachCloseAfterToolsAndRestorePreviousPage) {
++    ControlObject page(ConfigKey("[Tab]","current"),false,false,false,0);
++    ControlObject masterTempo(ConfigKey("[Channel1]","keylock"),false,false,false,1);
++    QWidget canvas;canvas.resize(1280,800);canvas.show();
++    WRx3Shortcut panel(config(),nullptr,&canvas);
++    auto* closeRow=panel.findChild<QFrame*>("ShortcutRow_close");ASSERT_TRUE(closeRow);
++    const auto pulse=[](const QString& key,double value) {
++        ControlObject::set(ConfigKey("[RX3Shortcut]",key),value);
++        ControlObject::set(ConfigKey("[RX3Shortcut]",key),0);
++    };
++    for(const double previousPage:{0.0,1.0}) {
++        page.set(previousPage);
++        pulse("open",1);
++        ASSERT_TRUE(panel.isVisible());EXPECT_EQ(1,page.get());
++        // MY SETTINGS LOAD is followed by TOOLS, then CLOSE.
++        pulse("move",1);
++        EXPECT_FALSE(closeRow->property("encoderFocus").toBool());
++        pulse("move",1);
++        ASSERT_TRUE(closeRow->property("encoderFocus").toBool());
++        pulse("move",-1);EXPECT_FALSE(closeRow->property("encoderFocus").toBool());
++        pulse("move",1);ASSERT_TRUE(closeRow->property("encoderFocus").toBool());
++        pulse("enter",1);
++        EXPECT_FALSE(panel.isVisible());
++        EXPECT_EQ(0,ControlObject::get(ConfigKey("[RX3Shortcut]","visible")));
++        EXPECT_EQ(previousPage,page.get());EXPECT_EQ(1,masterTempo.get());
++    }
++}
+ TEST(Rx3Overview, RemainAndTimeShadeOppositeRegionsAndAxisMatches) {
+     for(const bool remaining:{false,true}) {
+         QImage image(200,60,QImage::Format_ARGB32);image.fill(Qt::white);QPainter painter(&image);

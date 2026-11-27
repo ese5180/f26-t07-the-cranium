@@ -1,0 +1,1415 @@
+diff --git a/src/widget/wrx3beatfx.h b/src/widget/wrx3beatfx.h
+--- a/src/widget/wrx3beatfx.h
++++ b/src/widget/wrx3beatfx.h
+@@ -13,6 +13,9 @@
+ #include <QSlider>
+ #include <QStyle>
+ #include <QTouchEvent>
++#include <QTimer>
++#include <memory>
++#include <limits>
+ #include <QVBoxLayout>
+ #include <array>
+ #include <cmath>
+@@ -188,6 +191,35 @@
+     int m_currentCell = -1;
+ };
+ 
++class WRx3BankButton : public QPushButton {
++  public:
++    std::function<void()> edit;
++    explicit WRx3BankButton(QWidget* parent) : QPushButton(parent) {
++        m_hold.setSingleShot(true);
++        connect(&m_hold, &QTimer::timeout, this, [this] {
++            if (!isDown()) return;
++            m_consumed = true;
++            setDown(false);
++            if (edit) edit();
++        });
++    }
++  protected:
++    void mousePressEvent(QMouseEvent* event) override {
++        m_consumed = false;
++        QPushButton::mousePressEvent(event);
++        if (event->button() == Qt::LeftButton) m_hold.start(650);
++    }
++    void mouseReleaseEvent(QMouseEvent* event) override {
++        m_hold.stop();
++        if (m_consumed) {m_consumed = false; setDown(false); event->accept(); return;}
++        QPushButton::mouseReleaseEvent(event);
++    }
++    void hideEvent(QHideEvent* event) override {m_hold.stop(); setDown(false); QPushButton::hideEvent(event);}
++  private:
++    QTimer m_hold;
++    bool m_consumed = false;
++};
++
+ class WRx3BeatFx : public QWidget {
+   public:
+     WRx3BeatFx(UserSettingsPointer config, EffectsManager* effects, QWidget* parent)
+@@ -204,7 +236,8 @@
+         bank->addLayout(bankRow);
+         for (int index = 0; index < 4; ++index) {
+             m_ids[index] = m_config->getValueString(bankKey(index));
+-            auto* button = new QPushButton(this);
++            auto* button = new WRx3BankButton(this);
++            button->edit = [this, index] { chooseEffect(index); };
+             button->setObjectName(QString("RX3BankSlot%1").arg(index + 1));
+             button->setProperty("rx3Bank", true);
+             button->setMinimumWidth(0);
+@@ -240,6 +273,7 @@
+                                     EffectKnobParameterSlot::formatItemPrefix(knob->slotNumber())), 1);
+                     }
+             }
++            rx3SetFxParameter(m_slot, "rx3_exact_time", 1);
+             // Discrete cells specify real processor values, not slider positions.
+             ControlObject::set(ConfigKey(m_slot->getGroup(),
+                     EffectKnobParameterSlot::formatItemPrefix(m_parameter->slotNumber())), value);
+@@ -250,7 +284,8 @@
+         connect(m_pad, &QSlider::sliderPressed, this, [this] {
+             if (!m_slot || !m_slot->isLoaded()) return;
+             m_touching = true;
+-            m_slot->setEnabled(true);
++            if(ControlObject::exists(ConfigKey("[RX3BeatFx]","xpad_hold"))) ControlObject::set(ConfigKey("[RX3BeatFx]","xpad_hold"),1);
++            rx3SetBeatFxEnabled(m_slot, true);
+             ControlObject::set(ConfigKey(unitGroup(), "enabled"), 1);
+         });
+         connect(m_pad, &QSlider::sliderReleased, this, [this] { releasePad(); });
+@@ -272,6 +307,30 @@
+         auto* meta = new ControlProxy("[EffectRack1_EffectUnit1_Effect1]", "meta", this,
+                 ControlFlag::NoAssertIfMissing);
+         meta->connectValueChanged(this, [this] { refresh(); });
++        ensureControl("bpm", 0, [](double){});
++        ensureControl("amount", m_config->getValue(ConfigKey("[RX3BeatFx]", "amount"), 0.5), [this](double value) {setAmount(value);});
++        ensureControl("select", 0, [this](double value) {
++            if (!m_effects) return;
++            const auto list = rx3BeatFxManifests(m_effects->getBackendManager());
++            const int index = qRound(value) - 1;
++            if (index >= 0 && index < list.size()) selectEffect(list[index], false);
++        });
++        ensureControl("bank_recall", 0, [this](double value) {if (value >= 1 && value <= 4) useBank(qRound(value) - 1);});
++        ensureControl("bank_store", 0, [this](double value) {if (value >= 1 && value <= 4 && m_slot && m_slot->isLoaded()) registerBank(qRound(value) - 1, m_slot->getManifest());});
++        ensureControl("bank_clear", 0, [this](double value) {if (value >= 1 && value <= 4) clearBank(qRound(value) - 1);});
++        ensureControl("xpad_position", 0.5, [this](double value) {positionPad(value);});
++        ensureControl("xpad_hold", 0, [this](double value) {
++            m_pad->setSliderDown(value > 0 && m_slot && m_slot->isLoaded() && m_pad->isEnabled());
++        });
++        for(const auto& key:QList<ConfigKey>{ConfigKey("[RX3BeatFx]","bpm_mode"),ConfigKey("[RX3BeatFx]","bpm_manual"),ConfigKey("[Channel1]","visual_bpm"),ConfigKey("[Channel2]","visual_bpm"),ConfigKey(unitGroup(),"group_[Master]_enable"),ConfigKey(unitGroup(),"group_[Channel1]_enable"),ConfigKey(unitGroup(),"group_[Channel2]_enable")}) {
++            auto* proxy=new ControlProxy(key.group,key.item,this,ControlFlag::NoAssertIfMissing);
++            proxy->connectValueChanged(this,[this]{refresh();});
++        }
++        if(m_slot && m_slot->isLoaded() && m_config->getValue(ConfigKey("[RX3BeatFx]","controls_version"),0)<1 &&
++                ControlObject::get(ConfigKey(unitGroup(),"enabled"))<=0)
++            rx3PrepareBeatFx(m_slot,m_slot->getManifest());
++        m_config->setValue(ConfigKey("[RX3BeatFx]","controls_version"),1);
++        setAmount(amount());
+         bindParameter();
+     }
+     ~WRx3BeatFx() override {
+@@ -287,6 +346,94 @@
+                     if (parameter->manifest()->id() == id) return parameter;
+         return {};
+     }
++    void selectEffect(const EffectManifestPointer& manifest, bool activate) {
++        if (!m_slot || !isRx3BeatFx(manifest)) return;
++        m_pad->setSliderDown(false);
++        if (!m_slot->getManifest() || m_slot->getManifest()->uniqueId() != manifest->uniqueId())
++            rx3LoadBeatFx(m_slot, manifest);
++        if (activate) {rx3SetBeatFxEnabled(m_slot, true); ControlObject::set(ConfigKey(unitGroup(), "enabled"), 1);}
++        refresh();
++    }
++    void registerBank(int index, const EffectManifestPointer& manifest) {
++        if (index < 0 || index >= 4 || !isRx3BeatFx(manifest)) return;
++        m_ids[index] = manifest->uniqueId();
++        m_config->setValue(bankKey(index), m_ids[index]); m_config->save(); refresh();
++    }
++    void clearBank(int index) {
++        if (index < 0 || index >= 4) return;
++        m_ids[index].clear(); m_config->setValue(bankKey(index), QString()); m_config->save(); refresh();
++    }
++    double amount() const {return m_config->getValue(ConfigKey("[RX3BeatFx]", "amount"), 0.5);}
++    void setAmount(double value) {
++        value = qBound(0.0, value, 1.0);
++        m_config->setValue(ConfigKey("[RX3BeatFx]", "amount"), value);
++        if(ControlObject::exists(ConfigKey("[RX3BeatFx]","amount"))) ControlObject::set(ConfigKey("[RX3BeatFx]","amount"),value);
++        ControlObject::set(ConfigKey(unitGroup(), "mix"), value);
++        refresh();
++    }
++    bool positionPad(double value) {
++        if (!m_slot || !m_slot->isLoaded() || !m_pad->isEnabled()) return false;
++        value = qBound(0.0, value, 1.0);
++        if (m_pad->presentation() == WRx3XPad::Layout::Continuous) changeParameter(qRound(value * 1000));
++        else if (!m_pad->cells().isEmpty()) {
++            const auto cells = m_pad->cells();
++            const int index = qMin(int(cells.size()) - 1, int(value * cells.size()));
++            if (!cells[index].enabled || !m_pad->activateCell) return false;
++            m_pad->activateCell(cells[index].target);
++        }
++        return true;
++    }
++    QString padValueText() const {return m_padValueText;}
++    void stepPad(int delta) {
++        if (!m_slot || !m_slot->isLoaded() || !m_pad->isEnabled() || !delta) return;
++        const auto cells=m_pad->cells();
++        double position=m_pad->value()/1000.0;
++        if (cells.isEmpty()) position=qBound(0.0,position+delta*0.025,1.0);
++        else {
++            const auto parameter=m_parameter ? parameterForId(m_slot,m_parameter->getManifest()->id()) : EffectParameterPointer();
++            if (!parameter) return;
++            int current=-1;double distance=std::numeric_limits<double>::max();
++            for(int i=0;i<cells.size();++i) if(cells[i].enabled && std::abs(cells[i].target-parameter->getValue())<distance) {
++                distance=std::abs(cells[i].target-parameter->getValue());current=i;
++            }
++            if (current<0) return;
++            const int direction=delta>0?1:-1;
++            for(int tick=0;tick<qMin(qAbs(delta),int(cells.size()));++tick) {
++                int next=current+direction;
++                while(next>=0 && next<cells.size() && !cells[next].enabled) next+=direction;
++                if(next<0 || next>=cells.size()) break;
++                current=next;
++            }
++            position=(current+0.5)/cells.size();
++        }
++        ControlObject::set(ConfigKey("[RX3BeatFx]","xpad_position"),position);
++    }
++    void recallBank(int index) {if (index >= 0 && index < 4) useBank(index);}
++    void editBank(int index) {if (index >= 0 && index < 4 && m_slot) chooseEffect(index);}
++    void setActive(bool active) {
++        if (!m_slot || !m_slot->isLoaded()) return;
++        rx3SetBeatFxEnabled(m_slot, active); ControlObject::set(ConfigKey(unitGroup(), "enabled"), active ? 1 : 0);
++    }
++    double effectBpm() const {
++        if(ControlObject::exists(ConfigKey("[RX3BeatFx]","bpm_mode")) && ControlObject::get(ConfigKey("[RX3BeatFx]","bpm_mode"))>0)
++            return qBound(40.0, ControlObject::get(ConfigKey("[RX3BeatFx]","bpm_manual")), 300.0);
++        int routedDeck=0;
++        for(int deck=1;deck<=2;++deck) {
++            const auto key=ConfigKey(unitGroup(),QString("group_[Channel%1]_enable").arg(deck));
++            if(ControlObject::exists(key) && ControlObject::get(key)>0) {
++                if(routedDeck) return displayBpm();
++                routedDeck=deck;
++            }
++        }
++        if(routedDeck && ControlObject::exists(ConfigKey(QString("[Channel%1]").arg(routedDeck),"visual_bpm")))
++            return ControlObject::get(ConfigKey(QString("[Channel%1]").arg(routedDeck),"visual_bpm"));
++        return displayBpm();
++    }
++    double displayBpm() const {
++        const ConfigKey key("[RX3Display]", "master_bpm");
++        return ControlObject::exists(key) ? ControlObject::get(key) : 0;
++    }
++    EffectsManager* effectsManager() const {return m_effects;}
+     QString bankId(int index) const { return m_ids.at(index); }
+     QString parameterId() const { return m_parameter ? m_parameter->getManifest()->id() : QString(); }
+   protected:
+@@ -297,6 +444,13 @@
+         QWidget::hideEvent(event);
+     }
+   private:
++    void ensureControl(const QString& key, double initial, std::function<void(double)> callback) {
++        const ConfigKey configKey("[RX3BeatFx]", key);
++        if (!ControlObject::exists(configKey)) m_controls.push_back(std::make_unique<ControlObject>(configKey, true, false, false, initial));
++        auto* proxy = new ControlProxy(configKey.group, configKey.item, this);
++        proxy->connectValueChanged(this, std::move(callback));
++    }
++    std::vector<std::unique_ptr<ControlObject>> m_controls;
+     using Units = EffectManifestParameter::UnitsHint;
+     static ConfigKey bankKey(int index) {
+         return ConfigKey("[RX3BeatFxBank]", QString("slot%1").arg(index + 1));
+@@ -311,6 +465,7 @@
+     void releasePad() {
+         if (!m_touching) return;
+         m_touching = false;
++        if(ControlObject::exists(ConfigKey("[RX3BeatFx]","xpad_hold"))) ControlObject::set(ConfigKey("[RX3BeatFx]","xpad_hold"),0);
+         ControlObject::set(ConfigKey(unitGroup(), "enabled"), 0);
+     }
+     void chooseEffect(int index) {
+@@ -330,8 +485,7 @@
+                 const auto selected = m_effects->getBackendManager()->getManifestFromUniqueId(id);
+                 if (!isRx3BeatFx(selected)) return;
+                 if (!m_slot->getManifest() || m_slot->getManifest()->uniqueId() != id) {
+-                    m_slot->loadEffectWithDefaults(selected);
+-                    m_slot->setEnabled(false);
++                    rx3LoadBeatFx(m_slot, selected);
+                 }
+                 m_ids[index] = id;
+                 m_config->setValue(bankKey(index), id);
+@@ -361,8 +515,8 @@
+             // explicit choice; keep unavailable registrations recoverable.
+             if (!isRx3BeatFx(manifest)) { chooseEffect(index); return; }
+             if (!m_slot->getManifest() || m_slot->getManifest()->uniqueId() != m_ids[index])
+-                m_slot->loadEffectWithDefaults(manifest);
+-            m_slot->setEnabled(true);
++                rx3LoadBeatFx(m_slot, manifest);
++            rx3SetBeatFxEnabled(m_slot, true);
+             ControlObject::set(ConfigKey(unitGroup(), "enabled"), 1);
+         }
+         refresh();
+@@ -377,7 +531,7 @@
+             // Contextual controls for available Mixxx processors. Other effects
+             // use their beat/time/pitch/frequency control or first exposed knob.
+             QString preferred;
+-            if (effect.endsWith(".reverb")) preferred = "bandwidth";
++            if (effect.endsWith(".reverb")) preferred = "decay";
+             else if (effect.endsWith(".flanger")) preferred = "speed";
+             else if (effect.endsWith(".phaser")) preferred = "lfo_period";
+             else if (effect.endsWith(".pitchshift")) preferred = "pitch";
+@@ -418,7 +572,7 @@
+             const bool supported = isRx3BeatFx(manifest);
+             m_buttons[index]->setText(supported ? manifest->displayName().toUpper() : QString());
+             m_buttons[index]->setToolTip(m_ids[index].isEmpty() ? "Choose a Beat FX for this empty slot." :
+-                    supported ? manifest->displayName() : manifest ? "Choose a supported Beat FX to replace this registration." :
++                    supported ? QString("Press to activate. Hold to replace %1").arg(manifest->displayName()) : manifest ? "Choose a supported Beat FX to replace this registration." :
+                     "This saved effect is unavailable. Delete the registration to reuse this slot.");
+             m_buttons[index]->setEnabled(m_slot != nullptr);
+             const bool selected = supported && current == m_ids[index];
+@@ -456,22 +610,12 @@
+                     for (int index = 0; index < 8; ++index) {
+                         double target = beats[index];
+                         double minimumBeat = manifest->getMinimum();
+-                        if (m_slot->id().endsWith(".echo")) {
+-                            minimumBeat = 0.125;
+-                            // Echo rounds to quarters before applying its eighth-beat minimum.
+-                            if (index == 1) target = 0;
+-                        } else if (m_slot->id().endsWith(".glitch")) minimumBeat = 0.125;
+-                        else if (m_slot->id().endsWith(".phaser")) {
+-                            minimumBeat = 0.25;
+-                            if (index == 2) target = 0;
+-                        } else if (m_slot->id().endsWith(".tremolo")) {
+-                            minimumBeat = 0;
+-                            target = 1 / target;
+-                        }
+-                        const auto quantize = parameterForId(m_slot, "quantize");
+-                        const bool exactRate = !m_slot->id().endsWith(".tremolo") ||
+-                                !quantize || quantize->getValue() <= 0 || index != 4;
+-                        const bool supported = exactRate && beats[index] >= minimumBeat &&
++                        if (m_slot->id().endsWith(".echo") || m_slot->id().endsWith(".phaser")) minimumBeat = 1.0 / 16;
++                        else if (m_slot->id().endsWith(".glitch")) minimumBeat = 0.125;
++                        else if (m_slot->id().endsWith(".tremolo")) {minimumBeat = 0; target = 1 / target;}
++                        const double bpm = effectBpm();
++                        const bool fitsBuffer = !m_slot->id().endsWith(".echo") || bpm <= 0 || beats[index] * 60 / bpm <= 6;
++                        const bool supported = fitsBuffer && beats[index] >= minimumBeat &&
+                                 target >= manifest->getMinimum() && target <= manifest->getMaximum();
+                         cells.append({labels[index], target, supported});
+                     }
+@@ -488,33 +632,26 @@
+                 const auto pitchRange = layout == WRx3XPad::Layout::Pitch ? parameterForId(m_slot, "range") : EffectParameterPointer();
+                 m_pad->present(layout, cells, pitchRange && pitchRange->getValue() <= 0 ? 0 : value);
+                 if (units == Units::Beat || units == Units::Beats || flanger) {
+-                    const double bpm = ControlObject::get(ConfigKey("[RX3Display]", "master_bpm"));
++                    const double bpm = effectBpm();
+                     const bool beatTime = bpm > 0 && std::isfinite(bpm);
+                     const auto quantize = parameterForId(m_slot, "quantize");
+                     const auto triplet = parameterForId(m_slot, "triplet");
+                     const bool quantized = quantize && quantize->getValue() > 0;
+                     const bool triplets = triplet && triplet->getValue() > 0;
++                    const auto exact = parameterForId(m_slot, "rx3_exact_time");
++                    const bool exactTime = exact && exact->getValue() > 0;
+                     if (m_slot->id().endsWith(".echo")) {
+-                        if (beatTime && quantized) value = std::round(value * 4) / 4;
+-                        value = qMax(0.125, value);
+-                        if (beatTime && quantized && triplets) value /= 3;
+-                    } else if (flanger || m_slot->id().endsWith(".phaser")) {
+-                        if (beatTime) value = std::round(value * 2) / 2;
+-                        value = qMax(0.25, value);
++                        value = rx3::echoPeriod(value, beatTime, quantized, triplets, exactTime);
++                    } else if (m_slot->id().endsWith(".phaser")) {
++                        value = rx3::phaserPeriod(value, beatTime, triplets, exactTime);
++                    } else if (flanger) {
++                        value = qMax(0.25, beatTime ? std::round(value * 2) / 2 : value);
+                         if (beatTime && triplets) value /= 3;
+                     } else if (m_slot->id().endsWith(".glitch")) {
+-                        if (beatTime && quantized) {
+-                            value = std::round(value * 8) / 8;
+-                            if (triplets) value /= 3;
+-                        }
++                        if (beatTime && quantized) {value = std::round(value * 8) / 8; if (triplets) value /= 3;}
+                         if (beatTime) value = qMax(0.125, value);
+                     } else if (m_slot->id().endsWith(".tremolo") && manifest->id() == "rate") {
+-                        // Tremolo stores cycles per beat (or per second), not period.
+-                        if (beatTime && quantized) {
+-                            value = std::pow(2.0, static_cast<int>(std::log2(value)));
+-                            if (triplets) value *= 3;
+-                        }
+-                        value = 1.0 / value;
++                        value = 1.0 / rx3::tremoloRate(value, beatTime, quantized, triplets, exactTime);
+                     }
+                     readout = QString::number(value, 'g', 3) + (beatTime ? " BEAT" : " SEC");
+                     milliseconds = QString::number(qRound(value * (beatTime ? 60000 / bpm : 1000)));
+@@ -548,7 +685,10 @@
+                 else label->setText(formatted);
+             }
+         };
++        m_padValueText=readout;
+         setReadout("RX3BeatFxBeat", readout);
++        const ConfigKey bpmKey("[RX3BeatFx]","bpm");
++        if(ControlObject::exists(bpmKey)) ControlObject::set(bpmKey,effectBpm());
+         setReadout("RX3BeatFxMilliseconds", milliseconds);
+     }
+     UserSettingsPointer m_config;
+@@ -561,5 +701,6 @@
+     QPushButton* m_delete;
+     WRx3XPad* m_pad;
+     QPointer<QMenu> m_effectMenu;
++    QString m_padValueText;
+     bool m_touching = false;
+ };
+diff --git a/src/widget/weffectselector.cpp b/src/widget/weffectselector.cpp
+--- a/src/widget/weffectselector.cpp
++++ b/src/widget/weffectselector.cpp
+@@ -93,7 +93,8 @@
+             m_pEffectsManager->getBackendManager()->getManifestFromUniqueId(
+                     itemData(newIndex).toString());
+ 
+-    m_pEffectSlot->loadEffectWithDefaults(pManifest);
++    if (objectName() == "RX3BeatFxSelector") rx3LoadBeatFx(m_pEffectSlot, pManifest);
++    else m_pEffectSlot->loadEffectWithDefaults(pManifest);
+ 
+     setBaseTooltip(itemData(newIndex, Qt::ToolTipRole).toString());
+     // Clicking an effect item moves keyboard focus to the list view.
+diff --git a/src/widget/rx3beatfxeffects.h b/src/widget/rx3beatfxeffects.h
+--- a/src/widget/rx3beatfxeffects.h
++++ b/src/widget/rx3beatfxeffects.h
+@@ -2,6 +2,10 @@
+ 
+ #include "effects/backends/effectsbackendmanager.h"
+ #include "effects/backends/effectmanifest.h"
++#include "effects/effectslot.h"
++#include "effects/effectparameter.h"
++#include "effects/effectknobparameterslot.h"
++#include "effects/rx3beatfxtiming.h"
+ 
+ // A performance-oriented subset of the actual built-in processors. Do not
+ // expose utility/EQ processors here or invent names for missing RX3 algorithms.
+@@ -22,3 +26,62 @@
+         if (isRx3BeatFx(manifest)) result.append(manifest);
+     return result;
+ }
++
++inline EffectParameterPointer rx3FxParameter(const EffectSlotPointer& slot, const QString& id) {
++    if (!slot) return {};
++    for (const auto& map : {slot->getLoadedParameters(), slot->getHiddenParameters()})
++        for (auto list = map.cbegin(); list != map.cend(); ++list)
++            for (const auto& parameter : list.value())
++                if (parameter->manifest()->id() == id) return parameter;
++    return {};
++}
++
++inline void rx3SetFxParameter(const EffectSlotPointer& slot, const QString& id, double value) {
++    for (const auto type : {EffectParameterType::Knob, EffectParameterType::Button})
++        for (unsigned int i = 0; slot && i < slot->numParameters(type); ++i) {
++            auto parameter = slot->getEffectParameterSlot(type, i);
++            if (parameter->getManifest() && parameter->getManifest()->id() == id) {
++                const QString prefix = type == EffectParameterType::Knob ?
++                        EffectKnobParameterSlot::formatItemPrefix(parameter->slotNumber()) :
++                        QString("button_parameter%1").arg(parameter->slotNumber() + 1);
++                ControlObject::set(ConfigKey(slot->getGroup(), prefix), value);
++                return;
++            }
++        }
++    if (auto parameter = rx3FxParameter(slot, id)) parameter->setValue(value);
++}
++
++// Scope preparation to explicit RX3 selections. Preserve generic effect loading,
++// Color FX and registration of the processor already in use.
++inline void rx3PrepareBeatFx(const EffectSlotPointer& slot, const EffectManifestPointer& manifest) {
++    if (!isRx3BeatFx(manifest)) return;
++    slot->setMetaParameter(manifest->metaknobDefault(), true);
++    if (manifest->id().endsWith(".filter")) {
++        rx3SetFxParameter(slot, "lpf", 22050);
++        rx3SetFxParameter(slot, "hpf", 13);
++    }
++    for (const auto& id : {QString("send_amount"), QString("depth"), QString("mix")})
++        if (auto parameter = rx3FxParameter(slot, id))
++            rx3SetFxParameter(slot, id, parameter->manifest()->getMaximum());
++    if (manifest->id().endsWith(".pitchshift")) {
++        rx3SetFxParameter(slot, "range", 1);
++        rx3SetFxParameter(slot, "pitch", 0);
++    }
++}
++
++inline void rx3SetBeatFxEnabled(const EffectSlotPointer& slot, bool enabled) {
++    // Notify the enabled control owner so activation reaches the audio engine.
++    if (slot) ControlObject::set(ConfigKey(slot->getGroup(), "enabled"), enabled ? 1 : 0);
++}
++
++inline void rx3LoadBeatFx(const EffectSlotPointer& slot, const EffectManifestPointer& manifest) {
++    const ConfigKey mixKey("[EffectRack1_EffectUnit1]", "mix");
++    const double mix=ControlObject::get(mixKey);
++    ControlObject::set(ConfigKey("[EffectRack1_EffectUnit1]", "enabled"), 0);
++    rx3SetBeatFxEnabled(slot, false);
++    slot->loadEffectWithDefaults(manifest);
++    rx3PrepareBeatFx(slot,manifest);
++    // Loading into the empty placeholder can reset the whole chain preset.
++    ControlObject::set(mixKey, mix);
++    ControlObject::set(ConfigKey("[EffectRack1_EffectUnit1]", "enabled"), 0);
++}
+diff --git a/src/widget/wrx3browser.h b/src/widget/wrx3browser.h
+--- a/src/widget/wrx3browser.h
++++ b/src/widget/wrx3browser.h
+@@ -41,6 +41,7 @@
+ #include "widget/rx3browsernavigation.h"
+ #include "widget/rx3libraryworkflow.h"
+ #include "widget/wrx3toolmenu.h"
++#include "widget/wrx3beatfx.h"
+ #include "widget/rx3touchpreview.h"
+ #include "widget/rx3browserplayback.h"
+ #include "preferences/usersettings.h"
+@@ -1015,6 +1016,10 @@
+             auto* empty=new QTreeWidgetItem(m_sources,{"NO DEVICE"});
+             empty->setFlags(Qt::NoItemFlags);
+         }
++        auto* tools=new QTreeWidgetItem(m_sources,{"TOOLS  ›"});
++        tools->setData(0,Qt::UserRole,QStringLiteral("rx3:tools"));
++        if (m_devices.empty() || previousRoot=="rx3:tools") selected=m_sources->indexOfTopLevelItem(tools);
++        m_sources->setCurrentItem(m_sources->topLevelItem(selected));
+         m_refreshingSources=false;
+         updateSourceInfo(selected);
+     }
+@@ -1026,6 +1031,11 @@
+             qApp->setProperty("rx3SettingsUsbDeviceName",m_devices[row].data(Qt::DisplayRole).toString());
+         } else qApp->setProperty("rx3SettingsUsbRoot",QString());
+         if(m_refreshingSources) return;
++        if(auto* item=m_sources->topLevelItem(row);item && item->data(0,Qt::UserRole).toString()=="rx3:tools") {
++            m_sourceSettings->setEnabled(false);
++            m_info->setText("<b>TOOLS</b><br><br>Press the browser encoder to open Beat FX, mixer, playback and USB workflow controls.<br><br>Turn to select · Press to edit · Hold to go back");
++            return;
++        }
+         QString songs,playlists,total,available,date;
+         const bool hasDevice=row>=0 && row<int(m_devices.size());
+         const bool ready=hasDevice && deviceReady(m_devices[row]);
+@@ -1050,6 +1060,7 @@
+                 line("Background Color",hasDevice ? "○ Default" : "")+"</table>");
+     }
+     void chooseSource() {
++        if(auto* item=m_sources->currentItem();item && item->data(0,Qt::UserRole).toString()=="rx3:tools") {showTools();return;}
+         const int row=m_sources->indexOfTopLevelItem(m_sources->currentItem());
+         if(row<0 || row>=int(m_devices.size())) return;
+         const QModelIndex device=m_devices[row];
+@@ -1152,6 +1163,7 @@
+     void showPlaybackTools();
+     void advanceContinuous(int deck);
+     void showAudioTools();
++    void showBeatFxTools();
+     void showRecordingTools();
+     void refreshSessionWork();
+     void toolTracks(const QList<quint32>& ids,const QString& name);
+diff --git a/src/widget/wrx3browsertools.h b/src/widget/wrx3browsertools.h
+--- a/src/widget/wrx3browsertools.h
++++ b/src/widget/wrx3browsertools.h
+@@ -25,6 +25,7 @@
+             rx3::TrackFilter filter;filter.referenceKey=m_toolTrack->getKeyText();filter.keyMode=1;
+             auto ids=filter.apply(catalog()->tracks());ids.removeAll(m_toolTrack->getSourceBinding().rekordboxId());
+             toolTracks(ids,"RELATED KEY");}),
++        toolAction("BEAT FX",[this]{showBeatFxTools();}),
+         toolAction("PLAYBACK OPTIONS",[this]{showPlaybackTools();}),
+         toolAction("DECK 1 MEMORY CUES / LOOPS",[this]{showMemoryTools(1);}),
+         toolAction("DECK 2 MEMORY CUES / LOOPS",[this]{showMemoryTools(2);}),
+@@ -282,3 +283,42 @@
+     const auto next=m_backend->rekordboxFeature()->temporaryTrackForRoot(origin->root,origin->ids[index+1]);
+     if(next) {const auto saved=*origin;m_origins.insert(next->getLocation(),saved);m_continuousLoads.insert(group+next->getLocation());emit m_backend->loadTrackToPlayer(next,group,ControlObject::get(ConfigKey(group,"rx3_auto_cue"))<=0);}
+ }
++
++inline void WRx3Browser::showBeatFxTools() {
++    auto* widget=window()->findChild<QWidget*>("RX3BeatFxControls");
++    auto* fx=dynamic_cast<WRx3BeatFx*>(widget);
++    if(!fx) {m_tools->message("Beat FX controls are unavailable in this skin.");return;}
++    QPointer<QWidget> guard(fx);
++    auto panel=[guard]() -> WRx3BeatFx* {return dynamic_cast<WRx3BeatFx*>(guard.data());};
++    auto* effects=fx->effectsManager();
++    const auto manifests=rx3BeatFxManifests(effects->getBackendManager());
++    const auto chain=effects->getEffectChain(WRx3BeatFx::unitGroup());
++    const auto slot=chain->getEffectSlot(0);
++    std::vector<ToolAction> actions;
++    actions.push_back({[slot]() -> QString {return "EFFECT: "+(slot->getManifest()?slot->getManifest()->displayName().toUpper():QString("NONE"));},{},[panel,slot,manifests](int delta) {
++        int index=-1;for(int i=0;i<manifests.size();++i) if(slot->getManifest() && manifests[i]->uniqueId()==slot->getManifest()->uniqueId()) index=i;
++        if(auto* fx=panel();fx && !manifests.isEmpty()) fx->selectEffect(manifests[qBound(0,index+delta,int(manifests.size())-1)],false);
++    }});
++    actions.push_back({[]() -> QString {return QString("ON / OFF: %1").arg(ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"enabled"))>0?"ON":"OFF");},[panel]{if(auto* fx=panel()) fx->setActive(ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"enabled"))<=0);},{}});
++    actions.push_back({[panel]() -> QString {auto* fx=panel();return QString("LEVEL / DEPTH: %1%").arg(fx?qRound(fx->amount()*100):0);},{},[panel](int delta){if(auto* fx=panel()) fx->setAmount(fx->amount()+delta*0.05);}});
++    actions.push_back({[]() -> QString {return QString("BPM MODE: %1").arg(ControlObject::get(ConfigKey("[RX3BeatFx]","bpm_mode"))>0?"MANUAL / TAP":"AUTO");},[]{const auto key=ConfigKey("[RX3BeatFx]","bpm_mode");ControlObject::set(key,ControlObject::get(key)>0?0:1);},{}});
++    actions.push_back({[]() -> QString {return QString("MANUAL BPM: %1").arg(ControlObject::get(ConfigKey("[RX3BeatFx]","bpm_manual")),0,'f',1);},{},[](int delta){ControlObject::set(ConfigKey("[RX3BeatFx]","bpm_mode"),1);const auto key=ConfigKey("[RX3BeatFx]","bpm_manual");ControlObject::set(key,qBound(40.0,ControlObject::get(key)+delta,300.0));}});
++    auto tap=std::make_shared<QElapsedTimer>();
++    actions.push_back(toolAction("TAP BPM",[tap]{if(tap->isValid()) {const auto elapsed=tap->elapsed();if(elapsed>=200 && elapsed<=1500) {ControlObject::set(ConfigKey("[RX3BeatFx]","bpm_manual"),60000.0/elapsed);ControlObject::set(ConfigKey("[RX3BeatFx]","bpm_mode"),1);}}tap->restart();}));
++    const QList<QPair<QString,QString>> routes{{"MASTER","[Master]"},{"DECK 1","[Channel1]"},{"DECK 2","[Channel2]"},{"MIC 1","[Microphone]"},{"MIC 2","[Microphone2]"},{"AUX","[Auxiliary1]"}};
++    actions.push_back({[routes]() -> QString {QStringList names;for(const auto& route:routes) if(ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"group_"+route.second+"_enable"))>0) names.append(route.first);return "CH SELECT: "+(names.isEmpty()?QString("NONE"):names.join(" + "));},{},[routes,chain](int delta){
++        int index=-1;for(int i=0;i<routes.size();++i) if(ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"group_"+routes[i].second+"_enable"))>0) {index=i;break;}
++        const int next=qBound(0,index+delta,int(routes.size())-1);
++        const auto active=chain->getActiveChannels();for(const auto& channel:active) ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(),"group_"+channel.name()+"_enable"),0);
++        ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(),"group_"+routes[next].second+"_enable"),1);
++    }});
++    actions.push_back({[panel]() -> QString {auto* fx=panel();return QString("X-PAD: %1 — PRESS TO HOLD / RELEASE").arg(fx?fx->padValueText():QString("UNAVAILABLE"));},{},[panel](int delta){if(auto* fx=panel()) fx->stepPad(delta);},[](bool editing){
++        ControlObject::set(ConfigKey("[RX3BeatFx]","xpad_hold"),editing?1:0);
++    }});
++    for(int bank=0;bank<4;++bank) {
++        actions.push_back({[panel,bank,effects]() -> QString {auto* fx=panel();const auto manifest=fx?effects->getBackendManager()->getManifestFromUniqueId(fx->bankId(bank)):EffectManifestPointer();return QString("BANK %1: %2 — PRESS TO RECALL / EDIT TOOLS BELOW").arg(bank+1).arg(manifest?manifest->displayName().toUpper():QString("EMPTY"));},[this,panel,bank]{if(auto* fx=panel()) {if(fx->bankId(bank).isEmpty()) m_tools->message("Select an effect and use STORE below to assign this bank.");else fx->recallBank(bank);}},{}});
++        actions.push_back(toolAction(QString("STORE SELECTED EFFECT IN BANK %1").arg(bank+1),[panel,slot,bank]{if(auto* fx=panel()) fx->registerBank(bank,slot->getManifest());}));
++        actions.push_back(toolAction(QString("CLEAR BANK %1").arg(bank+1),[panel,bank]{if(auto* fx=panel()) fx->clearBank(bank);}));
++    }
++    m_tools->showMenu("BEAT FX",std::move(actions),[this]{showTools();});
++}
+diff --git a/src/widget/rx3displaystate.h b/src/widget/rx3displaystate.h
+--- a/src/widget/rx3displaystate.h
++++ b/src/widget/rx3displaystate.h
+@@ -68,6 +68,8 @@
+                 QStringLiteral("[RX3Display]"), QStringLiteral("master_bpm")));
+         refresh();
+     }
++
++    ~Rx3DisplayState() override {if(ControlObject::exists(ConfigKey("[RX3BeatFx]","auto_deck"))) ControlObject::set(ConfigKey("[RX3BeatFx]","auto_deck"),0);}
+ 
+     int masterDeck() const { return m_selected + 1; }
+ 
+@@ -173,6 +175,7 @@
+             m_selected = next;
+         }
+         for (int i = 0; i < 2; ++i) m_master[i]->set(i == next ? 1 : 0);
++        if(ControlObject::exists(ConfigKey("[RX3BeatFx]","auto_deck"))) ControlObject::set(ConfigKey("[RX3BeatFx]","auto_deck"),next+1);
+         m_bpm->set(next >= 0 ? m_inputs[next][QStringLiteral("visual_bpm")]->get() : 0);
+     }
+     std::array<QHash<QString, ControlProxy*>, 2> m_inputs;
+diff --git a/src/engine/enginemixer.cpp b/src/engine/enginemixer.cpp
+--- a/src/engine/enginemixer.cpp
++++ b/src/engine/enginemixer.cpp
+@@ -51,6 +51,7 @@
+           m_busCrossfaderLeftHandle(registerChannelGroup("[BusLeft]")),
+           m_busCrossfaderCenterHandle(registerChannelGroup("[BusCenter]")),
+           m_busCrossfaderRightHandle(registerChannelGroup("[BusRight]")) {
++    m_rx3AutoDeck=std::make_unique<ControlObject>(ConfigKey("[RX3BeatFx]","auto_deck"),false,false,false,0);
+     pEffectsManager->registerInputChannel(m_mainHandle);
+     pEffectsManager->registerInputChannel(m_headphoneHandle);
+     pEffectsManager->registerOutputChannel(m_mainHandle);
+@@ -774,8 +775,7 @@
+         // Process effects that apply to main hardware output only but not
+         // record/broadcast signal
+         if (m_pEngineEffectsManager) {
+-            GroupFeatureState mainFeatures;
+-            mainFeatures.gain = m_pMainGain->get();
++            auto mainFeatures=mainEffectFeatures();
+             m_pEngineEffectsManager->processPostFaderInPlace(
+                     m_mainOutputHandle.handle(),
+                     m_mainHandle.handle(),
+@@ -834,11 +834,23 @@
+     m_pWorkerScheduler->runWorkers();
+ }
+ 
++GroupFeatureState EngineMixer::mainEffectFeatures() const {
++    GroupFeatureState features;
++    const int deck=qRound(m_rx3AutoDeck->get());
++    if(deck==1 || deck==2) {
++        const auto group=deck==1 ? QStringLiteral("[Channel1]") : QStringLiteral("[Channel2]");
++        for(const auto* channel:m_channels) if(channel->m_pChannel->getGroup()==group) {
++            features=channel->m_features;break;
++        }
++    }
++    features.gain=m_pMainGain->get();
++    return features;
++}
++
+ void EngineMixer::applyMainEffects(int bufferSize) {
+     // Apply main effects
+     if (m_pEngineEffectsManager) {
+-        GroupFeatureState mainFeatures;
+-        mainFeatures.gain = m_pMainGain->get();
++        auto mainFeatures=mainEffectFeatures();
+         m_pEngineEffectsManager->processPostFaderInPlace(m_mainHandle.handle(),
+                 m_mainHandle.handle(),
+                 m_main.data(),
+diff --git a/src/engine/enginemixer.h b/src/engine/enginemixer.h
+--- a/src/engine/enginemixer.h
++++ b/src/engine/enginemixer.h
+@@ -260,8 +260,10 @@
+     // respective output.
+     void processChannels(int iBufferSize);
+ 
++    std::unique_ptr<ControlObject> m_rx3AutoDeck;
+     ChannelHandleFactoryPointer m_pChannelHandleFactory;
+     void applyMainEffects(int bufferSize);
++    GroupFeatureState mainEffectFeatures() const;
+     void processHeadphones(
+             const CSAMPLE_GAIN mainMixGainInHeadphones,
+             int iBufferSize);
+diff --git a/src/test/rx3beatfx_test.cpp b/src/test/rx3beatfx_test.cpp
+--- a/src/test/rx3beatfx_test.cpp
++++ b/src/test/rx3beatfx_test.cpp
+@@ -3,6 +3,13 @@
+ #include <QTextDocument>
+ 
+ #include "test/mixxxtest.h"
++#include "effects/backends/builtin/filtereffect.h"
++#include "effects/backends/builtin/reverbeffect.h"
++#include "effects/backends/builtin/echoeffect.h"
++#include "effects/backends/builtin/tremoloeffect.h"
++#include "engine/effects/engineeffectparameter.h"
++#include "engine/effects/engineeffectsmanager.h"
++#include <vector>
+ #include "widget/wrx3beatfx.h"
+ #include "widget/weffectselector.h"
+ #include "skin/legacy/skincontext.h"
+@@ -15,6 +22,34 @@
+     text.setHtml(label->text());
+     return text.toPlainText();
+ }
++
++// Render the real built-in DSP using values selected by the actual RX3 widget.
++// This catches a lit/working pad that feeds no audio into its processor.
++template<class Processor,class State>
++std::vector<CSAMPLE> renderFx(const EffectSlotPointer& slot,int sampleRate,int frames,
++        GroupFeatureState features,std::function<CSAMPLE(int)> source) {
++    const mixxx::EngineParameters engineParameters(mixxx::audio::SampleRate(sampleRate),256);
++    QMap<QString,EngineEffectParameterPointer> parameters;
++    const auto processorManifest=Processor::getManifest();
++    for(const auto& manifest:processorManifest->parameters()) {
++        auto parameter=EngineEffectParameterPointer(new EngineEffectParameter(manifest));
++        if(auto selected=rx3FxParameter(slot,manifest->id())) parameter->setValue(selected->getValue());
++        parameters.insert(manifest->id(),parameter);
++    }
++    Processor processor;processor.loadEngineEffectParameters(parameters);
++    State state(engineParameters);
++    std::vector<CSAMPLE> result;result.reserve(frames*2+512);
++    mixxx::SampleBuffer input(512),output(512);
++    for(int offset=0;offset<frames;offset+=256) {
++        for(int i=0;i<256;++i) input[2*i]=input[2*i+1]=source(offset+i);
++        if(features.beat_length) features.beat_fraction_buffer_end=std::fmod((offset+256.0)/sampleRate/features.beat_length->seconds,1.0);
++        processor.processChannel(&state,input.data(),output.data(),engineParameters,
++                offset?EffectEnableState::Enabled:EffectEnableState::Enabling,features);
++        result.insert(result.end(),output.data(),output.data()+512);
++    }
++    return result;
++}
++
+ }
+ 
+ class Rx3BeatFxTest : public MixxxTest {
+@@ -23,6 +58,8 @@
+         factory = std::make_shared<ChannelHandleFactory>();
+         effects = std::make_unique<EffectsManager>(config(), factory);
+         effects->registerInputChannel(ChannelHandleAndGroup(
++                factory->getOrCreateHandle("[MasterOutput]"), "[MasterOutput]"));
++        effects->registerOutputChannel(ChannelHandleAndGroup(
+                 factory->getOrCreateHandle("[MasterOutput]"), "[MasterOutput]"));
+         effects->setup();
+         slot = effects->getEffectChain(WRx3BeatFx::unitGroup())->getEffectSlot(0);
+@@ -145,7 +182,7 @@
+     auto* pad = panel.findChild<QSlider*>("RX3XPadSlider");
+     EXPECT_FALSE(pad->isEnabled());
+     for (const auto& pair : QList<QPair<QString, QString>>{
+-                 {"org.mixxx.effects.echo", "delay_time"}, {"org.mixxx.effects.reverb", "bandwidth"},
++                 {"org.mixxx.effects.echo", "delay_time"}, {"org.mixxx.effects.reverb", "decay"},
+                  {"org.mixxx.effects.phaser", "lfo_period"}, {"org.mixxx.effects.flanger", "speed"},
+                  {"org.mixxx.effects.filter", "lpf"}, {"org.mixxx.effects.pitchshift", "pitch"},
+                  {"org.mixxx.effects.distortion", "drive"}}) {
+@@ -163,7 +200,7 @@
+     }
+     load("org.mixxx.effects.echo");
+     ControlObject::set(ConfigKey(slot->getGroup(), "parameter1"), 1.5);
+-    EXPECT_NEAR(750, pad->value(), 1);
++    EXPECT_NEAR(375, pad->value(), 1);
+     slot->loadEffectWithDefaults(nullptr);
+     EXPECT_FALSE(pad->isEnabled());
+ }
+@@ -351,12 +388,13 @@
+     ASSERT_EQ(8, pad->cells().size());
+     EXPECT_EQ("1/16", pad->cells()[0].label);
+     EXPECT_EQ("4", pad->cells()[7].label);
+-    EXPECT_FALSE(pad->cells()[0].enabled); EXPECT_FALSE(pad->cells()[7].enabled);
++    EXPECT_TRUE(pad->cells()[0].enabled); EXPECT_TRUE(pad->cells()[7].enabled);
+     const auto before = WRx3BeatFx::parameterForId(slot, "delay_time")->getValue();
+     QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(2, 20));
+     QTest::mouseRelease(pad, Qt::LeftButton, Qt::NoModifier, QPoint(2, 20));
+     EXPECT_EQ(0, enabled());
+-    EXPECT_EQ(before, WRx3BeatFx::parameterForId(slot, "delay_time")->getValue());
++    EXPECT_DOUBLE_EQ(0.0625, WRx3BeatFx::parameterForId(slot, "delay_time")->getValue());
++    EXPECT_NE(before, WRx3BeatFx::parameterForId(slot, "delay_time")->getValue());
+     QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() * 3 / 16, 20));
+     EXPECT_EQ(1, enabled()); EXPECT_EQ("0.125 BEAT", readoutText(beat));
+     capture("echo-pressed");
+@@ -364,7 +402,7 @@
+     load("org.mixxx.effects.reverb");
+     EXPECT_EQ(WRx3XPad::Layout::Continuous, pad->presentation());
+     capture("reverb-idle");
+-    const auto cutoff = WRx3BeatFx::parameterForId(slot, "bandwidth");
++    const auto cutoff = WRx3BeatFx::parameterForId(slot, "decay");
+     QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() / 4, 20));
+     const double first = cutoff->getValue();
+     QMouseEvent move(QEvent::MouseMove, QPointF(pad->width() * 3 / 4, 20),
+@@ -551,3 +589,178 @@
+     EXPECT_FALSE(bank(panel, 0)->property("selected").toBool());
+     EXPECT_TRUE(bank(panel, 1)->property("selected").toBool());
+ }
++
++TEST_F(Rx3BeatFxTest, BankReloadAndSelectorDiscardUnsafeInheritedMetaOnlyForNewEffects) {
++    QWidget parent;
++    WRx3BeatFx panel(config(),effects.get(),&parent);
++    choose(panel,0,"org.mixxx.effects.filter");
++    choose(panel,1,"org.mixxx.effects.reverb");
++    choose(panel,2,"org.mixxx.effects.tremolo");
++    for(double meta:{0.0,0.5,1.0}) {
++        load("org.mixxx.effects.echo");slot->setMetaParameter(meta,true);
++        panel.recallBank(0);
++        EXPECT_DOUBLE_EQ(22050,rx3FxParameter(slot,"lpf")->getValue());
++        EXPECT_DOUBLE_EQ(13,rx3FxParameter(slot,"hpf")->getValue());
++        panel.recallBank(1);
++        EXPECT_DOUBLE_EQ(1,rx3FxParameter(slot,"send_amount")->getValue());
++        panel.recallBank(2);
++        EXPECT_DOUBLE_EQ(1,rx3FxParameter(slot,"depth")->getValue());
++    }
++    EXPECT_DOUBLE_EQ(0.5,ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"mix")));
++    panel.setAmount(0.7);EXPECT_DOUBLE_EQ(0.7,ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"mix")));
++    WEffectSelector selector(&parent,effects.get());selector.setObjectName("RX3BeatFxSelector");
++    SkinContext context(config(),QString());QDomDocument node;
++    ASSERT_TRUE(node.setContent(QStringLiteral("<EffectSelector><EffectUnit>1</EffectUnit><Effect>1</Effect></EffectSelector>")));
++    selector.setup(node.documentElement(),context);
++    slot->setMetaParameter(0,true);
++    const auto filter=effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.filter");
++    const int index=selector.findData(filter->uniqueId());ASSERT_GT(index,0);
++    selector.activated(index);
++    EXPECT_EQ(0,enabled());EXPECT_DOUBLE_EQ(22050,rx3FxParameter(slot,"lpf")->getValue());
++}
++
++TEST_F(Rx3BeatFxTest, LongBankPressReplacesRegistrationWithoutReleaseRecall) {
++    QWidget parent;WRx3BeatFx panel(config(),effects.get(),&parent);
++    choose(panel,0,"org.mixxx.effects.echo");
++    panel.setActive(false);
++    QTest::mousePress(bank(panel,0),Qt::LeftButton);
++    QTest::qWait(700);
++    auto* menu=panel.findChild<QMenu*>("RX3BankEffectMenu");ASSERT_TRUE(menu);ASSERT_TRUE(menu->isVisible());
++    QAction* replacement=nullptr;
++    for(auto* action:menu->actions()) if(action->data().toString().startsWith("org.mixxx.effects.reverb ")) replacement=action;
++    ASSERT_TRUE(replacement);
++    QTest::mouseClick(menu,Qt::LeftButton,Qt::NoModifier,menu->actionGeometry(replacement).center());
++    QTest::mouseRelease(bank(panel,0),Qt::LeftButton);
++    EXPECT_EQ("REVERB",bank(panel,0)->text());EXPECT_EQ(0,enabled());
++    panel.recallBank(0);EXPECT_EQ(1,enabled());
++}
++
++TEST_F(Rx3BeatFxTest, CommonControllerCommandsSupportBanksAmountAndExactPadPeriods) {
++    QWidget parent;WRx3BeatFx panel(config(),effects.get(),&parent);
++    const auto echo=effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.echo");
++    panel.selectEffect(echo,false);
++    ControlObject::set(ConfigKey("[RX3BeatFx]","bank_store"),2);
++    EXPECT_EQ(echo->uniqueId(),panel.bankId(1));
++    ControlObject::set(ConfigKey("[RX3BeatFx]","bank_recall"),2);EXPECT_EQ(1,enabled());
++    ControlObject::set(ConfigKey("[RX3BeatFx]","amount"),0.6);EXPECT_DOUBLE_EQ(0.6,panel.amount());
++    ControlObject::set(ConfigKey("[RX3BeatFx]","xpad_position"),0.001);
++    ControlObject::set(ConfigKey("[RX3BeatFx]","xpad_hold"),1);
++    EXPECT_EQ(1,enabled());EXPECT_DOUBLE_EQ(0.0625,rx3FxParameter(slot,"delay_time")->getValue());
++    EXPECT_EQ(1,rx3FxParameter(slot,"rx3_exact_time")->getValue());
++    ControlObject::set(ConfigKey("[RX3BeatFx]","xpad_hold"),0);EXPECT_EQ(0,enabled());
++    ControlObject::set(ConfigKey("[RX3BeatFx]","bank_clear"),2);EXPECT_TRUE(panel.bankId(1).isEmpty());
++    panel.selectEffect(effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.tremolo"),false);
++    auto* pad=panel.findChild<WRx3XPad*>("RX3XPadSlider");
++    EXPECT_TRUE(pad->cells()[0].enabled);EXPECT_TRUE(pad->cells()[4].enabled);
++    panel.positionPad(4.5/8);EXPECT_NEAR(4.0/3,rx3FxParameter(slot,"rate")->getValue(),1e-9);
++    panel.selectEffect(effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.phaser"),false);
++    panel.positionPad(4.5/8);EXPECT_DOUBLE_EQ(0.75,rx3FxParameter(slot,"lfo_period")->getValue());
++}
++
++TEST_F(Rx3BeatFxTest, RenderedFilterRecallKeepsAudibleAudioAtEveryInheritedMetaPosition) {
++    QWidget parent;WRx3BeatFx panel(config(),effects.get(),&parent);
++    const auto filter=effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.filter");
++    for(int sampleRate:{44100,48000,96000}) for(double meta:{0.0,0.5,1.0}) {
++        load("org.mixxx.effects.echo");slot->setMetaParameter(meta,true);
++        panel.selectEffect(filter,true);
++        const auto audio=renderFx<FilterEffect,FilterGroupState>(slot,sampleRate,sampleRate/4,{},[sampleRate](int frame){return 0.25*std::sin(frame*2*3.141592653589793*1000/sampleRate);});
++        double energy=0;for(auto value:audio) {ASSERT_TRUE(std::isfinite(value));energy+=value*value;}
++        EXPECT_NEAR(std::sqrt(energy/audio.size()),0.25/std::sqrt(2.0),0.002);
++    }
++}
++
++TEST_F(Rx3BeatFxTest, RenderedReverbXPadProducesWetAudioAndDecayTail) {
++    QWidget parent;WRx3BeatFx panel(config(),effects.get(),&parent);
++    panel.selectEffect(effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.reverb"),false);
++    panel.positionPad(0.75);
++    for(int sampleRate:{44100,48000}) {
++        const auto audio=renderFx<ReverbEffect,ReverbGroupState>(slot,sampleRate,2*sampleRate,{},[sampleRate](int frame){return frame<sampleRate/5?0.25*std::sin(frame*2*3.141592653589793*1000/sampleRate):0;});
++        double tail=0;for(int i=sampleRate;i<int(audio.size());++i) {ASSERT_TRUE(std::isfinite(audio[i]));tail+=audio[i]*audio[i];}
++        EXPECT_GT(tail,0.01);
++    }
++}
++
++TEST_F(Rx3BeatFxTest, RenderedEchoFirstRepeatMatchesExactPadTimeIncludingFourSlowBeats) {
++    QWidget parent;WRx3BeatFx panel(config(),effects.get(),&parent);
++    panel.selectEffect(effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.echo"),false);
++    for(int sampleRate:{44100,48000}) for(const auto& setting:QList<QPair<double,double>>{{0.0625,120},{0.75,128},{4,40}}) {
++        rx3SetFxParameter(slot,"delay_time",setting.first);
++        rx3SetFxParameter(slot,"rx3_exact_time",1);rx3SetFxParameter(slot,"triplet",1);
++        rx3SetFxParameter(slot,"feedback_amount",0);
++        GroupFeatureState features;features.beat_length=GroupFeatureBeatLength{60/setting.second,1};
++        const int delay=int(setting.first*60/setting.second*sampleRate);
++        const int impulse=1024;
++        const auto audio=renderFx<EchoEffect,EchoGroupState>(slot,sampleRate,delay+impulse+512,features,[](int frame){return frame==impulse?0.5:0;});
++        EXPECT_NEAR(audio[2*(impulse+delay)],0.5,0.002) << setting.first << " beats @ " << setting.second;
++        double before=0;for(int i=0;i<2*(impulse+delay);++i) before+=std::abs(audio[i]);
++        EXPECT_LT(before,0.001);
++    }
++}
++
++TEST_F(Rx3BeatFxTest, RenderedTremoloModulatesAtExactSixteenthAndThreeQuarterPeriods) {
++    QWidget parent;WRx3BeatFx panel(config(),effects.get(),&parent);
++    panel.selectEffect(effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.tremolo"),false);
++    for(double beatPeriod:{0.0625,0.75}) {
++        rx3SetFxParameter(slot,"rate",1/beatPeriod);rx3SetFxParameter(slot,"rx3_exact_time",1);
++        rx3SetFxParameter(slot,"quantize",1);rx3SetFxParameter(slot,"triplet",1);
++        GroupFeatureState features;features.beat_length=GroupFeatureBeatLength{0.5,1};
++        const int sampleRate=48000,period=int(sampleRate*0.5*beatPeriod);
++        const auto audio=renderFx<TremoloEffect,TremoloState>(slot,sampleRate,period*6+4096,features,[](int){return 0.5;});
++        double minimum=1,maximum=0,error=0;const int start=period*4;
++        for(int i=start;i<start+period;++i) {
++            minimum=std::min(minimum,double(audio[2*i]));maximum=std::max(maximum,double(audio[2*i]));
++            error+=std::abs(audio[2*i]-audio[2*(i+period)]);
++        }
++        EXPECT_GT(maximum-minimum,0.05);EXPECT_LT(error/period,0.001);
++    }
++}
++
++
++TEST_F(Rx3BeatFxTest, EngineChainUsesManualTempoForEchoInsteadOfDeckTempo) {
++    QWidget parent;WRx3BeatFx panel(config(),effects.get(),&parent);
++    panel.selectEffect(effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.echo"),false);
++    rx3SetFxParameter(slot,"delay_time",0.5);rx3SetFxParameter(slot,"rx3_exact_time",1);
++    rx3SetFxParameter(slot,"feedback_amount",0);
++    panel.setAmount(1);
++    ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(),"group_[MasterOutput]_enable"),1);
++    ControlObject::set(ConfigKey("[RX3BeatFx]","bpm_mode"),1);
++    ControlObject::set(ConfigKey("[RX3BeatFx]","bpm_manual"),60);
++    ControlObject::set(ConfigKey("[RX3BeatFx]","xpad_hold"),1);
++    const auto handle=factory->getOrCreateHandle("[MasterOutput]");
++    auto* engine=effects->getEngineEffectsManager();
++    GroupFeatureState features;features.beat_length=GroupFeatureBeatLength{0.5,1}; // Deck: 120 BPM.
++    mixxx::SampleBuffer buffer(512);
++    std::vector<CSAMPLE> audio;
++    for(int offset=0;offset<26000;offset+=256) {
++        SampleUtil::clear(buffer.data(),512);
++        if(offset==1024) buffer[0]=buffer[1]=0.5;
++        features.beat_fraction_buffer_end=std::fmod((offset+256.0)/48000/0.5,1.0);
++        engine->onCallbackStart();
++        engine->processPostFaderInPlace(handle,handle,buffer.data(),512,mixxx::audio::SampleRate(48000),features);
++        audio.insert(audio.end(),buffer.data(),buffer.data()+512);
++    }
++    // Manual 60 BPM makes 1/2 beat 500 ms; the supplied deck tempo would give 250 ms.
++    EXPECT_NEAR(audio[2*(1024+24000)],0.5,0.002);
++    EXPECT_NEAR(audio[2*(1024+12000)],0,0.002);
++}
++
++
++TEST_F(Rx3BeatFxTest, EngineChainAutoClockUsesDisplayedBpmWithoutDeckMetadata) {
++    QWidget parent;WRx3BeatFx panel(config(),effects.get(),&parent);
++    panel.selectEffect(effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.echo"),true);
++    rx3SetFxParameter(slot,"delay_time",0.5);rx3SetFxParameter(slot,"rx3_exact_time",1);
++    rx3SetFxParameter(slot,"feedback_amount",0);panel.setAmount(1);
++    ControlObject::set(ConfigKey(WRx3BeatFx::unitGroup(),"group_[MasterOutput]_enable"),1);
++    ControlObject::set(ConfigKey("[RX3BeatFx]","bpm"),120);
++    const auto handle=factory->getOrCreateHandle("[MasterOutput]");
++    auto* engine=effects->getEngineEffectsManager();
++    mixxx::SampleBuffer buffer(512);std::vector<CSAMPLE> audio;
++    for(int offset=0;offset<14000;offset+=256) {
++        SampleUtil::clear(buffer.data(),512);
++        if(offset==1024) buffer[0]=buffer[1]=0.5;
++        engine->onCallbackStart();
++        engine->processPostFaderInPlace(handle,handle,buffer.data(),512,mixxx::audio::SampleRate(48000),{});
++        audio.insert(audio.end(),buffer.data(),buffer.data()+512);
++    }
++    EXPECT_NEAR(audio[2*(1024+12000)],0.5,0.002);
++}
+diff --git a/src/effects/backends/builtin/echoeffect.cpp b/src/effects/backends/builtin/echoeffect.cpp
+--- a/src/effects/backends/builtin/echoeffect.cpp
++++ b/src/effects/backends/builtin/echoeffect.cpp
+@@ -1,6 +1,7 @@
+ #include "effects/backends/builtin/echoeffect.h"
+ 
+ #include "effects/backends/effectmanifest.h"
++#include "effects/rx3beatfxtiming.h"
+ #include "engine/effects/engineeffectparameter.h"
+ #include "util/math.h"
+ #include "util/rampingvalue.h"
+@@ -46,11 +47,11 @@
+     delay->setShortName(QObject::tr("Time"));
+     delay->setDescription(QObject::tr(
+             "Delay time\n"
+-            "1/8 - 2 beats if tempo is detected\n"
+-            "1/8 - 2 seconds if no tempo is detected"));
++            "1/16 - 4 beats with exact X-PAD timing if tempo is detected\n"
++            "1/16 - 4 seconds with exact X-PAD timing if no tempo is detected"));
+     delay->setValueScaler(EffectManifestParameter::ValueScaler::Linear);
+     delay->setUnitsHint(EffectManifestParameter::UnitsHint::Beats);
+-    delay->setRange(0.0, 0.5, 2.0);
++    delay->setRange(0.0, 0.5, 4.0);
+ 
+     EffectManifestParameterPointer feedback = pManifest->addParameter();
+     feedback->setId("feedback_amount");
+@@ -105,6 +106,7 @@
+     triplet->setUnitsHint(EffectManifestParameter::UnitsHint::Unknown);
+     triplet->setRange(0, 0, 1);
+ 
++    rx3::addExactBeatTiming(pManifest);
+     return pManifest;
+ }
+ 
+@@ -116,6 +118,7 @@
+     m_pPingPongParameter = parameters.value("pingpong_amount");
+     m_pQuantizeParameter = parameters.value("quantize");
+     m_pTripletParameter = parameters.value("triplet");
++    m_pExactTimeParameter = parameters.value("rx3_exact_time");
+ }
+ 
+ void EchoEffect::processChannel(
+@@ -131,23 +134,10 @@
+     const auto feedback_current = static_cast<CSAMPLE_GAIN>(m_pFeedbackParameter->value());
+     const auto pingpong_frac = static_cast<CSAMPLE_GAIN>(m_pPingPongParameter->value());
+ 
+-    double delay_seconds;
+-    if (groupFeatures.beat_length.has_value()) {
+-        // period is a number of beats
+-        if (m_pQuantizeParameter->toBool()) {
+-            period = std::max(roundToFraction(period, 4), 1 / 8.0);
+-            if (m_pTripletParameter->toBool()) {
+-                period /= 3.0;
+-            }
+-        } else if (period < 1 / 8.0) {
+-            period = 1 / 8.0;
+-        }
+-        delay_seconds = period * groupFeatures.beat_length->seconds;
+-    } else {
+-        // period is a number of seconds
+-        period = std::max(period, 1 / 8.0);
+-        delay_seconds = period;
+-    }
++    const bool beatTime = groupFeatures.beat_length.has_value();
++    period = rx3::echoPeriod(period, beatTime, m_pQuantizeParameter->toBool(),
++            m_pTripletParameter->toBool(), m_pExactTimeParameter->toBool());
++    double delay_seconds = period * (beatTime ? groupFeatures.beat_length->seconds : 1.0);
+     VERIFY_OR_DEBUG_ASSERT(delay_seconds > 0) {
+         delay_seconds = 1 / engineParameters.sampleRate();
+     }
+@@ -194,10 +184,13 @@
+             bufferedSampleRight *= frac;
+             bufferedSampleLeft += pGroupState->delay_buf[prev_read_position] * (1 - frac);
+             bufferedSampleRight += pGroupState->delay_buf[prev_read_position + 1] * (1 - frac);
+-            incrementRing(&prev_read_position,
+-                    engineParameters.channelCount(),
+-                    pGroupState->delay_buf.size());
+         }
++        // Both read heads must advance every frame, including when the delay
++        // is unchanged. Otherwise the old head falls one frame behind and
++        // crossfades adjacent samples throughout every subsequent buffer.
++        incrementRing(&prev_read_position,
++                engineParameters.channelCount(),
++                pGroupState->delay_buf.size());
+         incrementRing(&read_position,
+                 engineParameters.channelCount(),
+                 pGroupState->delay_buf.size());
+diff --git a/src/effects/backends/builtin/echoeffect.h b/src/effects/backends/builtin/echoeffect.h
+--- a/src/effects/backends/builtin/echoeffect.h
++++ b/src/effects/backends/builtin/echoeffect.h
+@@ -9,9 +9,9 @@
+ 
+ class EchoGroupState : public EffectState {
+   public:
+-    // 3 seconds max. This supports the full range of 2 beats for tempos down to
++    // 6 seconds max. Supports four beats for tempos down to
+     // 40 BPM.
+-    static constexpr int kMaxDelaySeconds = 3;
++    static constexpr int kMaxDelaySeconds = 6;
+ 
+     EchoGroupState(const mixxx::EngineParameters& engineParameters)
+             : EffectState(engineParameters) {
+@@ -73,6 +73,7 @@
+     EngineEffectParameterPointer m_pPingPongParameter;
+     EngineEffectParameterPointer m_pQuantizeParameter;
+     EngineEffectParameterPointer m_pTripletParameter;
++    EngineEffectParameterPointer m_pExactTimeParameter;
+ 
+     DISALLOW_COPY_AND_ASSIGN(EchoEffect);
+ };
+diff --git a/src/effects/backends/builtin/tremoloeffect.cpp b/src/effects/backends/builtin/tremoloeffect.cpp
+--- a/src/effects/backends/builtin/tremoloeffect.cpp
++++ b/src/effects/backends/builtin/tremoloeffect.cpp
+@@ -1,4 +1,5 @@
+ #include "effects/backends/builtin/tremoloeffect.h"
++#include "effects/rx3beatfxtiming.h"
+ 
+ namespace {
+ //  Used to avoid gain discontinuities when changing parameters too fast
+@@ -38,12 +39,12 @@
+     rate->setShortName(QObject::tr("Rate"));
+     rate->setDescription(QObject::tr(
+             "Rate of the volume changes\n"
+-            "4 beats - 1/8 beat if tempo is detected\n"
+-            "1/4 Hz - 8 Hz if no tempo is detected"));
++            "4 beats - 1/16 beat if tempo is detected\n"
++            "1/4 Hz - 16 Hz if no tempo is detected"));
+     rate->setValueScaler(
+             EffectManifestParameter::ValueScaler::Logarithmic);
+     rate->setUnitsHint(EffectManifestParameter::UnitsHint::Beats);
+-    rate->setRange(1.0 / 4, 1, 8);
++    rate->setRange(1.0 / 4, 1, 16);
+ 
+     EffectManifestParameterPointer width = pManifest->addParameter();
+     width->setId("width");
+@@ -104,6 +105,7 @@
+     triplet->setUnitsHint(EffectManifestParameter::UnitsHint::Unknown);
+     triplet->setRange(0, 0, 1);
+ 
++    rx3::addExactBeatTiming(pManifest);
+     return pManifest;
+ }
+ 
+@@ -116,6 +118,7 @@
+     m_pPhaseParameter = parameters.value("phase");
+     m_pQuantizeParameter = parameters.value("quantize");
+     m_pTripletParameter = parameters.value("triplet");
++    m_pExactTimeParameter = parameters.value("rx3_exact_time");
+ }
+ 
+ void TremoloEffect::processChannel(
+@@ -150,14 +153,8 @@
+     int framePerPeriod;
+     double rate = m_pRateParameter->value();
+     if (gf.beat_length.has_value() && gf.beat_fraction_buffer_end.has_value()) {
+-        if (m_pQuantizeParameter->toBool()) {
+-            const auto divider = static_cast<int>(log2(rate));
+-            rate = pow(2, divider);
+-
+-            if (m_pTripletParameter->toBool()) {
+-                rate *= 3.0;
+-            }
+-        }
++        rate = rx3::tremoloRate(rate, true, m_pQuantizeParameter->toBool(),
++                m_pTripletParameter->toBool(), m_pExactTimeParameter->toBool());
+         const auto framePerBeat = static_cast<int>(
+                 gf.beat_length->seconds * engineParameters.sampleRate());
+         framePerPeriod = static_cast<int>(framePerBeat / rate);
+diff --git a/src/effects/backends/builtin/tremoloeffect.h b/src/effects/backends/builtin/tremoloeffect.h
+--- a/src/effects/backends/builtin/tremoloeffect.h
++++ b/src/effects/backends/builtin/tremoloeffect.h
+@@ -53,6 +53,7 @@
+     EngineEffectParameterPointer m_pPhaseParameter;
+     EngineEffectParameterPointer m_pQuantizeParameter;
+     EngineEffectParameterPointer m_pTripletParameter;
++    EngineEffectParameterPointer m_pExactTimeParameter;
+ 
+     DISALLOW_COPY_AND_ASSIGN(TremoloEffect);
+ };
+diff --git a/src/effects/backends/builtin/phasereffect.cpp b/src/effects/backends/builtin/phasereffect.cpp
+--- a/src/effects/backends/builtin/phasereffect.cpp
++++ b/src/effects/backends/builtin/phasereffect.cpp
+@@ -1,6 +1,7 @@
+ #include "effects/backends/builtin/phasereffect.h"
+ 
+ #include "effects/backends/effectmanifest.h"
++#include "effects/rx3beatfxtiming.h"
+ #include "engine/effects/engineeffectparameter.h"
+ 
+ namespace {
+@@ -100,6 +101,7 @@
+     stereo->setUnitsHint(EffectManifestParameter::UnitsHint::Unknown);
+     stereo->setRange(0, 0, 1);
+ 
++    rx3::addExactBeatTiming(pManifest);
+     return pManifest;
+ }
+ 
+@@ -112,6 +114,7 @@
+     m_pRangeParameter = parameters.value("range");
+     m_pTripletParameter = parameters.value("triplet");
+     m_pStereoParameter = parameters.value("stereo");
++    m_pExactTimeParameter = parameters.value("rx3_exact_time");
+ }
+ 
+ void PhaserEffect::processChannel(
+@@ -130,20 +133,12 @@
+         depth = static_cast<CSAMPLE>(m_pDepthParameter->value());
+     }
+ 
+-    double periodParameter = m_pLFOPeriodParameter->value();
+-    double periodSamples;
+-    if (groupFeatures.beat_length.has_value()) {
+-        // periodParameter is a number of beats
+-        periodParameter = std::max(roundToFraction(periodParameter, 2.0), 1 / 4.0);
+-        if (m_pTripletParameter->toBool()) {
+-            periodParameter /= 3.0;
+-        }
+-        periodSamples = periodParameter * groupFeatures.beat_length->seconds *
+-                engineParameters.sampleRate();
+-    } else {
+-        // periodParameter is a number of seconds
+-        periodSamples = std::max(periodParameter, 1 / 4.0) * engineParameters.sampleRate();
+-    }
++    const bool beatTime = groupFeatures.beat_length.has_value();
++    const double periodParameter = rx3::phaserPeriod(m_pLFOPeriodParameter->value(),
++            beatTime, m_pTripletParameter->toBool(), m_pExactTimeParameter->toBool());
++    const double periodSamples = periodParameter *
++            (beatTime ? groupFeatures.beat_length->seconds : 1.0) * engineParameters.sampleRate();
++
+     // freqSkip is used to calculate the phase independently for each channel,
+     // so do not multiply periodSamples by the number of channels.
+     const auto freqSkip = static_cast<CSAMPLE>(1.0f / periodSamples * kDoublePi);
+diff --git a/src/effects/backends/builtin/phasereffect.h b/src/effects/backends/builtin/phasereffect.h
+--- a/src/effects/backends/builtin/phasereffect.h
++++ b/src/effects/backends/builtin/phasereffect.h
+@@ -64,6 +64,7 @@
+     EngineEffectParameterPointer m_pFeedbackParameter;
+     EngineEffectParameterPointer m_pRangeParameter;
+     EngineEffectParameterPointer m_pTripletParameter;
++    EngineEffectParameterPointer m_pExactTimeParameter;
+     EngineEffectParameterPointer m_pStereoParameter;
+ 
+     //Passing the sample through a series of allpass filters
+diff --git a/src/engine/effects/engineeffectchain.h b/src/engine/effects/engineeffectchain.h
+--- a/src/engine/effects/engineeffectchain.h
++++ b/src/engine/effects/engineeffectchain.h
+@@ -2,6 +2,8 @@
+ 
+ #include <QList>
+ #include <QString>
++#include <memory>
++#include "control/controlobject.h"
+ 
+ #include "audio/types.h"
+ #include "engine/channelhandle.h"
+@@ -51,6 +53,7 @@
+                 : oldMixKnob(0),
+                   enableState(EffectEnableState::Disabled) {
+         }
++        double manualBeatPhase = 0;
+         CSAMPLE oldMixKnob;
+         EffectEnableState enableState;
+     };
+@@ -65,6 +68,9 @@
+     bool enableForInputChannel(ChannelHandle inputHandle);
+     bool disableForInputChannel(ChannelHandle inputHandle);
+ 
++    std::unique_ptr<ControlObject> m_rx3BpmDisplay;
++    std::unique_ptr<ControlObject> m_rx3BpmMode;
++    std::unique_ptr<ControlObject> m_rx3ManualBpm;
+     QString m_group;
+     bool m_enableState;
+     EffectChainMixMode::Type m_mixMode;
+diff --git a/src/engine/effects/engineeffectchain.cpp b/src/engine/effects/engineeffectchain.cpp
+--- a/src/engine/effects/engineeffectchain.cpp
++++ b/src/engine/effects/engineeffectchain.cpp
+@@ -13,6 +13,11 @@
+           m_dMix(0),
+           m_buffer1(kMaxEngineSamples),
+           m_buffer2(kMaxEngineSamples) {
++    if (group == "[EffectRack1_EffectUnit1]") {
++        m_rx3BpmDisplay=std::make_unique<ControlObject>(ConfigKey("[RX3BeatFx]","bpm"),true,false,false,0);
++        m_rx3BpmMode=std::make_unique<ControlObject>(ConfigKey("[RX3BeatFx]","bpm_mode"),true,false,true,0);
++        m_rx3ManualBpm=std::make_unique<ControlObject>(ConfigKey("[RX3BeatFx]","bpm_manual"),true,false,true,120);
++    }
+     // Try to prevent memory allocation.
+     m_effects.reserve(256);
+ 
+@@ -223,6 +228,19 @@
+     CSAMPLE lastCallbackMixKnob = channelStatus.oldMixKnob;
+ 
+     bool processingOccured = false;
++    GroupFeatureState effectFeatures=groupFeatures;
++    const bool manualTempo=m_rx3BpmMode && m_rx3BpmMode->get()>0;
++    const double clockBpm=manualTempo ? m_rx3ManualBpm->get() :
++            (!effectFeatures.beat_length && m_rx3BpmDisplay ? m_rx3BpmDisplay->get() : 0);
++    if (clockBpm>0) {
++        // MIC/AUX have no deck beat metadata. Use the displayed AUTO tempo
++        // there, so their timing agrees with the same X-PAD readout.
++        const double bpm=manualTempo ? std::clamp(clockBpm,40.0,300.0) : clockBpm;
++        effectFeatures.beat_length=GroupFeatureBeatLength{60.0/bpm,1.0};
++        channelStatus.manualBeatPhase=std::fmod(channelStatus.manualBeatPhase+
++                numSamples/2.0/sampleRate*bpm/60.0,1.0);
++        effectFeatures.beat_fraction_buffer_end=channelStatus.manualBeatPhase;
++    }
+     if (effectiveChainEnableState != EffectEnableState::Disabled) {
+         // Ramping code inside the effects need to access the original samples
+         // after writing to the output buffer. This requires not to use the same buffer
+@@ -249,7 +267,7 @@
+                             numSamples,
+                             sampleRate,
+                             effectiveChainEnableState,
+-                            groupFeatures)) {
++                            effectFeatures)) {
+                     if (pEffect->getManifest()->addDryToWet()) {
+                         // Skip adding the dry signal to the effect's wet output
+                         // when it is the first addDryToWet type effect in
+@@ -265,7 +283,7 @@
+                                 m_mixMode == EffectChainMixMode::DryPlusWet;
+ 
+                         if (!skipAddingDry) {
+-                            for (SINT i = 0; i <= static_cast<SINT>(numSamples); ++i) {
++                            for (SINT i = 0; i < static_cast<SINT>(numSamples); ++i) {
+                                 pIntermediateOutput[i] += pIntermediateInput[i];
+                             }
+                         }
+diff --git a/src/widget/wrx3toolmenu.h b/src/widget/wrx3toolmenu.h
+--- a/src/widget/wrx3toolmenu.h
++++ b/src/widget/wrx3toolmenu.h
+@@ -18,6 +18,7 @@
+         std::function<QString()> label;
+         std::function<void()> execute;
+         std::function<void(int)> adjust;
++        std::function<void(bool)> editState{};
+     };
+     explicit WRx3ToolMenu(QWidget* parent) : QWidget(parent) {
+         setObjectName("RX3BrowserTools");
+@@ -30,9 +31,10 @@
+         m_status=new QLabel(this);m_status->setWordWrap(true);layout->addWidget(m_status);
+         auto* back=new QPushButton("BACK",this);layout->addWidget(back);
+         connect(back,&QPushButton::clicked,this,[this]{goBack();});
+-        connect(m_list,&QListWidget::itemClicked,this,[this]{enter();});
++        connect(m_list,&QListWidget::itemClicked,this,[this]{if(m_editing && m_list->currentRow()!=m_editRow) finishEditing();enter();});
+     }
+     void showMenu(QString title,std::vector<Action> actions,std::function<void()> back) {
++        finishEditing();
+         m_actions=std::move(actions);m_back=std::move(back);m_editing=false;
+         m_title->setText(std::move(title));m_list->clear();
+         for (const auto& action:m_actions) m_list->addItem(action.label());
+@@ -49,17 +51,27 @@
+         const int row=m_list->currentRow();if (row<0) return;
+         if (m_actions[row].adjust) {
+             m_editing=!m_editing;
++            m_editRow = m_editing ? row : -1;
++            const auto state=m_actions[row].editState;if(state) state(m_editing);
+             message(m_editing?"Turn to change · Press to finish":"Value set · Turn to select");
+         } else {const auto execute=m_actions[row].execute;if(execute) execute();}
+         refresh();
+     }
+     void goBack() {
+-        if(m_editing) {m_editing=false;message("Value set · Turn to select");return;}
++        if(m_editing) {finishEditing();message("Value set · Turn to select");return;}
+         const auto back=m_back;if(back) back();
+     }
+     void message(const QString& text) {m_status->setText(text);}
+     void refresh() {for(int i=0;i<int(m_actions.size());++i) if(auto* item=m_list->item(i)) item->setText(m_actions[i].label());}
++  protected:
++    void hideEvent(QHideEvent* event) override {finishEditing(); QWidget::hideEvent(event);}
+   private:
++    void finishEditing() {
++        if (!m_editing) return;
++        const auto state=m_editRow>=0 && m_editRow<int(m_actions.size()) ? m_actions[m_editRow].editState : std::function<void(bool)>();
++        m_editing=false;m_editRow=-1;if(state) state(false);
++    }
++    int m_editRow=-1;
+     QLabel* m_title;
+     QLabel* m_status;
+     QListWidget* m_list;
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -2279,7 +2279,7 @@
+   target_precompile_headers(mixxx-test REUSE_FROM mixxx-lib)
+   set_target_properties(mixxx-test PROPERTIES AUTOMOC ON)
+   target_link_libraries(mixxx-test PRIVATE mixxx-lib mixxx-gitinfostore GTest::gtest GTest::gmock)
+-  target_include_directories(mixxx-test SYSTEM PRIVATE lib/rekordbox-metadata lib/kaitai)
++  target_include_directories(mixxx-test SYSTEM PRIVATE lib/rekordbox-metadata lib/kaitai lib/reverb)
+ 
+   if(BUILD_BENCH)
+     add_compile_definitions(USE_BENCH)
+diff --git a/src/test/rx3display_test.cpp b/src/test/rx3display_test.cpp
+--- a/src/test/rx3display_test.cpp
++++ b/src/test/rx3display_test.cpp
+@@ -966,6 +966,7 @@
+         browser.m_focus=WRx3Browser::NavigationTarget::Facets;browser.updateNavigationHighlight();
+     }
+     static void fit(WRx3Browser& browser) {browser.fitBrowseRows();}
++    static void sources(WRx3Browser& browser) {browser.showSources();}
+     static void audioTools(WRx3Browser& browser) {browser.showAudioTools();browser.m_pages->setCurrentWidget(browser.m_tools);}
+     static void moveTools(WRx3Browser& browser,int ticks) {browser.move(ticks);}
+     static void enterTools(WRx3Browser& browser) {browser.enter();}
+@@ -2148,3 +2149,54 @@
+     }
+     PlayerInfo::destroy();
+ }
++
++
++TEST_F(Rx3ReferenceScaleTest, BeatFxToolsEncoderSelectsStoresAndReleasesPadOnExit) {
++    auto factory=std::make_shared<ChannelHandleFactory>();
++    EffectsManager effects(config(),factory);
++    for(const auto& group:QStringList{"[MasterOutput]","[Master]","[Channel1]","[Channel2]","[Microphone]","[Microphone2]","[Auxiliary1]"})
++        effects.registerInputChannel(ChannelHandleAndGroup(factory->getOrCreateHandle(group),group));
++    effects.registerOutputChannel(ChannelHandleAndGroup(factory->getOrCreateHandle("[MasterOutput]"),"[MasterOutput]"));
++    effects.setup();
++    PlayerInfo::create();
++    {
++        QWidget canvas;
++        WRx3BeatFx fx(config(),&effects,&canvas);
++        SidebarModel model;auto* sidebar=new WLibrarySidebar;sidebar->setModel(&model);
++        auto* library=new WLibrary(nullptr);
++        WRx3Browser browser(library,sidebar,nullptr,&canvas,config());
++        canvas.resize(1280,800);browser.resize(1280,690);canvas.show();browser.show();QCoreApplication::processEvents();
++        Rx3BrowserTestAccess::sources(browser);QCoreApplication::processEvents();
++        auto* sources=browser.findChild<QTreeWidget*>();ASSERT_TRUE(sources);
++        ASSERT_TRUE(sources->currentItem());EXPECT_EQ("rx3:tools",sources->currentItem()->data(0,Qt::UserRole).toString());
++        Rx3BrowserTestAccess::enterTools(browser); // SOURCE → TOOLS, using the same controller ENTER.
++        auto* list=browser.findChild<QListWidget*>("RX3ToolsActions");ASSERT_TRUE(list);
++        auto select=[&](const QString& prefix) {
++            int row=-1;for(int i=0;i<list->count();++i) if(list->item(i)->text().startsWith(prefix)) {row=i;break;}
++            ASSERT_GE(row,0)<<prefix.toStdString();
++            Rx3BrowserTestAccess::moveTools(browser,row-list->currentRow());Rx3BrowserTestAccess::enterTools(browser);
++        };
++        select("BEAT FX");
++        const auto slot=effects.getEffectChain(WRx3BeatFx::unitGroup())->getEffectSlot(0);
++        select("EFFECT:");Rx3BrowserTestAccess::moveTools(browser,1);
++        ASSERT_TRUE(slot->isLoaded());EXPECT_DOUBLE_EQ(0,ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"enabled")));
++        Rx3BrowserTestAccess::backTools(browser);
++        select("LEVEL / DEPTH:");Rx3BrowserTestAccess::moveTools(browser,2);EXPECT_NEAR(0.6,fx.amount(),1e-9);
++        Rx3BrowserTestAccess::enterTools(browser);
++        select("STORE SELECTED EFFECT IN BANK 1");EXPECT_EQ(slot->getManifest()->uniqueId(),fx.bankId(0));
++        select("MANUAL BPM:");Rx3BrowserTestAccess::moveTools(browser,8);EXPECT_DOUBLE_EQ(128,fx.effectBpm());
++        Rx3BrowserTestAccess::backTools(browser);
++        select("CH SELECT:");Rx3BrowserTestAccess::moveTools(browser,-10);
++        EXPECT_DOUBLE_EQ(1,ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"group_[Master]_enable")));
++        Rx3BrowserTestAccess::backTools(browser);
++        select("X-PAD:");EXPECT_DOUBLE_EQ(1,ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"enabled")));
++        Rx3BrowserTestAccess::moveTools(browser,2);
++        EXPECT_DOUBLE_EQ(1,rx3FxParameter(slot,"delay_time")->getValue());
++        EXPECT_TRUE(list->currentItem()->text().contains("1 BEAT"));
++        Rx3BrowserTestAccess::backTools(browser);EXPECT_DOUBLE_EQ(0,ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"enabled")));
++        select("X-PAD:");browser.hide();QCoreApplication::processEvents();
++        EXPECT_DOUBLE_EQ(0,ControlObject::get(ConfigKey("[RX3BeatFx]","xpad_hold")));
++        EXPECT_DOUBLE_EQ(0,ControlObject::get(ConfigKey(WRx3BeatFx::unitGroup(),"enabled")));
++    }
++    PlayerInfo::destroy();
++}
+diff --git a/src/effects/rx3beatfxtiming.h b/src/effects/rx3beatfxtiming.h
+new file mode 100644
+--- /dev/null
++++ b/src/effects/rx3beatfxtiming.h
+@@ -0,0 +1,40 @@
++#pragma once
++
++#include <algorithm>
++#include <cmath>
++
++#include "effects/backends/effectmanifest.h"
++
++namespace rx3 {
++// X-PAD cells specify exact periods. Keep the legacy knob quantization available
++// when this switch is off; the same functions drive DSP and RX3 readouts.
++inline void addExactBeatTiming(const EffectManifestPointer& manifest) {
++    auto parameter = manifest->addParameter();
++    parameter->setId("rx3_exact_time");
++    parameter->setName(QObject::tr("Exact X-PAD timing"));
++    parameter->setShortName(QObject::tr("Exact"));
++    parameter->setValueScaler(EffectManifestParameter::ValueScaler::Toggle);
++    parameter->setRange(0, 0, 1);
++}
++inline double echoPeriod(double value, bool beats, bool quantize, bool triplet, bool exact) {
++    if (exact) return std::max(1.0 / 16, value);
++    if (beats && quantize) {
++        value = std::max(1.0 / 8, std::round(value * 4) / 4);
++        if (triplet) value /= 3;
++        return value;
++    }
++    return std::max(1.0 / 8, value);
++}
++inline double phaserPeriod(double value, bool beats, bool triplet, bool exact) {
++    if (exact) return std::max(1.0 / 16, value);
++    value = std::max(1.0 / 4, beats ? std::round(value * 2) / 2 : value);
++    return beats && triplet ? value / 3 : value;
++}
++inline double tremoloRate(double value, bool beats, bool quantize, bool triplet, bool exact) {
++    if (beats && quantize && !exact) {
++        value = std::pow(2.0, static_cast<int>(std::log2(value)));
++        if (triplet) value *= 3;
++    }
++    return value;
++}
++}

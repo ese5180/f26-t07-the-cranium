@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="title desc">
+<title id="title">NauticMixxx 2.0</title><desc id="desc">Native DJ workspace. Rekordbox USB, RX3 workflow, macOS and Windows.</desc>
+<rect x="1" y="1" width="1278" height="318" rx="18" fill="#090b0e" stroke="#252a31"/>
+<path d="M76 65h28" stroke="#00a3c7" stroke-width="2"/>
+<text x="119" y="70" fill="#939ca8" font-family="Menlo,Consolas,monospace" font-size="13" letter-spacing="3">NATIVE DJ WORKSPACE</text>
+<text x="72" y="169" fill="#f4f6f8" font-family="Avenir Next,Avenir,Trebuchet MS,sans-serif" font-size="76" font-weight="500" letter-spacing="-2">NauticMixxx</text>
+<text x="77" y="235" fill="#a3aab4" font-family="Avenir Next,Avenir,Trebuchet MS,sans-serif" font-size="21">Your USB. Your set.</text>
+<path d="M859 65v190" stroke="#272d35"/>
+<text x="918" y="76" fill="#939ca8" font-family="Menlo,Consolas,monospace" font-size="12" letter-spacing="2">RELEASE 2.0.0</text>
+<text x="906" y="199" fill="#f4f6f8" font-family="Avenir Next,Avenir,Trebuchet MS,sans-serif" font-size="110" font-weight="300" letter-spacing="-6">2.0</text>
+<text x="917" y="245" fill="#a3aab4" font-family="Menlo,Consolas,monospace" font-size="13" letter-spacing="1">macOS + Windows</text>
+</svg>

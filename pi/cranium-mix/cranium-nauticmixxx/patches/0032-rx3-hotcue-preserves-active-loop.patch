@@ -1,0 +1,415 @@
+diff --git a/src/engine/controls/cuecontrol.cpp b/src/engine/controls/cuecontrol.cpp
+index 5cacdc1..702ee42 100644
+--- a/src/engine/controls/cuecontrol.cpp
++++ b/src/engine/controls/cuecontrol.cpp
+@@ -993,13 +993,31 @@ void CueControl::hotcueSet(HotcueControl* pControl, double value, HotcueSetMode
+     }
+ }
+ 
++void CueControl::seekHotcue(mixxx::audio::FramePos position, bool exact) {
++    auto* engine = getEngineBuffer();
++    if (!engine || !position.isValid()) {
++        return;
++    }
++    if (m_pLoopEnabled->toBool()) {
++        // Loop relocation preserves phase through the normal quantized seek.
++        const auto target = quantizeCuePoint(position);
++        if (target.isValid()) {
++            engine->queueNewPlaypos(target, EngineBuffer::SEEK_HOTCUE);
++        }
++    } else if (exact) {
++        seekExact(position);
++    } else {
++        seekAbs(position);
++    }
++}
++
+ void CueControl::hotcueGoto(HotcueControl* pControl, double value) {
+     if (value <= 0) {
+         return;
+     }
+     const mixxx::audio::FramePos position = pControl->getPosition();
+     if (position.isValid()) {
+-        seekAbs(position);
++        seekHotcue(position);
+     }
+ }
+ 
+@@ -1015,7 +1033,7 @@ void CueControl::hotcueGotoAndStop(HotcueControl* pControl, double value) {
+ 
+     if (m_currentlyPreviewingIndex == Cue::kNoHotCue) {
+         m_pPlay->set(0.0);
+-        seekExact(position);
++        seekHotcue(position, true);
+     } else {
+         // this becomes a play latch command if we are previewing
+         m_pPlay->set(0.0);
+@@ -1028,7 +1046,7 @@ void CueControl::hotcueGotoAndPlay(HotcueControl* pControl, double value) {
+     }
+     const mixxx::audio::FramePos position = pControl->getPosition();
+     if (position.isValid()) {
+-        seekAbs(position);
++        seekHotcue(position);
+         // End previewing to not jump back if a sticking finger on a cue
+         // button is released (just in case)
+         updateCurrentlyPreviewingIndex(Cue::kNoHotCue);
+@@ -1199,7 +1217,11 @@ void CueControl::hotcueActivatePreview(HotcueControl* pControl, double value) {
+                 } else if (pControl->getStatus() == HotcueControl::Status::Set) {
+                     pControl->setStatus(HotcueControl::Status::Active);
+                 }
+-                seekAbs(position);
++                if (type == mixxx::CueType::HotCue) {
++                    seekHotcue(position);
++                } else {
++                    seekAbs(position);
++                }
+                 m_pPlay->set(1.0);
+             }
+         }
+@@ -1209,7 +1231,11 @@ void CueControl::hotcueActivatePreview(HotcueControl* pControl, double value) {
+         updateCurrentlyPreviewingIndex(Cue::kNoHotCue);
+         m_pPlay->set(0.0);
+         if (position.isValid()) {
+-            seekExact(position);
++            if (pControl->getPreviewingType() == mixxx::CueType::HotCue) {
++                seekHotcue(position, true);
++            } else {
++                seekExact(position);
++            }
+         }
+     }
+ 
+diff --git a/src/engine/controls/cuecontrol.h b/src/engine/controls/cuecontrol.h
+index a9364b8..5afc5bb 100644
+--- a/src/engine/controls/cuecontrol.h
++++ b/src/engine/controls/cuecontrol.h
+@@ -286,6 +286,7 @@ class CueControl : public EngineControl {
+     mixxx::audio::FramePos getQuantizedCurrentPosition();
+     TrackAt getTrackAt() const;
+     void seekOnLoad(mixxx::audio::FramePos seekOnLoadPosition);
++    void seekHotcue(mixxx::audio::FramePos position, bool exact = false);
+     void setHotcueFocusIndex(int hotcueIndex);
+     int getHotcueFocusIndex() const;
+     mixxx::RgbColor colorFromConfig(const ConfigKey& configKey);
+diff --git a/src/engine/controls/loopingcontrol.cpp b/src/engine/controls/loopingcontrol.cpp
+index b27a576..a737643 100644
+--- a/src/engine/controls/loopingcontrol.cpp
++++ b/src/engine/controls/loopingcontrol.cpp
+@@ -684,6 +684,27 @@ void LoopingControl::setBeatLoop(mixxx::audio::FramePos startPosition, bool enab
+     }
+ }
+ 
++bool LoopingControl::relocateLoopToHotcue(mixxx::audio::FramePos startPosition) {
++    const auto previous = m_loopInfo.getValue();
++    if (!m_bLoopingEnabled || !startPosition.isValid() ||
++            !previous.startPosition.isValid() || !previous.endPosition.isValid() ||
++            previous.endPosition <= previous.startPosition) {
++        return false;
++    }
++    auto endPosition = startPosition + (previous.endPosition - previous.startPosition);
++    // Preserve a beat loop's musical length even across a variable-tempo grid.
++    // Manually trimmed loops retain their exact sample duration.
++    const double beats = findBeatloopSizeForLoop(previous.startPosition, previous.endPosition);
++    if (m_pBeats && beats > 0) {
++        const auto beatEnd = m_pBeats->findNBeatsFromPosition(startPosition, beats);
++        if (beatEnd.isValid() && beatEnd > startPosition) {
++            endPosition = beatEnd;
++        }
++    }
++    setLoop(startPosition, endPosition, true);
++    return true;
++}
++
+ void LoopingControl::setLoop(mixxx::audio::FramePos startPosition,
+         mixxx::audio::FramePos endPosition,
+         bool enabled) {
+diff --git a/src/engine/controls/loopingcontrol.h b/src/engine/controls/loopingcontrol.h
+index 6cae774..941d513 100644
+--- a/src/engine/controls/loopingcontrol.h
++++ b/src/engine/controls/loopingcontrol.h
+@@ -55,6 +55,8 @@ class LoopingControl : public EngineControl {
+             bool reverse);
+ 
+     void setBeatLoop(mixxx::audio::FramePos startPosition, bool enabled);
++    // Called from the engine callback while processing a hot cue seek.
++    bool relocateLoopToHotcue(mixxx::audio::FramePos startPosition);
+     void setLoop(mixxx::audio::FramePos startPosition,
+             mixxx::audio::FramePos endPosition,
+             bool enabled);
+diff --git a/src/engine/enginebuffer.cpp b/src/engine/enginebuffer.cpp
+index 34ad50c..c74ef96 100644
+--- a/src/engine/enginebuffer.cpp
++++ b/src/engine/enginebuffer.cpp
+@@ -487,7 +487,7 @@ void EngineBuffer::readToCrossfadeBuffer(const int iBufferSize) {
+ 
+ // WARNING: This method is not thread safe and must not be called from outside
+ // the engine callback!
+-void EngineBuffer::setNewPlaypos(mixxx::audio::FramePos position) {
++void EngineBuffer::setNewPlaypos(mixxx::audio::FramePos position, bool preserveLoop) {
+     if (kLogger.traceEnabled()) {
+         kLogger.trace() << "setNewPlaypos" << m_group << position;
+     }
+@@ -508,7 +508,9 @@ void EngineBuffer::setNewPlaypos(mixxx::audio::FramePos position) {
+ 
+     // Must hold the engineLock while using m_engineControls
+     for (const auto& pControl : std::as_const(m_engineControls)) {
+-        pControl->notifySeek(m_playPos);
++        if (!preserveLoop || pControl != m_pLoopingControl) {
++            pControl->notifySeek(m_playPos);
++        }
+     }
+ 
+     verifyPlay(); // verify or update play button and indicator
+@@ -1458,6 +1460,8 @@ void EngineBuffer::processSeek(bool paused) {
+             // only adjust phase
+             position = m_playPos;
+             break;
++        case SEEK_HOTCUE:
++        case SEEK_HOTCUE_PHASE:
+         case SEEK_STANDARD:
+             if (m_pQuantize->toBool()) {
+                 seekType |= SEEK_PHASE;
+@@ -1490,6 +1494,16 @@ void EngineBuffer::processSeek(bool paused) {
+     // Don't allow the playposition to go past the end.
+     position = std::min<mixxx::audio::FramePos>(position, m_trackEndPositionOld);
+ 
++    // Move the loop in the same audio callback as the hot cue seek. Other seeks
++    // (overview, main CUE, beat jumps) retain their existing loop-exit behavior.
++    const bool hotcueSeek = (seekType & SEEK_HOTCUE);
++    bool preserveLoop = false;
++    if (hotcueSeek && m_pLoopingControl->isLoopingEnabled()) {
++        // A relocated saved loop is a temporary loop, not an edit to its cue.
++        m_pCueControl->slotLoopReset();
++        preserveLoop = m_pLoopingControl->relocateLoopToHotcue(position);
++    }
++
+     if (!paused && (seekType & SEEK_PHASE)) {
+         if (kLogger.traceEnabled()) {
+             kLogger.trace() << "processSeek" << getGroup() << "Seeking phase";
+@@ -1507,7 +1521,7 @@ void EngineBuffer::processSeek(bool paused) {
+         if (kLogger.traceEnabled()) {
+             kLogger.trace() << "processSeek" << getGroup() << "Seek to" << position;
+         }
+-        setNewPlaypos(position);
++        setNewPlaypos(position, preserveLoop);
+         m_previousBufferSeek = true;
+     }
+     // Reset the m_queuedSeek value after it has been processed in
+diff --git a/src/engine/enginebuffer.h b/src/engine/enginebuffer.h
+index 9d37440..98e7540 100644
+--- a/src/engine/enginebuffer.h
++++ b/src/engine/enginebuffer.h
+@@ -79,7 +79,10 @@ class EngineBuffer : public EngineObject {
+         /// phase seek are scheduled at the same time.
+         SEEK_STANDARD_PHASE = SEEK_STANDARD | SEEK_PHASE,
+         /// #SEEK_EXACT to the other deck position
+-        SEEK_CLONE = 1 << 3
++        SEEK_CLONE = 1 << 3,
++        /// Relocate an active loop with a hot cue, then apply normal quantization.
++        SEEK_HOTCUE = 1 << 4,
++        SEEK_HOTCUE_PHASE = SEEK_HOTCUE | SEEK_PHASE
+     };
+     Q_DECLARE_FLAGS(SeekRequests, SeekRequest);
+ 
+@@ -284,7 +287,7 @@ class EngineBuffer : public EngineObject {
+     void readToCrossfadeBuffer(const int iBufferSize);
+ 
+     // Reset buffer playpos and set file playpos.
+-    void setNewPlaypos(mixxx::audio::FramePos playpos);
++    void setNewPlaypos(mixxx::audio::FramePos playpos, bool preserveLoop = false);
+ 
+     void processSyncRequests();
+     void processSeek(bool paused);
+diff --git a/src/test/hotcuecontrol_test.cpp b/src/test/hotcuecontrol_test.cpp
+index eef9c03..47ff5b4 100644
+--- a/src/test/hotcuecontrol_test.cpp
++++ b/src/test/hotcuecontrol_test.cpp
+@@ -91,6 +91,21 @@ class HotcueControlTest : public BaseSignalPathTest {
+         ProcessBuffer();
+     }
+ 
++    void prepareLoopAndHotcue(mixxx::audio::FramePos start,
++            mixxx::audio::FramePos end,
++            mixxx::audio::FramePos cue) {
++        m_pQuantizeEnabled->set(0);
++        setCurrentFramePosition(cue);
++        m_pHotcue1SetCue->set(1);
++        m_pHotcue1SetCue->set(0);
++        setCurrentFramePosition(start);
++        m_pLoopStartPosition->set(start.toEngineSamplePos());
++        m_pLoopEndPosition->set(end.toEngineSamplePos());
++        m_pLoopEnabled->set(1);
++        ProcessBuffer();
++        ASSERT_TRUE(m_pLoopEnabled->toBool());
++    }
++
+     std::unique_ptr<ControlProxy> m_pPlay;
+     std::unique_ptr<ControlProxy> m_pBeatloopActivate;
+     std::unique_ptr<ControlProxy> m_pBeatloopSize;
+@@ -1524,3 +1539,166 @@ TEST_F(HotcueControlTest, SavedLoopUseLoopInOutWhileActive) {
+     EXPECT_FRAMEPOS_EQ_CONTROL(mixxx::audio::kStartFramePos, m_pHotcue1Position);
+     EXPECT_FRAMEPOS_EQ_CONTROL(loopEndPosition, m_pHotcue1EndPosition);
+ }
++
++// Ordinary hot cues relocate an active loop; recalling a saved loop continues
++// to use that saved loop's own boundaries.
++TEST_F(HotcueControlTest, Rx3HotcueMovesPlayingLoopForwardAndBackward) {
++    const auto track = loadTestTrackWithBpm(120);
++    const double beat = getBeatLengthFrames(track);
++    const auto target = mixxx::audio::FramePos(16 * beat);
++    prepareLoopAndHotcue(mixxx::audio::FramePos(4 * beat),
++            mixxx::audio::FramePos(8 * beat), target);
++    m_pPlay->set(1);
++    ProcessBuffer();
++    m_pHotcue1Activate->set(1);
++    ProcessBuffer();
++    m_pHotcue1Activate->set(0);
++    ProcessBuffer();
++    EXPECT_TRUE(m_pLoopEnabled->toBool());
++    EXPECT_FRAMEPOS_EQ_CONTROL(target, m_pLoopStartPosition);
++    EXPECT_FRAMEPOS_EQ_CONTROL(target + 4 * beat, m_pLoopEndPosition);
++    // Run through several complete wraps, including pad release.
++    for (int i = 0; i < 400; ++i) ProcessBuffer();
++    EXPECT_TRUE(m_pLoopEnabled->toBool());
++    EXPECT_GE(currentFramePosition(), target);
++    EXPECT_LT(currentFramePosition(), target + 4 * beat);
++
++    m_pPlay->set(0);
++    m_pLoopEnabled->set(0);
++    setCurrentFramePosition(mixxx::audio::FramePos(2 * beat));
++    m_pHotcue1SetCue->set(1);
++    m_pHotcue1SetCue->set(0);
++    setCurrentFramePosition(target);
++    m_pLoopEnabled->set(1);
++    m_pPlay->set(1);
++    ProcessBuffer();
++    m_pHotcue1GotoAndPlay->set(1);
++    m_pHotcue1GotoAndPlay->set(0);
++    ProcessBuffer();
++    EXPECT_TRUE(m_pLoopEnabled->toBool());
++    EXPECT_FRAMEPOS_EQ_CONTROL(mixxx::audio::FramePos(2 * beat), m_pLoopStartPosition);
++    EXPECT_FRAMEPOS_EQ_CONTROL(mixxx::audio::FramePos(6 * beat), m_pLoopEndPosition);
++    EXPECT_GE(currentFramePosition(), mixxx::audio::FramePos(2 * beat));
++    EXPECT_LT(currentFramePosition(), mixxx::audio::FramePos(6 * beat));
++}
++
++TEST_F(HotcueControlTest, Rx3HotcueKeepsManualDurationWithoutQuantize) {
++    loadTestTrackWithBpm(120);
++    const auto target = mixxx::audio::FramePos(200123);
++    prepareLoopAndHotcue(mixxx::audio::FramePos(1000),
++            mixxx::audio::FramePos(17345), target);
++    m_pHotcue1Goto->set(1);
++    m_pHotcue1Goto->set(0);
++    ProcessBuffer();
++    EXPECT_TRUE(m_pLoopEnabled->toBool());
++    EXPECT_FRAMEPOS_EQ_CONTROL(target, m_pLoopStartPosition);
++    EXPECT_FRAMEPOS_EQ_CONTROL(target + 16345, m_pLoopEndPosition);
++    EXPECT_FRAMEPOS_EQ(target, currentFramePosition());
++}
++
++TEST_F(HotcueControlTest, Rx3HotcueQuantizePreservesPhaseAndBeatLength) {
++    const auto track = loadTestTrackWithBpm(120);
++    const double beat = getBeatLengthFrames(track);
++    const auto target = mixxx::audio::FramePos(16 * beat + 1000);
++    prepareLoopAndHotcue(mixxx::audio::FramePos(4 * beat),
++            mixxx::audio::FramePos(8 * beat), target);
++    m_pPlay->set(1);
++    for (int i = 0; i < 5; ++i) ProcessBuffer();
++    const auto before = m_pChannel1->getEngineBuffer()->getExactPlayPos();
++    m_pQuantizeEnabled->set(1);
++    m_pHotcue1Activate->set(1);
++    ProcessBuffer();
++    const auto after = m_pChannel1->getEngineBuffer()->getExactPlayPos();
++    EXPECT_TRUE(m_pLoopEnabled->toBool());
++    EXPECT_FRAMEPOS_EQ_CONTROL(mixxx::audio::FramePos(16 * beat), m_pLoopStartPosition);
++    EXPECT_FRAMEPOS_EQ_CONTROL(mixxx::audio::FramePos(20 * beat), m_pLoopEndPosition);
++    // One callback advances 512 stereo frames. The cue's off-grid offset
++    // must not replace the phase that was playing before the jump.
++    EXPECT_NEAR(0, std::remainder((after - before) - kProcessBufferSize / 2, beat), 1);
++    EXPECT_FRAMEPOS_EQ_CONTROL(target, m_pHotcue1Position);
++    m_pHotcue1Activate->set(0);
++    ProcessBuffer();
++    EXPECT_TRUE(m_pLoopEnabled->toBool());
++}
++
++TEST_F(HotcueControlTest, Rx3HotcueQuantizeWrapsPhaseInsideFractionalLoop) {
++    const auto track = loadTestTrackWithBpm(120);
++    const double beat = getBeatLengthFrames(track);
++    prepareLoopAndHotcue(mixxx::audio::FramePos(4 * beat),
++            mixxx::audio::FramePos(4.5 * beat), mixxx::audio::FramePos(16 * beat + 500));
++    m_pPlay->set(1);
++    for (int i = 0; i < 18; ++i) ProcessBuffer();
++    m_pQuantizeEnabled->set(1);
++    m_pHotcue1Activate->set(1);
++    ProcessBuffer();
++    EXPECT_TRUE(m_pLoopEnabled->toBool());
++    EXPECT_FRAMEPOS_EQ_CONTROL(mixxx::audio::FramePos(16 * beat), m_pLoopStartPosition);
++    EXPECT_FRAMEPOS_EQ_CONTROL(mixxx::audio::FramePos(16.5 * beat), m_pLoopEndPosition);
++    EXPECT_GE(currentFramePosition(), mixxx::audio::FramePos(16 * beat));
++    EXPECT_LT(currentFramePosition(), mixxx::audio::FramePos(16.5 * beat));
++}
++
++TEST_F(HotcueControlTest, Rx3HotcueMovesSavedLoopWithoutEditingStoredCue) {
++    const auto track = loadTestTrackWithBpm(120);
++    const double beat = getBeatLengthFrames(track);
++    const auto start = mixxx::audio::FramePos(4 * beat);
++    const auto end = mixxx::audio::FramePos(8 * beat);
++    const auto target = mixxx::audio::FramePos(16 * beat);
++    prepareLoopAndHotcue(start, end, target);
++    ControlProxy hotcue2Set(m_sGroup1, "hotcue_2_setcue");
++    hotcue2Set.set(1);
++    hotcue2Set.set(0);
++    m_pHotcue2Position->set(target.toEngineSamplePos());
++    // Store the active loop in slot 1, replacing the ordinary hot cue there.
++    m_pHotcue1SetLoop->set(1);
++    m_pHotcue1SetLoop->set(0);
++    ASSERT_DOUBLE_EQ(static_cast<double>(HotcueControl::Status::Active), m_pHotcue1Status->get());
++    m_pPlay->set(1);
++    ProcessBuffer();
++    m_pHotcue2Activate->set(1);
++    ProcessBuffer();
++    EXPECT_TRUE(m_pLoopEnabled->toBool());
++    EXPECT_FRAMEPOS_EQ_CONTROL(target, m_pLoopStartPosition);
++    EXPECT_FRAMEPOS_EQ_CONTROL(target + 4 * beat, m_pLoopEndPosition);
++    EXPECT_FRAMEPOS_EQ_CONTROL(start, m_pHotcue1Position);
++    EXPECT_FRAMEPOS_EQ_CONTROL(end, m_pHotcue1EndPosition);
++    EXPECT_DOUBLE_EQ(static_cast<double>(HotcueControl::Status::Set), m_pHotcue1Status->get());
++}
++
++TEST_F(HotcueControlTest, Rx3HotcueMovesReverseLoopWithoutDisablingIt) {
++    const auto track = loadTestTrackWithBpm(120);
++    const double beat = getBeatLengthFrames(track);
++    const auto target = mixxx::audio::FramePos(16 * beat);
++    prepareLoopAndHotcue(mixxx::audio::FramePos(4 * beat),
++            mixxx::audio::FramePos(8 * beat), target);
++    ControlProxy reverse(m_sGroup1, "reverse");
++    reverse.set(1);
++    m_pPlay->set(1);
++    ProcessBuffer();
++    m_pHotcue1Activate->set(1);
++    ProcessBuffer();
++    m_pHotcue1Activate->set(0);
++    for (int i = 0; i < 5; ++i) ProcessBuffer();
++    EXPECT_TRUE(m_pLoopEnabled->toBool());
++    EXPECT_FRAMEPOS_EQ_CONTROL(target, m_pLoopStartPosition);
++    EXPECT_FRAMEPOS_EQ_CONTROL(target + 4 * beat, m_pLoopEndPosition);
++    EXPECT_GE(currentFramePosition(), target);
++    EXPECT_LT(currentFramePosition(), target + 4 * beat);
++}
++
++TEST_F(HotcueControlTest, Rx3HotcuePreviewReleaseKeepsRelocatedLoopPaused) {
++    const auto track = loadTestTrackWithBpm(120);
++    const double beat = getBeatLengthFrames(track);
++    const auto target = mixxx::audio::FramePos(16 * beat);
++    prepareLoopAndHotcue(mixxx::audio::FramePos(4 * beat),
++            mixxx::audio::FramePos(8 * beat), target);
++    m_pHotcue1Activate->set(1);
++    ProcessBuffer();
++    m_pHotcue1Activate->set(0);
++    ProcessBuffer();
++    EXPECT_FALSE(m_pPlay->toBool());
++    EXPECT_TRUE(m_pLoopEnabled->toBool());
++    EXPECT_FRAMEPOS_EQ_CONTROL(target, m_pLoopStartPosition);
++    EXPECT_FRAMEPOS_EQ_CONTROL(target + 4 * beat, m_pLoopEndPosition);
++    EXPECT_FRAMEPOS_EQ(target, currentFramePosition());
++}

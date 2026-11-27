@@ -1,0 +1,16 @@
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.*
+build/
+output/
+captures/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.img
+*.img.xz
+*.p12
+*.key

@@ -1,0 +1,738 @@
+diff --git a/src/widget/wrx3browser.h b/src/widget/wrx3browser.h
+--- a/src/widget/wrx3browser.h
++++ b/src/widget/wrx3browser.h
+@@ -41,6 +41,7 @@
+ #include "widget/rx3browsernavigation.h"
+ #include "widget/rx3libraryworkflow.h"
+ #include "widget/wrx3toolmenu.h"
++#include "widget/wrx3utility.h"
+ #include "widget/wrx3beatfx.h"
+ #include "widget/rx3touchpreview.h"
+ #include "widget/rx3browserplayback.h"
+@@ -134,7 +135,6 @@
+         auto* h = new QHBoxLayout;h->setContentsMargins(0,0,0,0);h->setSpacing(4);headerLayout->addLayout(h);
+         m_source = new QPushButton("SOURCE", header); m_source->setObjectName("RX3SourceButton");
+         h->addWidget(m_source);
+-        m_source->setStyleSheet("border-top: 2px solid #008baa;");
+         m_headerButtons.push_back(m_source);
+         const auto addHeader=[this,header,h](const QString& text,const QString& name,std::function<void()> action) {
+             auto* button=new QPushButton(text,header);button->setObjectName(name);h->addWidget(button);
+@@ -147,7 +147,17 @@
+             if(m_selectedCategory=="SEARCH" && m_pages->currentIndex()==0) {m_keyboard->show();m_search->setFocus();}
+             else if(prepareSourceNavigation()) openSearch();
+         });
+-        addHeader("MENU","RX3BrowserToolsButton",[this]{showTools();});
++        auto* menu=addHeader("MENU","RX3BrowserToolsButton",[this]{
++            if(m_menuHeld) {m_menuHeld=false;return;}
++            if(m_menuHoldTimer) m_menuHoldTimer->stop();
++            if(m_pages->currentWidget()==m_utility) closeUtility();else showTools();
++        });
++        menu->setToolTip("MENU · Hold 2 seconds for UTILITY");
++        menu->setAccessibleName("MENU / UTILITY");
++        m_menuHoldTimer=new QTimer(this);m_menuHoldTimer->setSingleShot(true);m_menuHoldTimer->setInterval(2000);
++        connect(menu,&QPushButton::pressed,this,[this]{m_menuHeld=false;m_menuHoldTimer->start();});
++        connect(menu,&QPushButton::released,m_menuHoldTimer,&QTimer::stop);
++        connect(m_menuHoldTimer,&QTimer::timeout,this,[this]{m_menuHeld=true;showUtility();});
+         h->addStretch(1);
+         auto* detailRow=new QHBoxLayout;detailRow->setContentsMargins(0,0,0,0);headerLayout->addLayout(detailRow);
+         m_sourceLabel=new QLabel(header);m_sourceLabel->setObjectName("RX3BrowserDeviceLabel");m_sourceLabel->hide();detailRow->addWidget(m_sourceLabel);
+@@ -266,6 +276,9 @@
+         connect(m_sourceSettings,&QPushButton::clicked,this,[this]{openSourceSettings();});
+         sl->addWidget(sourceInfoPanel, 2); m_pages->addWidget(sourcePage);
+         m_tools=new WRx3ToolMenu(m_pages);m_pages->addWidget(m_tools);
++        m_utility=new WRx3Utility(m_pages);m_pages->addWidget(m_utility);
++        connect(m_pages,&QStackedWidget::currentChanged,this,[this]{updateHeaderHighlight();});
++        for(auto* button:m_headerButtons) connect(button,&QPushButton::clicked,this,[this]{updateHeaderHighlight();});
+         connect(m_source, &QPushButton::clicked, this, [this]{ showSources(); });
+         connect(m_search, &QLineEdit::textChanged, m_library, [this](const QString& query){
+             if(m_selectedCategory=="SEARCH" && deviceReady(m_selectedDevice)) {
+@@ -307,6 +320,7 @@
+         } });
+         makeControl("open", [this](double value){ if(value > 0) openBrowser(); });
+         makeControl("tools",[this](double value){if(value>0) showTools();});
++        makeControl("utility",[this](double value){if(value>0) {if(m_pages->currentWidget()==m_utility) closeUtility();else showUtility();}});
+         makeControl("browse",[this](double value){if(value>0) browseSelectedSource();});
+         makeControl("tag_list",[this](double value){if(value>0) openSourceSection("TAG LIST");});
+         makeControl("playlist",[this](double value){if(value>0) openSourceSection("PLAYLIST");});
+@@ -450,7 +464,20 @@
+     };
+     enum class BrowserLevel { Categories, Hierarchy, FacetValues, Tracks, Notice };
+ 
++    void updateHeaderHighlight() {
++        int selected=1;
++        if(m_pages->currentWidget()==m_tools || m_pages->currentWidget()==m_utility) selected=5;
++        else if(m_pages->currentIndex()==1) selected=0;
++        else if(m_selectedCategory=="TAG LIST") selected=2;
++        else if(m_selectedCategory=="PLAYLIST") selected=3;
++        else if(m_selectedCategory=="SEARCH") selected=4;
++        for(int i=0;i<m_headerButtons.size();++i) {
++            auto* button=m_headerButtons[i];button->setProperty("active",i==selected);
++            button->style()->unpolish(button);button->style()->polish(button);button->update();
++        }
++    }
+     void updateNavigationHighlight() {
++        updateHeaderHighlight();
+         const bool categories=m_focus==NavigationTarget::Categories;
+         m_categories->setProperty("categoryFocus",categories);
+         m_categories->viewport()->update();
+@@ -1111,7 +1138,8 @@
+         const auto color=rx3::sourceColor(rx3::readSourceColor(root)).name();
+         m_sourceLabel->setText(QString("USB%1").arg(m_usbSlots.value(root)));
+         m_sourceLabel->setStyleSheet("background:"+color+";color:white;padding:8px;font-size:16px;");
+-        m_sourceLabel->setVisible(m_pages->currentIndex()!=1 && !root.isEmpty());
++        m_sourceLabel->setVisible(m_pages->currentIndex()!=1 && m_pages->currentWidget()!=m_tools &&
++                m_pages->currentWidget()!=m_utility && !root.isEmpty());
+         const int row=m_sources->indexOfTopLevelItem(m_sources->currentItem());
+         if(m_pages->currentIndex()==1 && !m_refreshingSources) updateSourceInfo(row);
+     }
+@@ -1248,6 +1276,7 @@
+         m_focus=NavigationTarget::Categories;m_categories->setFocus();updateNavigationHighlight();
+     }
+     void move(int delta) {
++        if(m_pages->currentWidget()==m_utility) {m_utility->move(delta);return;}
+         if(m_pages->currentWidget()==m_tools) {m_tools->move(delta);return;}
+         if(m_pages->currentIndex()==1 && m_sourceDetails->currentWidget()==m_sourceMenu) {m_sourceMenu->move(delta);return;}
+         if(m_focus==NavigationTarget::Facets) {if(m_facets->count()) m_facets->setCurrentRow(qBound(0,m_facets->currentRow()+delta,m_facets->count()-1));updateFacetPreview();return;}
+@@ -1274,6 +1303,7 @@
+         updatePlaylistPreview();
+     }
+     void enter() {
++        if(m_pages->currentWidget()==m_utility) {m_utility->enter();return;}
+         if(m_pages->currentWidget()==m_tools) {m_tools->enter();return;}
+         if(m_pages->currentIndex()==1 && m_sourceDetails->currentWidget()==m_sourceMenu) {m_sourceMenu->enter();return;}
+         if(m_focus==NavigationTarget::Facets) {chooseFacet();return;}
+@@ -1291,6 +1321,7 @@
+         enterTree(selectedTreeIndex());
+     }
+     void back() {
++        if(m_pages->currentWidget()==m_utility) {m_utility->back();return;}
+         if(m_pages->currentWidget()==m_tools) {if(m_toolPreview) m_toolPreview->cancel();m_tools->goBack();return;}
+         if(m_pages->currentIndex()==1 && m_sourceDetails->currentWidget()==m_sourceMenu) {m_sourceMenu->goBack();return;}
+         if(m_focus==NavigationTarget::Source) {
+@@ -1338,6 +1369,12 @@
+         showSources();
+     }
+     void showTools();
++    void showUtility();
++    void closeUtility() {
++        m_pages->setCurrentIndex(m_utilityReturnPage);m_focus=m_utilityReturnFocus;
++        m_breadcrumb->setText(m_utilityReturnBreadcrumb);updateSourceAppearance();
++        updateNavigationHighlight();
++    }
+     void showTagTools();
+     void showBankTools();
+     void showFilterTools();
+@@ -1359,9 +1396,16 @@
+         if(m_toolPreview) m_toolPreview->cancel();
+         if(m_toolReturnPage==1) {showSources();return;}
+         m_pages->setCurrentIndex(m_toolReturnPage);m_focus=m_toolReturnFocus;updateNavigationHighlight();
++        m_breadcrumb->setText(m_toolReturnBreadcrumb);
+         updateSourceAppearance();
+     }
+     WRx3ToolMenu* m_tools=nullptr;
++    WRx3Utility* m_utility=nullptr;
++    QTimer* m_menuHoldTimer=nullptr;
++    bool m_menuHeld=false;
++    int m_utilityReturnPage=0;
++    NavigationTarget m_utilityReturnFocus=NavigationTarget::Source;
++    QString m_utilityReturnBreadcrumb,m_toolReturnBreadcrumb;
+     UserSettingsPointer m_config;
+     int m_toolReturnPage=0;
+     NavigationTarget m_toolReturnFocus=NavigationTarget::TrackList;
+@@ -1440,3 +1484,4 @@
+ };
+ 
+ #include "widget/wrx3browsertools.h"
++#include "widget/wrx3browserutility.h"
+diff --git a/src/widget/wrx3browsertools.h b/src/widget/wrx3browsertools.h
+--- a/src/widget/wrx3browsertools.h
++++ b/src/widget/wrx3browsertools.h
+@@ -8,6 +8,7 @@
+     return m_backend->rekordboxFeature()->sessionIdentityForRoot(m_currentRoot);
+ }
+ inline void WRx3Browser::showTools() {
++    if(m_pages->currentWidget()!=m_tools) m_toolReturnBreadcrumb=m_breadcrumb->text();
+     const bool fromSource=m_pages->currentIndex()==1;
+     if(fromSource) {
+         const auto device=sourceDeviceForNavigation();
+@@ -22,6 +23,7 @@
+         if(m_level==BrowserLevel::Hierarchy && data.size()>=3) m_toolPlaylist=data[2].toUInt();
+     }
+     showBrowser();m_keyboard->hide();m_pages->setCurrentWidget(m_tools);
++    m_sourceLabel->hide();m_breadcrumb->setText("MENU");
+     m_tools->showMenu("TOOLS",{
+         toolAction("TAG LIST / TAG TRACK",[this]{showTagTools();}),
+         toolAction("PLAYLIST BANK",[this]{showBankTools();}),
+@@ -38,7 +40,8 @@
+         toolAction("PREVIEW SELECTED TRACK",[this]{showPreviewTools();}),
+         toolAction("USB RECORDING",[this]{showRecordingTools();}),
+         toolAction("MIXER / MIC / AUX / BOOTH",[this]{showAudioTools();}),
+-        toolAction("SHORTCUT / MY SETTINGS",[this]{closeTools();ControlObject::set(ConfigKey("[RX3Shortcut]","open"),1);ControlObject::set(ConfigKey("[RX3Shortcut]","open"),0);})
++        toolAction("SHORTCUT / MY SETTINGS",[this]{closeTools();ControlObject::set(ConfigKey("[RX3Shortcut]","open"),1);ControlObject::set(ConfigKey("[RX3Shortcut]","open"),0);}),
++        toolAction("UTILITY",[this]{showUtility();})
+     },[this]{closeTools();});
+ }
+ inline void WRx3Browser::toolTracks(const QList<quint32>& ids,const QString& name) {
+diff --git a/src/widget/wrx3shortcut.h b/src/widget/wrx3shortcut.h
+--- a/src/widget/wrx3shortcut.h
++++ b/src/widget/wrx3shortcut.h
+@@ -233,7 +233,7 @@
+         bind("restore",[this](double value){if(value>0) restore();});
+         for(int deck=1;deck<=2;++deck) {
+             const auto group=QString("[Channel%1]").arg(deck);
+-            for(const auto& key:{"rx3_time_remaining","rx3_auto_cue"}) {
++            for(const auto& key:{"rx3_time_remaining","rx3_auto_cue","rx3_auto_cue_level"}) {
+                 if(!ControlObject::exists(ConfigKey(group,key))) continue;
+                 const auto saved=ConfigKey("[RX3Settings]",QString("%1%2").arg(key).arg(deck));
+                 if(m_config->exists(saved)) ControlObject::set(ConfigKey(group,key),m_config->getValue<double>(saved));
+@@ -278,7 +278,7 @@
+     }
+     void restore() {
+         QMap<QString,double> deckSettings;
+-        for(int deck=1;deck<=2;++deck) for(const auto& key:{"rx3_time_remaining","rx3_auto_cue"}) {
++        for(int deck=1;deck<=2;++deck) for(const auto& key:{"rx3_time_remaining","rx3_auto_cue","rx3_auto_cue_level"}) {
+             const auto saved=ConfigKey("[RX3Settings]",QString("%1%2").arg(key).arg(deck));
+             if(m_config->exists(saved)) deckSettings.insert(QString("%1%2").arg(key).arg(deck),m_config->getValue<double>(saved));
+         }
+@@ -352,6 +352,70 @@
+         for(auto& row:m_rows) if(row.key=="waveform_color") {
+             choose(row,qBound(0,color,2));refresh();return;
+         }
++    }
++    // UTILITY and SHORTCUT use the same setting owners and apply path.
++    double utilityValue(const QString& key) const {
++        if(key=="auto_cue_level") {
++            const double value=ControlObject::get(ConfigKey("[Channel1]","rx3_auto_cue_level"));
++            return qAbs(value-ControlObject::get(ConfigKey("[Channel2]","rx3_auto_cue_level")))<1e-6?value:-999;
++        }
++        if(key=="waveform_current_position") {
++            const auto* factory=WaveformWidgetFactory::instance();if(!factory) return -999;
++            const double value=factory->getPlayMarkerPosition();
++            return qAbs(value-0.25)<1e-6?0:qAbs(value-0.5)<1e-6?1:-999;
++        }
++        if(key=="waveform_divisions") {
++            const auto* factory=WaveformWidgetFactory::instance();return factory?factory->getOverviewDivisions():-999;
++        }
++        for(const auto& row:m_rows) if(row.key==key) return read(row);
++        return ControlObject::get(ConfigKey("[RX3Settings]",key));
++    }
++    bool utilityAvailable(const QString& key) const {
++        if(key=="load_lock" || key=="needle_lock" || key=="play_mode") return true;
++        if(key=="waveform_current_position" || key=="waveform_divisions") return m_effects && WaveformWidgetFactory::instance();
++        if(key=="eq_mode") {
++            if(!m_effects || !m_effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.bessel4lvmixeq") ||
++                    !m_effects->getBackendManager()->getManifestFromUniqueId("org.mixxx.effects.biquadfullkilleq")) return false;
++            for(int deck=1;deck<=2;++deck) {
++                const auto chain=m_effects->getEqualizerEffectChain(QString("[Channel%1]").arg(deck));
++                if(!chain || !chain->getEffectSlot(0)) return false;
++            }
++            return true;
++        }
++        if(key=="headphones") return ControlObject::exists(ConfigKey("[Master]","headSplit"));
++        const QMap<QString,QString> controls{{"auto_cue_level","rx3_auto_cue_level"},
++                {"quantize_beat","rx3_quantize_beats"},{"hotcue_autoload","rx3_hotcue_autoload"},
++                {"slip_flashing","slip_flashing"},{"channel_curve","channel_fader_curve"}};
++        if(!controls.contains(key)) return false;
++        for(int deck=1;deck<=2;++deck) if(!ControlObject::exists(ConfigKey(QString("[Channel%1]").arg(deck),controls.value(key)))) return false;
++        return true;
++    }
++    bool setUtilityValue(const QString& key,double value) {
++        if(!utilityAvailable(key)) return false;
++        if(key=="auto_cue_level") {
++            const QList<double> values{-78,-72,-66,-60,-54,-48,-42,-36,0};
++            if(!values.contains(value)) return false;
++            for(int deck=1;deck<=2;++deck) ControlObject::set(ConfigKey(QString("[Channel%1]").arg(deck),"rx3_auto_cue_level"),value);
++            m_config->save();return true;
++        }
++        if(key=="play_mode") {
++            if(value!=0 && value!=1) return false;
++            ControlObject::set(ConfigKey("[RX3Settings]",key),value);
++            m_config->setValue(ConfigKey("[RX3Settings]",key),value);m_config->save();return true;
++        }
++        if(key=="waveform_current_position") {
++            if(value!=0 && value!=1) return false;
++            WaveformWidgetFactory::instance()->setPlayMarkerPosition(value==0?0.25:0.5);m_config->save();return true;
++        }
++        if(key=="waveform_divisions") {
++            if(value!=0 && value!=1) return false;
++            WaveformWidgetFactory::instance()->setOverviewDivisions(qRound(value));m_config->save();return true;
++        }
++        for(auto& row:m_rows) if(row.key==key) {
++            const int index=row.values.indexOf(value);if(index<0) return false;
++            choose(row,index);refresh();return true;
++        }
++        return false;
+     }
+     QString saveSettings() {
+         const auto root=qApp->property("rx3SettingsUsbRoot").toString();
+@@ -430,6 +494,33 @@
+         else if(group=="[RX3Settings]") ControlObject::set(ConfigKey(group,key),initial);
+     }
+     double read(const Row& row) const {
++        if(row.key=="load_lock") return m_config->getValue<LoadWhenDeckPlaying>(kConfigKeyLoadWhenDeckPlaying,
++                LoadWhenDeckPlaying::Reject)==LoadWhenDeckPlaying::Reject?1:0;
++        if(row.key=="headphones" && ControlObject::exists(ConfigKey("[Master]","headSplit")))
++            return ControlObject::get(ConfigKey("[Master]","headSplit"));
++        if(row.key=="eq_mode" && m_effects) {
++            double value=-999;
++            for(int deck=1;deck<=2;++deck) {
++                const auto chain=m_effects->getEqualizerEffectChain(QString("[Channel%1]").arg(deck));
++                const auto slot=chain?chain->getEffectSlot(0):nullptr;
++                const auto manifest=slot?slot->getManifest():nullptr;
++                if(!manifest) return -999;
++                const double actual=manifest->uniqueId()=="org.mixxx.effects.bessel4lvmixeq"?1:
++                        manifest->uniqueId()=="org.mixxx.effects.biquadfullkilleq"?0:-999;
++                if(deck==1) value=actual;else if(value!=actual) return -999;
++            }
++            return value;
++        }
++        const QMap<QString,QString> live{{"quantize_beat","rx3_quantize_beats"},
++                {"hotcue_autoload","rx3_hotcue_autoload"},{"slip_flashing","slip_flashing"},
++                {"channel_curve","channel_fader_curve"}};
++        if(live.contains(row.key)) {
++            const auto item=live.value(row.key);const ConfigKey first("[Channel1]",item),second("[Channel2]",item);
++            if(ControlObject::exists(first) && ControlObject::exists(second)) {
++                const auto value=ControlObject::get(first);
++                return qAbs(value-ControlObject::get(second))<1e-6?value:-999;
++            }
++        }
+         if(row.key.startsWith("master_tempo") || row.key.startsWith("tempo_range")) {
+             const auto group=QString("[Channel%1]").arg(row.key.right(1));
+             const auto key=row.key.startsWith("master_tempo")?"keylock":"rateRange";
+@@ -440,7 +531,7 @@
+     int selected(const Row& row) const {
+         const auto value=read(row);
+         for(int i=0;i<row.values.size();++i) if(qAbs(value-row.values[i])<1e-6) return i;
+-        return 0;
++        return -1;
+     }
+     void choose(Row& row,int index,bool save=true) {
+         const auto value=row.values[index];
+@@ -552,7 +643,7 @@
+             const int index=selected(row);
+             for(int j=0;j<row.buttons.size();++j) {
+                 auto* button=row.buttons[j];button->setProperty("chosen",row.stepper?j==1:j==index);
+-                if(row.stepper && j==1) button->setText(QString::number(row.values[index]));
++                if(row.stepper && j==1) button->setText(index>=0?QString::number(row.values[index]):QString("MIXED"));
+                 button->style()->unpolish(button);button->style()->polish(button);button->update();
+             }
+         }
+diff --git a/src/widget/rx3waveform.h b/src/widget/rx3waveform.h
+--- a/src/widget/rx3waveform.h
++++ b/src/widget/rx3waveform.h
+@@ -108,7 +108,7 @@
+     if(litWidth>0 && !blinkOff) painter->fillRect(
+             QRectF(litStart,g.axisTop,litWidth,g.axisThickness),Qt::white);
+     if (duration > 0 && std::isfinite(duration)) {
+-        if (mode == 1) {
++        if (mode == 1 && !phrases.isEmpty()) {
+             for (const auto& phrase : phrases) {
+                 const qreal left=overviewTimeX(phrase.startSeconds,duration,width);
+                 const qreal right=overviewTimeX(phrase.endSeconds,duration,width);
+diff --git a/src/test/rx3display_test.cpp b/src/test/rx3display_test.cpp
+--- a/src/test/rx3display_test.cpp
++++ b/src/test/rx3display_test.cpp
+@@ -2416,3 +2416,142 @@
+     }
+     PlayerInfo::destroy();
+ }
++
++TEST_F(Rx3ReferenceScaleTest, UtilityPreviewCommitCancelAndLiveValues) {
++    WRx3Utility utility(nullptr);utility.resize(1280,650);utility.show();
++    int value=0,applications=0,closed=0;
++    utility.present({{"DECK","TEST SETTING",{"OFF","ON"},[&]{return value?QString("ON"):QString("OFF");},
++        [&]{return value;},[&](int choice){value=choice;++applications;return true;},{}},
++        {"GENERAL","PHYSICAL DISPLAY",{},[]{return QString("UNAVAILABLE");},{},{},"Hardware control unavailable."}},[&]{++closed;});
++    auto* table=utility.findChild<QTableWidget*>("RX3UtilitySettings");ASSERT_TRUE(table);
++    EXPECT_EQ("DECK",table->item(0,0)->text());EXPECT_EQ("GENERAL",table->item(2,0)->text());
++    EXPECT_FALSE(table->item(0,0)->flags().testFlag(Qt::ItemIsSelectable));
++    utility.enter();utility.move(1);EXPECT_EQ(0,value);EXPECT_EQ(0,applications);
++    utility.back();EXPECT_EQ(0,value);EXPECT_EQ(0,closed);
++    utility.enter();utility.move(100);utility.enter();EXPECT_EQ(1,value);EXPECT_EQ(1,applications);
++    value=0;utility.refresh();EXPECT_EQ("OFF",table->item(1,1)->text());
++    utility.move(1);utility.enter();EXPECT_EQ(1,applications);
++    EXPECT_EQ("Hardware control unavailable.",utility.findChild<QLabel*>("RX3UtilityStatus")->text());
++    utility.move(1);EXPECT_TRUE(utility.findChild<QPushButton*>("RX3UtilityBack")->property("encoderFocus").toBool());
++    utility.enter();EXPECT_EQ(1,closed);
++    utility.move(-2);utility.enter();utility.move(1);utility.hide();utility.show();utility.enter();
++    EXPECT_EQ(0,value);EXPECT_EQ(1,applications); // Hide canceled the uncommitted value.
++}
++
++TEST_F(Rx3ReferenceScaleTest, UtilityTouchChoiceCommitsOnceAndFailedApplyKeepsActualValue) {
++    WRx3Utility utility(nullptr);utility.resize(640,400);utility.show();
++    int value=0,calls=0;
++    utility.present({{"DECK","TOUCH VALUE",{"ONE","TWO"},[&]{return QString::number(value);},[&]{return value;},
++            [&](int choice){++calls;if(choice==1) return false;value=choice;return true;},{} }},[]{});
++    auto* table=utility.findChild<QTableWidget*>("RX3UtilitySettings");ASSERT_TRUE(table);
++    QCoreApplication::processEvents();
++    QTest::mouseClick(table->viewport(),Qt::LeftButton,Qt::NoModifier,table->visualItemRect(table->item(1,1)).center());
++    auto* editor=utility.findChild<QComboBox*>();ASSERT_TRUE(editor);
++    editor->setCurrentIndex(1);QMetaObject::invokeMethod(editor,"activated",Qt::DirectConnection,Q_ARG(int,1));
++    EXPECT_EQ(1,calls);EXPECT_EQ(0,value);EXPECT_EQ("0",table->item(1,1)->text());
++    EXPECT_TRUE(utility.findChild<QLabel*>("RX3UtilityStatus")->text().contains("No value applied"));
++}
++
++TEST_F(Rx3ReferenceScaleTest, UtilitySharesLiveShortcutControlsAndPersistsBothAutoCueLevels) {
++    ControlObject head(ConfigKey("[Master]","headSplit"));
++    ControlObject level1(ConfigKey("[Channel1]","rx3_auto_cue_level"));
++    ControlObject level2(ConfigKey("[Channel2]","rx3_auto_cue_level"));
++    QWidget canvas;WRx3Shortcut shortcut(config(),nullptr,&canvas);
++    head.set(1);EXPECT_DOUBLE_EQ(1,shortcut.utilityValue("headphones"));
++    ASSERT_TRUE(shortcut.setUtilityValue("headphones",0));EXPECT_DOUBLE_EQ(0,head.get());
++    level1.set(-60);level2.set(-66);EXPECT_DOUBLE_EQ(-999,shortcut.utilityValue("auto_cue_level"));
++    ASSERT_TRUE(shortcut.setUtilityValue("auto_cue_level",-78));
++    EXPECT_DOUBLE_EQ(-78,level1.get());EXPECT_DOUBLE_EQ(-78,level2.get());
++    EXPECT_DOUBLE_EQ(-78,config()->getValue<double>(ConfigKey("[RX3Settings]","rx3_auto_cue_level1")));
++    EXPECT_DOUBLE_EQ(-78,config()->getValue<double>(ConfigKey("[RX3Settings]","rx3_auto_cue_level2")));
++    EXPECT_FALSE(shortcut.setUtilityValue("auto_cue_level",-35));EXPECT_DOUBLE_EQ(-78,level1.get());
++    config()->setValue(kConfigKeyLoadWhenDeckPlaying,LoadWhenDeckPlaying::AllowButStopDeck);
++    EXPECT_DOUBLE_EQ(0,shortcut.utilityValue("load_lock"));
++    ASSERT_TRUE(shortcut.setUtilityValue("load_lock",1));
++    EXPECT_EQ(LoadWhenDeckPlaying::Reject,config()->getValue<LoadWhenDeckPlaying>(kConfigKeyLoadWhenDeckPlaying,LoadWhenDeckPlaying::AllowButStopDeck));
++}
++
++TEST_F(Rx3ReferenceScaleTest, MenuHoldOpensUtilityWithoutReleaseOpeningToolsAndReturnsSource) {
++    PlayerInfo::create();
++    {
++        std::vector<std::unique_ptr<ControlObject>> controls;
++        for(int deck=1;deck<=2;++deck) for(const auto& item:QList<QPair<QString,double>>{
++                {"rx3_quantize_beats",1},{"rx3_hotcue_autoload",0},{"rx3_auto_cue_level",0},
++                {"slip_flashing",1},{"channel_fader_curve",1}}) {
++            controls.push_back(std::make_unique<ControlObject>(ConfigKey(QString("[Channel%1]").arg(deck),item.first)));
++            controls.back()->set(item.second);
++        }
++        ControlObject head(ConfigKey("[Master]","headSplit"));
++        QWidget canvas;canvas.resize(1280,800);canvas.show();
++        WRx3Shortcut shortcut(config(),nullptr,&canvas);
++        SidebarModel model;auto* sidebar=new WLibrarySidebar;sidebar->setModel(&model);
++        WRx3Browser browser(new WLibrary(nullptr),sidebar,nullptr,&canvas,config());
++        browser.resize(1280,690);browser.show();QCoreApplication::processEvents();
++        QFile style(qEnvironmentVariable("NAUTIC_BROWSER_QA_STYLE"));
++        if(style.open(QIODevice::ReadOnly)) browser.setStyleSheet(QString::fromUtf8(style.readAll()));
++        auto* button=browser.findChild<QPushButton*>("RX3BrowserToolsButton");ASSERT_TRUE(button);
++        auto* breadcrumb=browser.findChild<QPushButton*>("RX3BrowserBreadcrumb");ASSERT_TRUE(breadcrumb);
++        EXPECT_EQ("SOURCE",breadcrumb->text());
++        button->click();EXPECT_EQ("MENU",breadcrumb->text());
++        auto* actions=browser.findChild<QListWidget*>("RX3ToolsActions");ASSERT_TRUE(actions);
++        int utilityIndex=-1;for(int i=0;i<actions->count();++i) if(actions->item(i)->text()=="UTILITY") utilityIndex=i;
++        ASSERT_GE(utilityIndex,0);Rx3BrowserTestAccess::moveTools(browser,utilityIndex);Rx3BrowserTestAccess::enterTools(browser);
++        auto* utility=browser.findChild<WRx3Utility*>("RX3Utility");ASSERT_TRUE(utility);EXPECT_TRUE(utility->isVisible());
++        EXPECT_EQ("UTILITY",breadcrumb->text());EXPECT_TRUE(button->property("active").toBool());
++        EXPECT_FALSE(browser.findChild<QPushButton*>("RX3SourceButton")->property("active").toBool());
++        Rx3BrowserTestAccess::backTools(browser);
++        EXPECT_FALSE(utility->isVisible());EXPECT_EQ("MENU",breadcrumb->text());
++        Rx3BrowserTestAccess::moveTools(browser,100);Rx3BrowserTestAccess::enterTools(browser);EXPECT_EQ("SOURCE",breadcrumb->text());
++        QTimer* hold=nullptr;for(auto* timer:browser.findChildren<QTimer*>()) if(timer->isSingleShot() && timer->interval()==2000) hold=timer;
++        ASSERT_TRUE(hold);hold->setInterval(20);
++        QTest::mousePress(button,Qt::LeftButton);QTest::qWait(30);EXPECT_TRUE(utility->isVisible());
++        QTest::mouseRelease(button,Qt::LeftButton);EXPECT_TRUE(utility->isVisible());EXPECT_EQ("UTILITY",breadcrumb->text());
++        auto* table=utility->findChild<QTableWidget*>("RX3UtilitySettings");ASSERT_TRUE(table);
++        QStringList categories;for(int i=0;i<table->rowCount();++i) if(table->columnSpan(i,0)==2) categories.push_back(table->item(i,0)->text());
++        EXPECT_EQ((QStringList{"DECK","MIXER","GENERAL"}),categories);
++        const auto renders=qEnvironmentVariable("NAUTIC_RX3_RENDER_DIR");
++        if(!renders.isEmpty()) {
++            ASSERT_TRUE(browser.grab().save(QDir(renders).filePath("utility-deck-1280.png")));
++            Rx3BrowserTestAccess::moveTools(browser,13);
++            for(int row=0;row<table->rowCount();++row) if(table->item(row,0)->text()=="MIXER")
++                table->scrollToItem(table->item(row,0),QAbstractItemView::PositionAtTop);
++            QCoreApplication::processEvents();
++            ASSERT_TRUE(browser.grab().save(QDir(renders).filePath("utility-mixer-1280.png")));
++            Rx3BrowserTestAccess::moveTools(browser,8);
++            for(int row=0;row<table->rowCount();++row) if(table->item(row,0)->text()=="GENERAL")
++                table->scrollToItem(table->item(row,0),QAbstractItemView::PositionAtTop);
++            QCoreApplication::processEvents();
++            ASSERT_TRUE(browser.grab().save(QDir(renders).filePath("utility-general-1280.png")));
++        }
++        button->click();EXPECT_FALSE(utility->isVisible());EXPECT_EQ("SOURCE",breadcrumb->text());
++        EXPECT_FALSE(shortcut.isVisible());EXPECT_TRUE(browser.findChild<QPushButton*>("RX3SourceButton")->property("active").toBool());
++    }
++    PlayerInfo::destroy();
++}
++
++TEST_F(Rx3ReferenceScaleTest, UtilityWaveformDivisionsWithoutPhrasesFallsBackToTimeScale) {
++    QImage expected(400,100,QImage::Format_ARGB32_Premultiplied),actual(400,100,QImage::Format_ARGB32_Premultiplied);
++    expected.fill(Qt::black);actual.fill(Qt::black);
++    {QPainter painter(&expected);rx3::drawOverviewDivisions(&painter,400,100,1,180,0);}
++    {QPainter painter(&actual);rx3::drawOverviewDivisions(&painter,400,100,1,180,1);}
++    EXPECT_EQ(expected,actual);
++}
++
++TEST_F(Rx3ReferenceScaleTest, UtilityWaveformControlsReadFactoryAndPersistRealChoices) {
++    struct FactoryScope {
++        FactoryScope() {WaveformWidgetFactory::createInstance();}
++        ~FactoryScope() {WaveformWidgetFactory::destroy();}
++    } factoryScope;
++    auto* waveform=WaveformWidgetFactory::instance();waveform->setConfig(config());
++    auto handles=std::make_shared<ChannelHandleFactory>();EffectsManager effects(config(),handles);
++    QWidget canvas;WRx3Shortcut shortcut(config(),&effects,&canvas);
++    ASSERT_TRUE(shortcut.setUtilityValue("waveform_current_position",0));
++    EXPECT_DOUBLE_EQ(0.25,waveform->getPlayMarkerPosition());
++    ASSERT_TRUE(shortcut.setUtilityValue("waveform_current_position",1));
++    EXPECT_DOUBLE_EQ(0.5,waveform->getPlayMarkerPosition());
++    EXPECT_DOUBLE_EQ(0.5,config()->getValue<double>(ConfigKey("[Waveform]","PlayMarkerPosition")));
++    waveform->setPlayMarkerPosition(0.4);EXPECT_DOUBLE_EQ(-999,shortcut.utilityValue("waveform_current_position"));
++    ASSERT_TRUE(shortcut.setUtilityValue("waveform_divisions",1));EXPECT_EQ(1,waveform->getOverviewDivisions());
++    EXPECT_EQ(1,config()->getValue<int>(ConfigKey("[Waveform]","OverviewDivisions")));
++    EXPECT_FALSE(shortcut.setUtilityValue("waveform_divisions",2));EXPECT_EQ(1,waveform->getOverviewDivisions());
++}
+diff --git a/src/widget/wrx3utility.h b/src/widget/wrx3utility.h
+new file mode 100644
+--- /dev/null
++++ b/src/widget/wrx3utility.h
+@@ -0,0 +1,167 @@
++#pragma once
++
++#include <QComboBox>
++#include <QHeaderView>
++#include <QLabel>
++#include <QKeyEvent>
++#include <QPushButton>
++#include <QStyle>
++#include <QTableWidget>
++#include <QTimer>
++#include <QVBoxLayout>
++#include <algorithm>
++#include <functional>
++#include <vector>
++
++// A setting is read from its owner, not copied into a second settings store.
++// Turning while editing previews a choice; enter commits, back cancels.
++class WRx3Utility : public QWidget {
++  public:
++    struct Setting {
++        QString category, name;
++        QStringList choices;
++        std::function<QString()> value;
++        std::function<int()> selected;
++        std::function<bool(int)> apply;
++        QString explanation;
++    };
++    explicit WRx3Utility(QWidget* parent) : QWidget(parent) {
++        setObjectName("RX3Utility");
++        setStyleSheet("#RX3Utility {background:#202020;color:white;} "
++                "#RX3Utility QTableWidget {background:#202020;alternate-background-color:#292b30;color:white;border:0;font:16px Arial;} "
++                "#RX3Utility QTableWidget::item {padding:8px;border-bottom:1px solid #35373d;} "
++                "#RX3Utility QTableWidget::item:selected {background:#007CE0;color:white;} "
++                "#RX3Utility QComboBox {background:#007CE0;color:white;border:1px solid white;padding:6px;font:16px Arial;} "
++                "#RX3Utility QComboBox QAbstractItemView {background:#202020;color:white;selection-background-color:#007CE0;} "
++                "#RX3Utility QLabel {color:white;font:14px Arial;} "
++                "#RX3Utility QPushButton {background:#202020;color:white;border:1px solid #aaa;min-height:36px;} "
++                "#RX3UtilityBack[encoderFocus=\"true\"] {background:#007CE0;}");
++        auto* layout = new QVBoxLayout(this);
++        layout->setContentsMargins(0,0,0,8);
++        m_table = new QTableWidget(this);
++        m_table->setObjectName("RX3UtilitySettings");
++        m_table->setColumnCount(2);
++        m_table->horizontalHeader()->hide();m_table->verticalHeader()->hide();
++        m_table->horizontalHeader()->setSectionResizeMode(0,QHeaderView::Fixed);
++        m_table->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
++        m_table->setShowGrid(false);m_table->setAlternatingRowColors(true);
++        m_table->setSelectionMode(QAbstractItemView::SingleSelection);
++        m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
++        m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
++        m_table->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
++        m_table->setVerticalScrollMode(QAbstractItemView::ScrollPerItem);
++        m_table->installEventFilter(this);
++        layout->addWidget(m_table,1);
++        m_status = new QLabel(this);m_status->setObjectName("RX3UtilityStatus");
++        m_status->setWordWrap(true);layout->addWidget(m_status);
++        m_back = new QPushButton("BACK",this);m_back->setObjectName("RX3UtilityBack");
++        layout->addWidget(m_back);
++        connect(m_back,&QPushButton::clicked,this,[this]{back();});
++        connect(m_table,&QTableWidget::cellClicked,this,[this](int row,int){
++            const int index=m_settingRows.indexOf(row);
++            if(index<0) return;
++            if(m_editor) cancel();
++            focus(index);enter();
++        });
++        auto* timer = new QTimer(this);timer->setInterval(150);
++        connect(timer,&QTimer::timeout,this,[this]{if(isVisible()) refresh();});timer->start();
++    }
++    void present(std::vector<Setting> settings,std::function<void()> close) {
++        cancel();m_settings=std::move(settings);m_close=std::move(close);
++        m_table->clear();m_table->setRowCount(0);m_settingRows.clear();
++        QString category;
++        for(const auto& setting:m_settings) {
++            if(category!=setting.category) {
++                category=setting.category;const int row=m_table->rowCount();
++                m_table->insertRow(row);
++                auto* header=new QTableWidgetItem(category);
++                header->setFlags(Qt::ItemIsEnabled);header->setBackground(QColor("#353941"));
++                auto font=header->font();font.setBold(true);header->setFont(font);
++                m_table->setItem(row,0,header);m_table->setSpan(row,0,1,2);
++                m_table->setRowHeight(row,34);
++            }
++            const int row=m_table->rowCount();m_table->insertRow(row);
++            m_settingRows.push_back(row);
++            m_table->setItem(row,0,new QTableWidgetItem(setting.name));
++            m_table->setItem(row,1,new QTableWidgetItem);
++            m_table->setRowHeight(row,42);
++        }
++        focus(0);refresh();
++    }
++    void move(int ticks) {
++        if(m_editor) m_editor->setCurrentIndex(std::clamp(m_editor->currentIndex()+ticks,0,m_editor->count()-1));
++        else focus(std::clamp(m_focus+ticks,0,int(m_settings.size())));
++    }
++    void enter() {
++        if(m_editor) {commit();return;}
++        if(m_focus==int(m_settings.size())) {back();return;}
++        if(m_focus<0 || m_focus>=int(m_settings.size())) return;
++        const auto& setting=m_settings[m_focus];
++        if(!setting.apply || setting.choices.isEmpty()) {
++            m_status->setText(setting.explanation);return;
++        }
++        m_editor=new QComboBox(m_table);m_editor->addItems(setting.choices);
++        m_editor->setCurrentIndex(qBound(0,setting.selected(),int(setting.choices.size())-1));
++        m_table->setCellWidget(m_settingRows[m_focus],1,m_editor);
++        connect(m_editor,qOverload<int>(&QComboBox::activated),this,[this]{commit();});
++        m_status->setText("Turn to change · Press to apply · BACK cancels");
++    }
++    void back() {
++        if(m_editor) {cancel();focus(m_focus);return;}
++        const auto close=m_close;if(close) close();
++    }
++    void refresh() {
++        for(int i=0;i<int(m_settings.size());++i) {
++            const auto& setting=m_settings[i];
++            auto* item=m_table->item(m_settingRows[i],1);
++            item->setText(setting.value?setting.value():"UNAVAILABLE");
++            item->setToolTip(setting.explanation);
++            item->setForeground(setting.apply?QColor(Qt::white):QColor("#aaa"));
++        }
++    }
++  protected:
++    bool eventFilter(QObject* object,QEvent* event) override {
++        if(object==m_table && event->type()==QEvent::KeyPress) {
++            const int key=static_cast<QKeyEvent*>(event)->key();
++            if(key==Qt::Key_Up || key==Qt::Key_Down) {move(key==Qt::Key_Up?-1:1);return true;}
++            if(key==Qt::Key_Return || key==Qt::Key_Enter) {enter();return true;}
++            if(key==Qt::Key_Escape || key==Qt::Key_Left) {back();return true;}
++        }
++        return QWidget::eventFilter(object,event);
++    }
++    void resizeEvent(QResizeEvent* event) override {
++        QWidget::resizeEvent(event);m_table->setColumnWidth(0,qRound(width()*0.60));
++    }
++    void hideEvent(QHideEvent* event) override {cancel();QWidget::hideEvent(event);}
++  private:
++    void focus(int index) {
++        m_focus=index;const bool atBack=index==int(m_settings.size());
++        m_table->clearSelection();
++        if(!atBack && index>=0) {
++            const int row=m_settingRows[index];m_table->selectRow(row);
++            m_table->scrollToItem(m_table->item(row,0));
++            m_status->setText(m_settings[index].explanation.isEmpty()?
++                    "Turn to select · Press to choose a value":m_settings[index].explanation);
++        } else m_status->setText("Press to return");
++        m_back->setProperty("encoderFocus",atBack);
++        m_back->style()->unpolish(m_back);m_back->style()->polish(m_back);m_back->update();
++    }
++    void cancel() {
++        if(!m_editor) return;
++        m_table->removeCellWidget(m_settingRows[m_focus],1);m_editor=nullptr;refresh();
++    }
++    void commit() {
++        const int choice=m_editor->currentIndex();const auto apply=m_settings[m_focus].apply;
++        cancel();const bool applied=apply && apply(choice);refresh();
++        m_status->setText(applied?(m_settings[m_focus].explanation.isEmpty()?QString("Value applied · Turn to select"):
++                "Value applied · "+m_settings[m_focus].explanation):QString("Setting unavailable · No value applied"));
++    }
++    QTableWidget* m_table;
++    QLabel* m_status;
++    QPushButton* m_back;
++    QComboBox* m_editor=nullptr;
++    QList<int> m_settingRows;
++    std::vector<Setting> m_settings;
++    std::function<void()> m_close;
++    int m_focus=0;
++};
+diff --git a/src/widget/wrx3browserutility.h b/src/widget/wrx3browserutility.h
+new file mode 100644
+--- /dev/null
++++ b/src/widget/wrx3browserutility.h
+@@ -0,0 +1,84 @@
++#pragma once
++
++#include <QLocale>
++#include "version.h"
++
++inline void WRx3Browser::showUtility() {
++    if(m_pages->currentWidget()==m_utility) return;
++    m_utilityReturnPage=m_pages->currentIndex();m_utilityReturnFocus=m_focus;
++    m_utilityReturnBreadcrumb=m_breadcrumb->text();
++    showBrowser();m_keyboard->hide();m_pages->setCurrentWidget(m_utility);
++    m_sourceLabel->hide();m_breadcrumb->setText("UTILITY");
++    QPointer<WRx3Shortcut> service(settingsService());
++    using Setting=WRx3Utility::Setting;
++    std::vector<Setting> settings;
++    const auto unavailable=[&settings](QString category,QString name,QString explanation) {
++        settings.push_back({category,name,{},[]{return QString("UNAVAILABLE");},{},{},explanation});
++    };
++    const auto shared=[&settings,service](QString category,QString name,QString key,
++            QStringList labels,QList<double> values,QString explanation={}) {
++        const bool available=service && service->utilityAvailable(key);
++        const auto current=[service,key,values]() -> int {
++            if(!service) return -1;
++            const double value=service->utilityValue(key);
++            for(int i=0;i<values.size();++i) if(qAbs(values[i]-value)<1e-6) return i;
++            return -1;
++        };
++        const auto display=[available,current,labels]() -> QString {
++            if(!available) return "UNAVAILABLE";
++            const int index=current();return index>=0?labels[index]:QString("MIXED / CUSTOM");
++        };
++        Setting setting{category,name,labels,display,current,{},explanation};
++        if(available) setting.apply=[service,key,values](int index) {
++            return service && index>=0 && index<values.size() && service->setUtilityValue(key,values[index]);
++        };
++        else setting.explanation="This setting's software control is unavailable in the current skin.";
++        settings.push_back(std::move(setting));
++    };
++    shared("DECK","LOAD LOCK","load_lock",{"UNLOCK","LOCK"},{0,1});
++    shared("DECK","NEEDLE LOCK","needle_lock",{"UNLOCK","LOCK"},{0,1});
++    shared("DECK","QUANTIZE BEAT VALUE (DECK)","quantize_beat",{"1/8","1/4","1/2","1 Beat"},{0.125,0.25,0.5,1});
++    shared("DECK","HOT CUE AUTO LOAD","hotcue_autoload",{"OFF","rekordbox SETTING","ON"},{2,1,0});
++    unavailable("DECK","HOT CUE COLOR","Hot cue color switching is not implemented; imported cue colors remain in use.");
++    shared("DECK","AUTO CUE LEVEL","auto_cue_level",{"-78 dB","-72 dB","-66 dB","-60 dB","-54 dB","-48 dB","-42 dB","-36 dB","MEMORY"},
++            {-78,-72,-66,-60,-54,-48,-42,-36,0},"Applies to both decks; MEMORY uses the first stored memory cue.");
++    shared("DECK","SLIP FLASHING","slip_flashing",{"OFF","ON"},{0,1});
++    unavailable("DECK","ON AIR DISPLAY","On Air display switching is not implemented.");
++    unavailable("DECK","VINYL SPEED ADJUST","TOUCH / RELEASE mode selection is not implemented; SHORTCUT retains the current stop-time controls.");
++    shared("DECK","PLAY MODE","play_mode",{"CONTINUE","SINGLE"},{0,1},"REPEAT and ALL REPEAT are not implemented; available modes are CONTINUE and SINGLE.");
++    shared("DECK","WAVEFORM CURRENT POSITION","waveform_current_position",{"LEFT","CENTER"},{0,1});
++    shared("DECK","WAVEFORM DIVISIONS","waveform_divisions",{"TIME SCALE","PHRASE"},{0,1});
++    unavailable("DECK","IMAGE ON JOG DISPLAY","No supported jog-display image control is exposed by NauticMixxx yet.");
++    shared("MIXER","EQUALIZER CURVE","eq_mode",{"EQUALIZER","ISOLATOR"},{0,1});
++    shared("MIXER","CHANNEL FADER CURVE","channel_curve",{"CURVE1","CURVE2","CURVE3"},{0,1,2});
++    unavailable("MIXER","MASTER ATTENUATOR","Independent output attenuation is not implemented; MASTER level remains available in TOOLS.");
++    unavailable("MIXER","BOOTH MONITOR ATTENUATOR","Independent output attenuation is not implemented; BOOTH level remains available in TOOLS when configured.");
++    unavailable("MIXER","MIC OUT TO BOOTH","Independent microphone-to-booth routing is not implemented.");
++    unavailable("MIXER","MIC OUT TO MASTER REC","Independent microphone-to-recording routing is not implemented.");
++    shared("MIXER","HEADPHONES MONO SPLIT/STEREO","headphones",{"MONO SPLIT","STEREO"},{1,0});
++    unavailable("MIXER","MIXER MODE","NauticMixxx uses software mixing; standalone hardware mixer mode is controlled by the device.");
++    if(m_config) {
++        QStringList locales{"en_US"};
++        const QDir directory(m_config->getResourcePath()+"translations/");
++        for(const auto& file:directory.entryList({"mixxx_*.qm"},QDir::Files)) {
++            const QString code=file.mid(6,file.size()-9);
++            if(!locales.contains(code)) locales.push_back(code);
++        }
++        QStringList names;
++        for(const auto& code:locales) names.push_back(QLocale(code).nativeLanguageName()+" ("+code+")");
++        const auto language=[this]{const auto code=m_config->getValueString(ConfigKey("[Config]","Locale"));return code.isEmpty()?QString("en_US"):code;};
++        const auto current=[language,locales]{return locales.indexOf(language());};
++        settings.push_back({"GENERAL","LANGUAGE",names,
++                language,current,
++                [this,locales](int index){if(index<0 || index>=locales.size()) return false;
++                    m_config->setValue(ConfigKey("[Config]","Locale"),locales[index]);m_config->save();return true;},
++                "Restart NauticMixxx to apply the language. New profiles default to English."});
++    } else unavailable("GENERAL","LANGUAGE","Settings profile unavailable.");
++    unavailable("GENERAL","LCD BRIGHTNESS","Display brightness is managed by the operating system.");
++    unavailable("GENERAL","JOG LCD BRIGHTNESS","No supported jog-display brightness control is exposed by NauticMixxx yet.");
++    unavailable("GENERAL","SCREEN SAVER","RX3-style inactivity screen saver is not implemented.");
++    unavailable("GENERAL","TOUCH DISPLAY CALIBRATION","Touch calibration is managed by the operating system or display driver.");
++    unavailable("GENERAL","AUTO STANDBY","RX3-style automatic standby is not implemented.");
++    settings.push_back({"GENERAL","VERSION No.",{},[]{return QStringLiteral(NAUTICMIX_VERSION);},{},{},"NauticMixxx application version."});
++    m_utility->present(std::move(settings),[this]{closeUtility();});
++}
