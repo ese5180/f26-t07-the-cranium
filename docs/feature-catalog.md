@@ -186,6 +186,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-26 | Local CI: `scripts/ci/local-ci.sh` runs the workflows' checks on a teammate's computer, picked by the changed files, and sets the `local-ci` commit status (GitHub Actions off) | — | #312 |
 | 2026-11-26 | Customer site redesign: boards before mixes, health in plain words, label first, floating tab bar for the iPhone 17 Pro | console 2.31.1 | #309 |
 | 2026-11-26 | Our own Vitals: crash-free boards, connected time and the newest release, by day, board and version, from the events boards already send | console 2.31.0, apps 0.9.5, desktop 0.1.19 | #304 |
 | 2026-11-25 | Our own Issues: crashes, faults and stuck restarts grouped by signature, with boards, versions and regressions | console 2.30.3 | #298 |
