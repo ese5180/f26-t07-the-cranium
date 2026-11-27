@@ -243,7 +243,10 @@ The pins are set in `firmware/app/boards/nrf7002dk_nrf5340_cpuapp_ns.overlay` (S
 free in `main`'s firmware. The Raspberry Pi delta updates ([`pi-delta-update.md`](pi-delta-update.md), a `--pi`
 build) share this link: their requests, types `0x10` to `0x13`, travel in the same frames on the same pins, and each
 gets its answer (`0x90` to `0x93`, or `0xff`) in the next transfer, as DATA gets STATUS; everything else still gets
-STATUS. A build without them counts those types as unknown.
+STATUS. From 1.20.2 the Pi OS updates ([`pi-os-update.md`](pi-os-update.md), the same build) add theirs the same
+way: `0x20` to `0x23`, answered with `0xa0` to `0xa3` or `0xff`. A build without them counts those types as unknown.
+`cranium-link --status` takes only STATUS, so right after a request whose answer nobody took it finds none; the next
+one does.
 
 ## Tested
 
