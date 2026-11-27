@@ -733,7 +733,9 @@ job_macos() {
 # (a throwaway key signs the application, which no board takes) into .local-ci/build/, so that a checkout's
 # own build/ is never touched. Then the memory floors and the configuration's own checks, as in ci.yml.
 job_firmware() {
-  local configuration="$1" board=nrf7002dk build="$CI_DIR/build/$2" image config imgtool keys
+  local configuration="$1" board=nrf7002dk build="$CI_DIR/build/$2" image config imgtool
+  # Not local: the trap that removes it runs after this function has returned.
+  keys=""
   local args=(--keep --no-upload --without-key --build-dir "$build")
   case "$configuration" in
     "no Bluetooth") args+=(--cmake-arg -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf) ;;
