@@ -93,10 +93,6 @@ class BoardsTest(unittest.TestCase):
         self.assertEqual(board.console_port(), f"/dev/cu.usbmodem{SERIAL_A}3")
         self.assertEqual(board.log_port(), f"/dev/cu.usbmodem{SERIAL_A}1")
 
-    def test_an_nrf5340dk(self):
-        [board] = new_board.find_boards(nrfutil_output(device(pca="PCA10095")), [])
-        self.assertEqual(board.type, "nrf5340dk")
-
     def test_linux_ports_without_a_vcom_number_sort_as_numbers(self):
         dev = device(macos=False)
         for port in dev["serialPorts"]:
@@ -152,9 +148,9 @@ class PickTest(unittest.TestCase):
         self.assertIn("--serial-number", str(caught.exception))
 
     def test_two_boards_and_a_serial_number_with_or_without_its_zeros(self):
-        boards = self.boards(device(SERIAL_A), device(SERIAL_B, pca="PCA10095"))
+        boards = self.boards(device(SERIAL_A), device(SERIAL_B))
         board, board_type = new_board.pick(boards, SERIAL_B.lstrip("0"), None, True)
-        self.assertEqual((board.serial, board_type), (SERIAL_B, "nrf5340dk"))
+        self.assertEqual((board.serial, board_type), (SERIAL_B, "nrf7002dk"))
 
     def test_a_serial_number_that_is_not_plugged_in(self):
         with self.assertRaises(new_board.Refusal) as caught:
@@ -163,7 +159,7 @@ class PickTest(unittest.TestCase):
 
     def test_a_board_type_the_debugger_contradicts(self):
         with self.assertRaises(new_board.Refusal) as caught:
-            new_board.pick(self.boards(device()), None, "nrf5340dk", True)
+            new_board.pick(self.boards(device()), None, "nrf9999dk", True)
         self.assertEqual(caught.exception.code, 5)
         self.assertIn("--board nrf7002dk", str(caught.exception))
 
@@ -171,8 +167,8 @@ class PickTest(unittest.TestCase):
         boards = self.boards(device(pca="PCA10040"))
         with self.assertRaises(new_board.Refusal) as caught:
             new_board.pick(boards, None, None, True)
-        self.assertIn("--board nrf7002dk or --board nrf5340dk", str(caught.exception))
-        self.assertEqual(new_board.pick(boards, None, "nrf5340dk", True)[1], "nrf5340dk")
+        self.assertIn("--board nrf7002dk", str(caught.exception))
+        self.assertEqual(new_board.pick(boards, None, "nrf7002dk", True)[1], "nrf7002dk")
         self.assertEqual(new_board.pick(boards, None, None, True, any_type=True)[1], "")
 
     def test_a_board_with_no_serial_port(self):
@@ -250,7 +246,7 @@ class StatusTest(unittest.TestCase):
             expect_state="OPERATING", expect_version="1.14.0", expect_board="nrf7002dk",
             expect_cloud="connected")), [])
         unmet = new_board.status_unmet(self.STATUS, self.expectations(
-            expect_state="FACTORY", expect_version="1.15.0+0", expect_board="nrf5340dk"))
+            expect_state="FACTORY", expect_version="1.15.0+0", expect_board="nrf9999dk"))
         self.assertEqual(len(unmet), 3)
 
     def test_versions_with_and_without_the_build_number(self):
@@ -285,9 +281,9 @@ class ConsoleViewTest(unittest.TestCase):
         args.expect_version = "1.15.0"
         self.assertEqual(len(new_board.console_unmet(board, args)), 1)
 
-    def test_a_bluetooth_only_board_and_one_not_registered(self):
-        lines = new_board.describe_fleet_board({"thing": THING, "type": "nrf5340dk", "bluetoothOnly": True}, 0)
-        self.assertIn("nRF5340 DK, Bluetooth only", lines[0])
+    def test_a_board_with_no_version_yet_and_one_not_registered(self):
+        lines = new_board.describe_fleet_board({"thing": THING, "type": "nrf7002dk"}, 0)
+        self.assertIn("nRF7002 DK, offline", lines[0])
         self.assertIn("not known yet", lines[1])
         self.assertIn("not registered", new_board.describe_fleet_board(None, 0)[0])
 
@@ -362,28 +358,24 @@ class ReleaseTest(unittest.TestCase):
     def test_the_newest_in_binaries_for_the_board_type(self):
         self.put("cranium-1.13.0-0.signed.bin", signed((1, 13, 0, 0)))
         self.put("cranium-1.14.0-0.signed.bin", signed((1, 14, 0, 0)))
-        self.put("cranium-nrf5340dk-1.15.0-0.signed.bin", signed((1, 15, 0, 0), b"nrf5340dk"))
+        self.put("cranium-nrf9999dk-1.15.0-0.signed.bin", signed((1, 15, 0, 0), b"nrf9999dk"))
         self.put("latest.signed.bin", signed((1, 16, 0, 0)))
         self.put("cranium-1.17.0-0.signed.bin", b"not an image")
         image, said = self.choose()
         self.assertEqual((image.version, image.source), ((1, 14, 0, 0), "binaries"))
         self.assertIn("may not be a release", said)
-        image, _ = self.choose(board="nrf5340dk")
-        self.assertEqual(image.path.name, "cranium-nrf5340dk-1.15.0-0.signed.bin")
 
     def test_an_image_from_before_board_types_is_an_nrf7002dks(self):
         self.put("cranium-1.12.0-0.signed.bin", signed((1, 12, 0, 0), board=None))
         self.assertEqual(self.choose()[0].board, "nrf7002dk")
-        with self.assertRaises(new_board.Refusal):
-            self.choose(board="nrf5340dk")
 
     def test_the_consoles_newest_release_from_its_copy_in_binaries(self):
         old = self.put("cranium-1.13.0-0.signed.bin", signed((1, 13, 0, 0)))
         newest = self.put("cranium-1.14.0-0.signed.bin", signed((1, 14, 0, 0)))
-        other = signed((1, 15, 0, 0), b"nrf5340dk")
+        other = signed((1, 15, 0, 0), b"nrf9999dk")
         revoked = signed((1, 16, 0, 0))
         api = FakeConsole([release_of(old, "1.13.0+0"), release_of(newest, "1.14.0+0"),
-                           release_of(other, "1.15.0+0", "nrf5340dk"), release_of(revoked, "1.16.0+0", status="revoked")])
+                           release_of(other, "1.15.0+0", "nrf9999dk"), release_of(revoked, "1.16.0+0", status="revoked")])
         image, _ = self.choose(api)
         self.assertEqual((image.version, image.source), ((1, 14, 0, 0), "console"))
         self.assertEqual(api.asked, ["/firmware"])  # nothing downloaded
@@ -445,10 +437,9 @@ class ReleaseTest(unittest.TestCase):
 
     def test_a_given_image_must_be_for_the_board(self):
         given = self.root / "given.signed.bin"
-        given.write_bytes(signed((1, 14, 0, 0), b"nrf5340dk"))
+        given.write_bytes(signed((1, 14, 0, 0), b"nrf9999dk"))
         with self.assertRaises(new_board.Refusal):
             self.choose(image=str(given))
-        self.assertEqual(self.choose(board="nrf5340dk", image=str(given))[0].source, "given")
 
 
 class PtyLink:
@@ -562,7 +553,7 @@ AWS = """case "$1" in
 esac
 exit 0"""
 
-BUILD = """case "$*" in *--board*) dir=build-nrf5340dk ;; *) dir=build ;; esac
+BUILD = """dir=build
 mkdir -p "$dir/mcuboot/zephyr" "$dir/app/zephyr" "$dir/hci_ipc/zephyr"
 : > "$dir/mcuboot/zephyr/zephyr.hex"; : > "$dir/mcuboot/zephyr/.config"; : > "$dir/hci_ipc/zephyr/zephyr.hex"
 echo CONFIG_BT_HCI_RAW=y > "$dir/hci_ipc/zephyr/.config"
@@ -764,17 +755,6 @@ class ScriptTest(unittest.TestCase):
         self.assertIn("FAIL  not signed in to AWS", self.output)
         self.assertIn("a release manager's console token is all it takes", self.output)
 
-    def test_check_of_an_nrf5340dk_needs_a_token_and_a_checkout_that_knows_it(self):
-        self.secrets()
-        self.devices(device(pca="PCA10095"))
-        self.answers({"new_board.py token": {"stdout": "no console token\n", "exit": 2}})
-        result = self.run_script("check")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("set up an nRF5340 DK", self.output)
-        self.assertIn("FAIL  no console token, which an nRF5340 DK's passkey needs", self.output)
-        self.assertIn("FAIL  this checkout cannot build or provision an nRF5340 DK yet", self.output)
-        self.assertNotIn("golden", self.output)
-
     # which board
 
     def test_setup_refuses_with_no_board(self):
@@ -860,17 +840,6 @@ class ScriptTest(unittest.TestCase):
                         "would ask: This ERASES the board <serial>", "Dry run: nothing was run."):
             self.assertIn(command, self.output)
 
-    def test_a_dry_run_of_an_nrf5340dk(self):
-        result = self.run_script("--dry-run", "--board", "nrf5340dk", "--serial-number", SERIAL_B, "--no-register")
-        self.assertEqual(result.returncode, 0, self.output)
-        self.assertEqual(self.calls(), [])
-        self.assertIn("scripts/firmware/build.sh --keep --no-upload --board nrf5340dk", self.output)
-        self.assertIn(f"west flash -d build-nrf5340dk --recover --dev-id {SERIAL_B}", self.output)
-        self.assertIn("--board nrf5340dk --no-register", self.output)
-        self.assertIn("ble-scan", self.output)
-        self.assertNotIn("golden.py", self.output)
-        self.assertIn("Step 4 of 5: provision", self.output)
-
     def test_a_dry_run_from_a_step(self):
         result = self.run_script("--dry-run", "--from", "release", "--serial-number", SERIAL_A)
         self.assertEqual(result.returncode, 0, self.output)
@@ -911,8 +880,6 @@ class ScriptTest(unittest.TestCase):
         result = self.run_script("--from", "nothing", "--confirm", "7470")
         self.assertEqual(result.returncode, 1)
         self.assertIn("there is no step nothing", self.output)
-        result = self.run_script("--dry-run", "--board", "nrf5340dk", "--only", "golden")
-        self.assertIn("an nRF5340 DK has no golden step", self.output)
 
     # the whole of it
 
@@ -978,32 +945,6 @@ class ScriptTest(unittest.TestCase):
         self.assertIn("--via console", provision)
         self.assertEqual(self.called("aws "), [])
         self.assertEqual(self.state()["last_step"], "verify")
-
-    def test_a_whole_setup_of_an_nrf5340dk(self):
-        self.secrets(wifi=False, token=True)
-        self.devices(device(pca="PCA10095"))
-        # A checkout that has the nRF5340 DK: its build.sh, here a stand-in, and provision_device.py know it.
-        with open(self.repo / "scripts/firmware/build.sh", "a") as file:
-            file.write("# scripts/firmware/build.sh --board nrf5340dk\n")
-        with open(self.repo / "tools/provision_device.py", "a") as file:
-            file.write("# python tools/provision_device.py --board nrf5340dk\n")
-        (self.fake / "build-image.bin").write_bytes(signed((1, 14, 0, 0), b"nrf5340dk"))
-        self.answers({"record": {**RECORD, "board": "nrf5340dk", "cloud": ""},
-                      "new_board.py token": {"stdout": "the console takes the token, and its owner is a release manager\n"}})
-        result = self.run_script(stdin="7470\n")
-        self.assertEqual(result.returncode, 0, self.output)
-        self.assertEqual(self.called("golden.py"), [])
-        [build] = self.called("build.sh")
-        self.assertIn("--board nrf5340dk", build)
-        self.assertEqual(self.called("west flash")[0], f"west flash -d build-nrf5340dk --recover --dev-id {SERIAL_A}")
-        # No release in binaries/ for it, so the build's own image, said to be no release.
-        self.assertIn("build-nrf5340dk/app/zephyr/zephyr.signed.bin", self.called("recover.py")[0])
-        self.assertIn("which is no release", self.output)
-        [provision] = self.called("provision_device.py")
-        self.assertIn("--board nrf5340dk", provision)
-        self.assertIn("hold Button 1 for 5 s", self.output)
-        self.assertTrue(self.called("ble-scan --name Cranium-3F9C"))
-        self.assertTrue(self.called("console-status --thing " + THING + " --wait 60 --expect-listed"))
 
     # status
 

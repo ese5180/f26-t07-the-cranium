@@ -63,7 +63,7 @@ TLV_PROT_INFO_MAGIC = 0x6908
 TLV_SHA256 = 0x10
 BOARD_TLV = 0xA1
 LAYOUT_TLV = 0xA2
-BOARD_TYPES = ("nrf7002dk", "nrf5340dk")
+BOARD_TYPES = ("nrf7002dk",)
 # Every image from this version on says its board type and flash layout. One before it is for these.
 FIRST_WITH_BOARD = (1, 13, 0)
 BOARD_BEFORE = "nrf7002dk"

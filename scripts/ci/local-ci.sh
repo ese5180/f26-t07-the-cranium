@@ -5,7 +5,7 @@
 #
 #   scripts/ci/local-ci.sh                 the jobs that the changes against origin/main call for
 #   scripts/ci/local-ci.sh --all           every job
-#   scripts/ci/local-ci.sh --job NAME      that job only; repeat it for more ("firmware" is all four builds)
+#   scripts/ci/local-ci.sh --job NAME      that job only; repeat it for more ("firmware" is all three builds)
 #   scripts/ci/local-ci.sh --list          which jobs would run, and why, without running any
 #   scripts/ci/local-ci.sh --doctor        what this computer can run, and what to install for the rest
 #   scripts/ci/local-ci.sh --post          after the run, set the commit status "local-ci" on HEAD on GitHub
@@ -35,7 +35,7 @@ NCS_VERSION="$(sed -n 's/^NCS_VERSION=\(v[0-9][0-9.]*\)$/\1/p' "$REPO/scripts/fi
 NCS_VERSION="${NCS_VERSION:-v3.4.0}"
 
 JOBS="scan lint codeql host-tests python-tests closed-loop cloud-tests desktop-core android ios macos
-  firmware-default firmware-no-bt firmware-pi firmware-nrf5340dk cranium-mix firmware-image desktop-linux desktop-windows"
+  firmware-default firmware-no-bt firmware-pi cranium-mix firmware-image desktop-linux desktop-windows"
 
 case "$(uname -s)" in
   Darwin) OS=macos ;;
@@ -72,7 +72,6 @@ job_title() {
     firmware-default) echo "Firmware (default)" ;;
     firmware-no-bt) echo "Firmware (no Bluetooth)" ;;
     firmware-pi) echo "Firmware (Pi delta updates)" ;;
-    firmware-nrf5340dk) echo "Firmware (nRF5340 DK)" ;;
     cranium-mix) echo "CRANIUM Mix host checks" ;;
     firmware-image) echo "Firmware build image" ;;
     desktop-linux) echo "Linux packages" ;;
@@ -114,7 +113,7 @@ job_paths() {
     android) echo "apps/android/* $bundle .github/workflows/ci.yml" ;;
     ios) echo "apps/ios/* $bundle .github/workflows/ci.yml" ;;
     macos) echo "apps/macos/* $bundle .github/workflows/ci.yml" ;;
-    firmware-default | firmware-no-bt | firmware-pi | firmware-nrf5340dk) echo "$firmware .github/workflows/ci.yml" ;;
+    firmware-default | firmware-no-bt | firmware-pi) echo "$firmware .github/workflows/ci.yml" ;;
     cranium-mix) echo "pi/cranium-mix/* .github/workflows/cranium-mix.yml" ;;
     firmware-image) echo "tools/firmware-image/* .github/workflows/firmware-image.yml" ;;
     desktop-linux | desktop-windows)
@@ -384,7 +383,7 @@ job_blocker() {
         [ -z "$missing" ] || echo "tool|install${missing}"
       fi
       ;;
-    firmware-default | firmware-no-bt | firmware-pi | firmware-nrf5340dk)
+    firmware-default | firmware-no-bt | firmware-pi)
       if [ "$1" = firmware-pi ] && ! has_pi_configuration; then
         echo "absent|this branch has no Pi delta updates configuration (in ci.yml's firmware matrix or build.sh --pi)"
       elif [ "$OS" = windows ]; then
@@ -476,16 +475,17 @@ job_reason() {
 
 expand_job() {
   case "$1" in
-    firmware) echo firmware-default firmware-no-bt firmware-pi firmware-nrf5340dk ;;
+    firmware) echo firmware-default firmware-no-bt firmware-pi ;;
     *)
       for known in $JOBS; do [ "$known" = "$1" ] && { echo "$1"; return 0; }; done
-      die "no job named $1; the jobs: $(echo $JOBS) (and firmware, for all four builds)"
+      die "no job named $1; the jobs: $(echo $JOBS) (and firmware, for all three builds)"
       ;;
   esac
 }
 
 # Configurations of ci.yml's firmware matrix that this script does not build: a branch that adds one has
-# to add it here too.
+# to add it here too. "nRF5340 DK" is on ice (docs/versions.md, "On ice"): ci.yml keeps its entry, since
+# .github/ is never edited, and nothing builds it here; the branch ice/nrf5340dk brings its job back.
 unknown_firmware_configurations() {
   [ -f "$WORKFLOWS/ci.yml" ] || return 0
   sed -n 's/^ *- configuration: *//p' "$WORKFLOWS/ci.yml" | while IFS= read -r name; do
@@ -655,6 +655,14 @@ job_python_tests() {
   # A test that may skip on Actions may run here instead, and pass: test_golden.py checks
   # binaries/cranium-1.3.0-0 and test_flash_layout.py the last build in build/, when a checkout has them.
   while IFS='|' read -r file want <&3; do
+    case "$file" in
+      # On ice with the nRF5340 DK (docs/versions.md, "On ice"): ci.yml keeps its line, since .github/ is
+      # never edited, and the test is on the branch ice/nrf5340dk.
+      test_bt_only_check.py)
+        echo "$file: on ice with the nRF5340 DK, not run"
+        continue
+        ;;
+    esac
     also=""
     case "$want" in "OK (skipped="*) also=OK ;; esac
     run_python_test "$file" "$want" ${also:+"$also"}
@@ -786,7 +794,6 @@ job_firmware() {
   local args=(--keep --no-upload --without-key --build-dir "$build")
   case "$configuration" in
     "no Bluetooth") args+=(--cmake-arg -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf) ;;
-    "nRF5340 DK") board=nrf5340dk ;;
     "Pi delta updates")
       # build.sh --pi where it has it; else the matrix's own argument.
       if grep -q '^ *--pi)' scripts/firmware/build.sh; then
@@ -836,22 +843,6 @@ job_firmware() {
         return 1
       fi
       test -d "$build/netcore_blinky"
-      ;;
-    "nRF5340 DK")
-      for setting in CONFIG_APP_BT_ONLY=y CONFIG_APP_BT_OTA=y CONFIG_APP_BT_STATIC_PASSKEY=y; do
-        grep -qx "$setting" "$config" || { echo "error: the nRF5340 DK's build does not have $setting" >&2; return 1; }
-      done
-      if grep -qE '^CONFIG_(WIFI|AWS_IOT|APP_LOCATION|MEMFAULT)=y$' "$config"; then
-        echo "error: the nRF5340 DK's build has Wi-Fi, AWS IoT, the location or Memfault in it" >&2
-        return 1
-      fi
-      test -s "$build/hci_ipc/zephyr/zephyr.hex"
-      local type layout
-      type="$(python3 -I tools/check_image.py --board "$image")"
-      layout="$(python3 -I tools/check_image.py --layout "$image")"
-      [ "$type" = nrf5340dk ] && [ "$layout" = 1 ] ||
-        { echo "error: the image says board type \"$type\" and flash layout \"$layout\", not nrf5340dk and 1" >&2; return 1; }
-      echo "Board type $type and flash layout $layout, from TLVs 0xA1 and 0xA2."
       ;;
   esac
   echo
@@ -969,7 +960,6 @@ run_job_body() {
     firmware-default) job_firmware default "$1" ;;
     firmware-no-bt) job_firmware "no Bluetooth" "$1" ;;
     firmware-pi) job_firmware "Pi delta updates" "$1" ;;
-    firmware-nrf5340dk) job_firmware "nRF5340 DK" "$1" ;;
     cranium-mix) job_cranium_mix ;;
     desktop-linux) job_desktop_linux ;;
     desktop-windows) job_desktop_windows ;;

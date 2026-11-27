@@ -87,7 +87,7 @@ class CheckTest(unittest.TestCase):
 
     def test_a_number_or_a_board_that_is_not_there_fails(self):
         self.assertIn("no flash layout 2", flash_layout.check(self.LINES, "nrf7002dk", "2", self.known())[0])
-        self.assertIn("no flash layout 1", flash_layout.check(self.LINES, "nrf5340dk", "1", self.known())[0])
+        self.assertIn("no flash layout 1", flash_layout.check(self.LINES, "nrf9999dk", "1", self.known())[0])
 
     def test_a_layouts_file_that_does_not_hold_together_fails(self):
         broken = self.known()
