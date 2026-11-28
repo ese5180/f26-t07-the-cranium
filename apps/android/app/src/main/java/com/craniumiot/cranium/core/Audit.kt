@@ -453,6 +453,7 @@ object AuditText {
         "incompatible_layout" to "The release is built for another flash layout",
         "invalid_layout_tlv" to "The flash layout in the image was not a positive whole number",
         "invalid_layout" to "The flash layout was not a whole number from 1",
+        "bluetooth_only" to "The board has no Wi-Fi and updates over Bluetooth from a phone",
         "invalid_type" to "Not a board type this console knows",
         "unknown_board" to "The image is for a board type this console does not know",
         "invalid_board_tlv" to "The board type in the image was not one short word",
@@ -579,7 +580,7 @@ object AuditText {
     )
 
     /** The board types (core.js BOARD_LABELS). */
-    val BOARD_LABELS = mapOf("nrf7002dk" to "nRF7002 DK")
+    val BOARD_LABELS = mapOf("nrf7002dk" to "nRF7002 DK", "nrf5340dk" to "nRF5340 DK")
 
     private data class Detail(
         val label: String,

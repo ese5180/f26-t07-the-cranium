@@ -1357,6 +1357,7 @@ public enum Words {
         "incompatible_layout": "The release is built for another flash layout",
         "invalid_layout_tlv": "The flash layout in the image was not a positive whole number",
         "invalid_layout": "The flash layout was not a whole number from 1",
+        "bluetooth_only": "The board has no Wi-Fi and updates over Bluetooth from a phone",
         "invalid_type": "Not a board type this console knows",
         "unknown_board": "The image is for a board type this console does not know",
         "invalid_board_tlv": "The board type in the image was not one short word",

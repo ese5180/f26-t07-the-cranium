@@ -1,7 +1,7 @@
 /**
  * The serial port chooser's list (main.mjs chooseSerialPort): the ports Electron offers, with a J-Link's two
- * virtual COM ports named for what they are. On the nRF7002 DK the application's console is the second,
- * VCOM1, and the log the first, VCOM0: the higher ttyACM on Linux and, with one J-Link
+ * virtual COM ports named for what they are. On the nRF7002 DK and the nRF5340 DK the application's console
+ * is the second, VCOM1, and the log the first, VCOM0: the higher ttyACM on Linux and, with one J-Link
  * plugged in, the higher COM port on Windows (docs/new-board-setup.md, "From the console: Board setup").
  * The console port comes first, so it is the chooser's default; Board setup asks for the log port second,
  * when it seals the golden image, and the person chooses it by its name.
