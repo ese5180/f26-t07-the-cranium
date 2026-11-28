@@ -17,7 +17,7 @@ from pathlib import Path
 HOST = Path(__file__).resolve().parent
 SOURCE = HOST.parents[1] / "app/src"
 # The folders of src/ that are on the firmware's include path (firmware/app/CMakeLists.txt).
-SOURCE_DIRS = [SOURCE] + [SOURCE / name for name in ("bt", "bt_only", "cloud", "mflt", "ota", "policy")]
+SOURCE_DIRS = [SOURCE] + [SOURCE / name for name in ("bt", "cloud", "mflt", "ota", "policy")]
 CJSON = Path(os.environ.get("ZEPHYR_BASE", "/opt/nordic/ncs/v3.4.0/zephyr")) / "../modules/lib/cjson"
 DEFINES = ["-D_GNU_SOURCE", "-DCONFIG_APP_CONSOLE=1", "-DCONFIG_APP_CLOUD_EVENTS=1", "-DCONFIG_APP_LOG_LEVEL=0",
            '-DCONFIG_APP_THING_NAME_PREFIX="cranium-"', "-DCONFIG_MQTT_HELPER_SEC_TAG=201",

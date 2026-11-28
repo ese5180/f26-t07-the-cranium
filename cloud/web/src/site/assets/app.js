@@ -2074,7 +2074,7 @@ function openDeploy(version) {
     error: null,
     // The release that was asked for and has been revoked since.
     gone: null,
-    // Each board's type, from the fleet (fleet.js): thing -> { type, bluetoothOnly }. Null until
+    // Each board's type, from the fleet (fleet.js): thing -> { type, layout }. Null until
     // known, and then the dialog offers a release only to the boards of its type.
     types: null,
     // A staged rollout, for more than one board: how many boards go first, in how many stages the

@@ -157,6 +157,12 @@ class Report(Build):
         self.assertIn("is it a sysbuild build folder?", result.stdout)
 
 
+# Configurations that ci.yml's firmware matrix still has, though they are on ice (docs/versions.md, "On ice"):
+# ci.yml is never edited, nothing builds them on main, and they have no floors here. The branch ice/nrf5340dk
+# brings the nRF5340 DK's back.
+ON_ICE = {"nRF5340 DK"}
+
+
 class TheProjectsFloors(unittest.TestCase):
     def test_every_configuration_of_the_firmware_job_has_floors_that_read(self):
         workflow = (REPO / ".github" / "workflows" / "ci.yml").read_text()
@@ -164,6 +170,8 @@ class TheProjectsFloors(unittest.TestCase):
         configurations = re.findall(r"^ +- configuration: (.+)$", job, re.MULTILINE)
         self.assertGreaterEqual(len(configurations), 3)
         for configuration in configurations:
+            if configuration in ON_ICE:
+                continue
             with self.subTest(configuration=configuration):
                 floors = memory_budget.load_budgets(memory_budget.DEFAULT_BUDGETS, configuration)
                 self.assertIn("app", floors)
@@ -178,7 +186,7 @@ class TheProjectsFloors(unittest.TestCase):
         coming = {"Pi image updates"}  # #165, the Raspberry Pi work
         workflow = (REPO / ".github" / "workflows" / "ci.yml").read_text()
         job = workflow.split("\n  firmware:\n", 1)[1].split("\n  # A release of firmware", 1)[0]
-        in_matrix = set(re.findall(r"^ +- configuration: (.+)$", job, re.MULTILINE))
+        in_matrix = set(re.findall(r"^ +- configuration: (.+)$", job, re.MULTILINE)) - ON_ICE
         keys = {key for key in json.loads(memory_budget.DEFAULT_BUDGETS.read_text()) if not key.startswith("_")}
         self.assertEqual(keys - in_matrix - coming, set(), "floors for a configuration no job has")
         for configuration in in_matrix | coming:

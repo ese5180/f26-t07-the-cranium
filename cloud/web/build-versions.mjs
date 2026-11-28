@@ -149,10 +149,7 @@ const BLOCK_MAX = 4000;
 const ENTRY_MAX = 24000;
 const ITEM = /^\s{0,3}[-*] /;
 // Where a firmware entry names them: the boards it was tried on or is for, and its flash and RAM.
-const BOARDS = Object.freeze([
-  ['nRF7002 DK', /\bnRF7002[ -]?DK\b/i],
-  ['nRF5340 DK', /\bnRF5340[ -]?DK\b/i],
-]);
+const BOARDS = Object.freeze([['nRF7002 DK', /\bnRF7002[ -]?DK\b/i]]);
 const FLASH = /\bFlash (\d[\d,]{1,10}\d) of (\d[\d,]{1,10}\d) bytes/;
 const RAM = /\bRAM (\d(?:[\d,.]{0,10}\d)?)( KB)? of (\d(?:[\d,.]{0,10}\d)?)( KB)?/;
 

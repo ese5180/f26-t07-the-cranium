@@ -82,7 +82,6 @@ function readBoardRow(raw) {
     thing: value.thing,
     name: text(value.name),
     type: text(value.type, 32),
-    bluetoothOnly: value.bluetoothOnly === true,
     online: value.online === true,
     version: version(value.version),
     newest: value.newest === true,
@@ -141,7 +140,6 @@ export function readVitals(raw) {
     vitals: {
       boards: whole(vitals.boards) ?? 0,
       active: whole(vitals.active) ?? 0,
-      bluetoothOnly: whole(vitals.bluetoothOnly) ?? 0,
       unread: whole(vitals.unread) ?? 0,
       crashFree: part(vitals.crashFree),
       connectivity: {
@@ -450,15 +448,13 @@ function boardsTable(ctx, rows) {
         h(
           'td',
           { 'data-label': 'Crash-free' },
-          row.bluetoothOnly
-            ? h('span', { class: 'quiet' }, 'Bluetooth only')
-            : row.unread
-              ? h('span', { class: 'quiet' }, 'Not read')
-              : !row.active
-                ? h('span', { class: 'quiet' }, 'Not seen')
-                : row.crashFree
-                  ? badge('good', 'check', 'Crash-free')
-                  : badge('bad', 'alert', plural(row.unexpected, 'crash', 'crashes'))
+          row.unread
+            ? h('span', { class: 'quiet' }, 'Not read')
+            : !row.active
+              ? h('span', { class: 'quiet' }, 'Not seen')
+              : row.crashFree
+                ? badge('good', 'check', 'Crash-free')
+                : badge('bad', 'alert', plural(row.unexpected, 'crash', 'crashes'))
         ),
         cell('Connected', row.active ? percent(row.connectivity) : '-'),
         cell('Restarts', row.active ? String(row.restarts) : '-'),
@@ -598,11 +594,6 @@ export function vitalsView(ctx) {
 
 function boardNotes(data, days) {
   const notes = [];
-  if (data.board?.bluetoothOnly) {
-    notes.push(
-      notice('wait', 'bluetooth', 'This board has no Wi-Fi: it sends nothing to the cloud, so it has no vitals.')
-    );
-  }
   if (data.cut) {
     notes.push(
       notice(

@@ -384,7 +384,7 @@ const eventHidden = (value) => someOf([...new Set(['console', ...EVENT_KINDS, ..
 
 /** The filters of each page that has them: name -> how a value from the address is checked ('' for none). */
 export const FILTERS = Object.freeze({
-  devices: { q: searchText, status: oneOf(['online', 'offline', 'bluetooth', 'updating']), version: versionFilter },
+  devices: { q: searchText, status: oneOf(['online', 'offline', 'updating']), version: versionFilter },
   firmware: { q: searchText, status: oneOf(['active', 'revoked']) },
   deployments: { q: searchText, status: oneOf(['underway', 'ended']) },
   activity: {
@@ -1504,14 +1504,12 @@ export function piUnderWay(deployment) {
 }
 
 // Board types (cloud/api/src/lib/boards.mjs): what an image is for, and what a board is.
-export const BOARD_TYPES = Object.freeze(['nrf7002dk', 'nrf5340dk']);
-export const BOARD_LABELS = Object.freeze({ nrf7002dk: 'nRF7002 DK', nrf5340dk: 'nRF5340 DK' });
-// No Wi-Fi: a release for these goes to a board from the phone app, never by a deployment.
-export const BLUETOOTH_ONLY_TYPES = Object.freeze(['nrf5340dk']);
+export const BOARD_TYPES = Object.freeze(['nrf7002dk']);
+export const BOARD_LABELS = Object.freeze({ nrf7002dk: 'nRF7002 DK' });
 
 /**
- * The boards a release can be offered to by a deployment: those of its type and its flash layout
- * that can take a job. `types` is thing -> { type, layout, bluetoothOnly } from the fleet, or null
+ * The boards a release can be offered to by a deployment: those of its type and its flash layout.
+ * `types` is thing -> { type, layout } from the fleet, or null
  * while it is not known, when every board is offered and the server decides (400 incompatible_board,
  * 400 incompatible_layout).
  */
@@ -1521,7 +1519,7 @@ export function offeredBoards(devices, types, release) {
   const layout = release.layout ?? 1;
   return devices.filter((device) => {
     const known = types.get(device.thing);
-    return !known || (known.type === board && (known.layout ?? 1) === layout && !known.bluetoothOnly);
+    return !known || (known.type === board && (known.layout ?? 1) === layout);
   });
 }
 
@@ -1534,9 +1532,13 @@ export function compatibilityWords(release) {
   return `For ${boardTypeLabel(release.board)} · layout ${release.layout ?? 1}`;
 }
 
-/** "nRF5340 DK" for nrf5340dk; the type itself for one this console does not know. */
+/**
+ * "nRF7002 DK" for nrf7002dk. A type this console does not know, such as one put on ice, says so:
+ * "nrf5340dk (unknown type)". Nothing for none.
+ */
 export function boardTypeLabel(type) {
-  return BOARD_LABELS[type] ?? String(type ?? '');
+  if (type === null || type === undefined || type === '') return '';
+  return BOARD_LABELS[type] ?? `${type} (unknown type)`;
 }
 
 function readFirmware(body) {
@@ -5385,7 +5387,6 @@ export const REFUSAL_WORDS = {
   incompatible_layout: 'The release is built for another flash layout',
   invalid_layout_tlv: 'The flash layout in the image was not a positive whole number',
   invalid_layout: 'The flash layout was not a whole number from 1',
-  bluetooth_only: 'The board has no Wi-Fi and updates over Bluetooth from a phone',
   invalid_type: 'Not a board type this console knows',
   unknown_board: 'The image is for a board type this console does not know',
   invalid_board_tlv: 'The board type in the image was not one short word',
@@ -5904,7 +5905,7 @@ function readPosition(raw) {
   return accuracy === null || at === null ? null : { lat, lon, accuracy, at };
 }
 
-/** What the server knows of a board's location: { status, at, apCount, checkedAt, bluetoothOnly }. */
+/** What the server knows of a board's location: { status, at, apCount, checkedAt }. */
 function readLocation(raw) {
   const item = anObject(raw) ? raw : {};
   return {
@@ -5912,7 +5913,6 @@ function readLocation(raw) {
     at: instant(item.at),
     apCount: whole(item.apCount, 0, 10),
     checkedAt: instant(item.checkedAt),
-    bluetoothOnly: item.bluetoothOnly === true,
   };
 }
 
@@ -6028,15 +6028,12 @@ export function distanceWords(metres) {
 }
 
 /**
- * Why a board has no place on the map, or null if it has one: { code, title, text }. A board with
- * Bluetooth only has no Wi-Fi to place it by; a board on older firmware never sends a scan.
+ * Why a board has no place on the map, or null if it has one: { code, title, text }. A board on
+ * older firmware never sends a scan.
  */
 export function unplacedReason(device) {
   if (device?.position) return null;
   const location = device?.location ?? { status: 'none' };
-  if (location.bluetoothOnly) {
-    return { code: 'bluetooth', title: 'Bluetooth only', text: 'An nRF5340 DK has no Wi-Fi, so nothing places it.' };
-  }
   switch (location.status) {
     case 'too_few':
       return {
@@ -6067,15 +6064,14 @@ export function unplacedReason(device) {
 
 /** The colour a board's marker takes: as its state reads on the Devices page. */
 export function markerTone(device) {
-  if (device?.location?.bluetoothOnly) return 'idle';
   if (deviceActivity(device) !== null) return 'act';
   if (device?.ota?.last === 'failed' || device?.ota?.last === 'rolled_back') return 'warn';
   return device?.online ? 'good' : 'idle';
 }
 
-/** Whether the console can send a board a command at all: it connects to AWS IoT, and has reported. */
+/** Whether the console can send a board a command at all: it has reported. */
 export function canCommand(device) {
-  return Boolean(device) && !device.location?.bluetoothOnly && (device.lastSeen !== null || device.online);
+  return Boolean(device) && (device.lastSeen !== null || device.online);
 }
 
 /** The board's answer to a command, from its log (tag CMD, with the command's id in it), or null. */

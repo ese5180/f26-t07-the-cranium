@@ -158,36 +158,36 @@ function fleetOf() {
   const vitalsA = boardVitals({ events: BOARD_A, fromMs: FROM, toMs: TO, onlineNow: true, current: '1.1.0+0' });
   const vitalsB = boardVitals({ events: [connected(FROM + DAY)], fromMs: FROM, toMs: TO, current: '1.0.0+0' });
   const drawer = boardVitals({ events: [], fromMs: FROM, toMs: TO });
-  const base = { type: 'nrf7002dk', bluetoothOnly: false, online: true, rssi: -60 };
+  const base = { type: 'nrf7002dk', online: true, rssi: -60 };
   return fleetVitals(
     [
       { ...base, thing: A, name: 'CRA', version: '1.1.0+0', vitals: vitalsA },
       { ...base, thing: B, name: null, version: '1.0.0+0', vitals: vitalsB, rssi: null },
       { ...base, thing: C, version: null, online: false, vitals: drawer },
+      // A board of another type, in a drawer, on its type's newest release.
       {
         ...base,
         thing: 'cranium-00000000000000dd',
-        type: 'nrf5340dk',
-        bluetoothOnly: true,
+        type: 'otherboard',
         version: '1.0.0+0',
-        vitals: null,
+        online: false,
+        vitals: drawer,
       },
       { ...base, thing: 'cranium-00000000000000ee', version: '1.1.0+0', vitals: null },
     ],
-    { newestByType: { nrf7002dk: '1.1.0+0', nrf5340dk: '1.0.0+0' } }
+    { newestByType: { nrf7002dk: '1.1.0+0', otherboard: '1.0.0+0' } }
   );
 }
 
 test('fleet vitals count the boards seen in the window: crash-free, connected and on the newest release', () => {
   const { vitals } = fleetOf();
   assert.equal(vitals.boards, 5);
-  // A board in a drawer, a Bluetooth-only board and one that could not be read are not judged.
+  // Two boards in a drawer and one that could not be read are not judged.
   assert.equal(vitals.active, 2);
-  assert.equal(vitals.bluetoothOnly, 1);
   assert.equal(vitals.unread, 1);
   assert.deepEqual(vitals.crashFree, { boards: 1, of: 2, share: 0.5 });
   assert.deepEqual(vitals.connectivity, { onlineHours: 70, knownHours: 72, share: 0.9718 });
-  // Of the four boards with a version whose type has a release: A, the Bluetooth-only board and the unread one.
+  // Of the four boards with a version whose type has a release: A, the board of another type and the unread one.
   assert.deepEqual(vitals.newest, { boards: 3, of: 4, share: 0.75 });
   assert.deepEqual([vitals.restarts, vitals.unexpected, vitals.drops, vitals.lowMemory], [4, 1, 1, 1]);
 });

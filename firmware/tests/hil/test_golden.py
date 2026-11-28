@@ -781,15 +781,15 @@ class StoreBinaryTest(unittest.TestCase):
 
     def test_another_board_type_has_names_and_a_latest_of_its_own(self):
         """docs/fleet.md: so that nothing that takes latest.signed.bin to an nRF7002 DK takes this."""
-        binaries = self.store('CONFIG_APP_BT_OTA=y\nCONFIG_APP_BOARD_TYPE="nrf5340dk"\n')
+        binaries = self.store('CONFIG_APP_BT_OTA=y\nCONFIG_APP_BOARD_TYPE="nrf9999dk"\n')
         self.assertEqual(sorted(path.name for path in binaries.iterdir()),
-                         ["cranium-nrf5340dk-1.4.1-0.json", "cranium-nrf5340dk-1.4.1-0.signed.bin",
-                          "latest-nrf5340dk.json", "latest-nrf5340dk.signed.bin"])
-        record = json.loads((binaries / "latest-nrf5340dk.json").read_text())
-        self.assertEqual(record["board"], "nrf5340dk")
-        self.assertEqual(record["file"], "cranium-nrf5340dk-1.4.1-0.signed.bin")
-        self.assertEqual((binaries / "cranium-nrf5340dk-1.4.1-0.json").read_text(),
-                         (binaries / "latest-nrf5340dk.json").read_text())
+                         ["cranium-nrf9999dk-1.4.1-0.json", "cranium-nrf9999dk-1.4.1-0.signed.bin",
+                          "latest-nrf9999dk.json", "latest-nrf9999dk.signed.bin"])
+        record = json.loads((binaries / "latest-nrf9999dk.json").read_text())
+        self.assertEqual(record["board"], "nrf9999dk")
+        self.assertEqual(record["file"], "cranium-nrf9999dk-1.4.1-0.signed.bin")
+        self.assertEqual((binaries / "cranium-nrf9999dk-1.4.1-0.json").read_text(),
+                         (binaries / "latest-nrf9999dk.json").read_text())
 
 
 class SettingsTest(unittest.TestCase):

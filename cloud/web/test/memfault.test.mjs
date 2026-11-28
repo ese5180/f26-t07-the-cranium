@@ -16,7 +16,7 @@ globalThis.document = createDocument();
 const NOW = Date.parse('2026-11-04T12:00:00Z');
 const A = 'cranium-00000000000000aa';
 const LINK = `https://app.memfault.com/organizations/cranium-team/projects/cranium-boards/devices/${A}`;
-const NONE = Object.freeze({ status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false });
+const NONE = Object.freeze({ status: 'none', at: null, apCount: null, checkedAt: null });
 
 function board(changes = {}) {
   return {
@@ -119,17 +119,8 @@ test("a board's page says whether forwarding is on, and why not", () => {
   // No key says so first: it is the same for every board.
   assert.match(said({ keyStored: false, firmware: false, url: null }), /No project key is stored/);
   assert.match(said({ keyStored: true, firmware: false, url: null }), /Memfault: needs firmware 1\.14\.0\./);
-  // Nothing from a server that says nothing of it, and nothing for a board that never reaches AWS IoT.
+  // Nothing from a server that says nothing of it.
   assert.equal(memfaultCard(page(null).root), null);
-  assert.equal(
-    memfaultCard(
-      page(
-        { keyStored: true, firmware: true, url: null },
-        { device: board({ location: { ...NONE, bluetoothOnly: true } }) }
-      ).root
-    ),
-    null
-  );
 });
 
 test('the link to the board in Memfault is there when the server gives one, and opens apart from the console', () => {

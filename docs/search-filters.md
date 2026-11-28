@@ -11,7 +11,7 @@ desktop app show the same pages, so they all have it.
 | Activity (`#/activity`) | person, target (version, board, file, token), request id | kind (firmware, deployments and rollouts, boards, sign-ins and tokens, phone apps, customers, database exports), outcome, from and to (days) | the server: `GET /api/audit` |
 | Events (`#/events`) | what happened, and every line of the board log (its text and source) | board, warnings only; the kind chips, the source of the board log and the range presets are in the address too | the server: `GET /api/events`, `GET /api/events/log`, and the Console lane through `GET /api/audit` |
 | A board's page | | "Events and log" opens `#/events?board=<thing>` | |
-| Devices (`#/devices`) | name, thing name, version, type, groups | state (online, offline, Bluetooth only, updating), firmware version | the page |
+| Devices (`#/devices`) | name, thing name, version, type, groups | state (online, offline, updating), firmware version | the page |
 | Firmware (`#/firmware`) | version, note, file, who uploaded it, why it was revoked, board type | active or revoked | the page |
 | Deployments (`#/deployments`) | version, id, note, who made it, its boards by name or thing | under way or ended | the page |
 | API tokens (`#/tokens`) | name, id | active, expired, revoked | the page |

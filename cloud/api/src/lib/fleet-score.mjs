@@ -5,9 +5,9 @@
  *
  * The parts, each a share from 0 to 1 of the boards (or updates) it counts:
  *
- *   online     boards online, of the registered boards with Wi-Fi (a Bluetooth-only board never is)
+ *   online     boards online, of the registered boards
  *   crashFree  boards with no unexpected restart and no new Memfault issue in the last SCORE_DAYS days, of
- *              the registered boards with Wi-Fi. Unexpected: a restart event at warning level in the events
+ *              the registered boards. Unexpected: a restart event at warning level in the events
  *              table (a bad cause, or stuck), an unexpected reboot reason in Memfault, or a trace of an issue
  *              Memfault first saw in the window
  *   updates    updates over the air that ended confirmed, of those that ended in the last SCORE_DAYS days
@@ -69,23 +69,22 @@ const share = (counted, of) => (of > 0 ? counted / of : null);
  * The four parts: { online, crashFree, updates, signal }, each { counted, of, value } with value null when
  * there is nothing to count.
  *
- *   boards     the fleet boards (handlers/fleet.mjs): { thing, bluetoothOnly, online }
+ *   boards     the fleet boards (handlers/fleet.mjs): { thing, online }
  *   rssi       thing -> the signal the board reports now, in dBm, or null
  *   crashed    the things that crashed in the window, from the events table and Memfault together
  *   jobs       how the updates over the air of the window ended: { succeeded, failed, rolledBack }
  */
 export function scoreParts({ boards, rssi = new Map(), crashed = new Set(), jobs = {} }) {
-  const wifi = boards.filter((board) => !board.bluetoothOnly);
-  const online = wifi.filter((board) => board.online);
-  const crashedHere = wifi.filter((board) => crashed.has(board.thing)).length;
+  const online = boards.filter((board) => board.online);
+  const crashedHere = boards.filter((board) => crashed.has(board.thing)).length;
   const succeeded = whole(jobs.succeeded);
   const ended = succeeded + whole(jobs.failed) + whole(jobs.rolledBack);
   const heard = online.map((board) => rssi.get(board.thing)).filter((value) => Number.isInteger(value));
   const good = heard.filter((value) => value >= GOOD_SIGNAL_DBM).length;
   const part = (counted, of) => ({ counted, of, value: share(counted, of) });
   return {
-    online: part(online.length, wifi.length),
-    crashFree: part(wifi.length - crashedHere, wifi.length),
+    online: part(online.length, boards.length),
+    crashFree: part(boards.length - crashedHere, boards.length),
     updates: part(succeeded, ended),
     signal: part(good, heard.length),
   };
@@ -149,9 +148,9 @@ export const SNAPSHOT_THINGS = 500;
 const COUNT = (value) => Number.isInteger(value) && value >= 0;
 
 /**
- * What a snapshot keeps of the boards (console 2.19.0), for the weekly report: how many, online and offline of
- * those with Wi-Fi, Bluetooth only, the versions they run and how many of each, and their names, so that a
- * later week can tell which are new. `boards` are FleetBoards (handlers/fleet.mjs).
+ * What a snapshot keeps of the boards (console 2.19.0), for the weekly report: how many, online and offline,
+ * the versions they run and how many of each, and their names, so that a later week can tell which are new.
+ * `boards` are FleetBoards (handlers/fleet.mjs).
  */
 export function fleetCounts(boards) {
   const versions = {};
@@ -160,13 +159,11 @@ export function fleetCounts(boards) {
     if (typeof board.version !== 'string') unknown += 1;
     else versions[board.version] = (versions[board.version] ?? 0) + 1;
   }
-  const wifi = boards.filter((board) => !board.bluetoothOnly);
-  const online = wifi.filter((board) => board.online).length;
+  const online = boards.filter((board) => board.online).length;
   return {
     boards: boards.length,
     online,
-    offline: wifi.length - online,
-    bluetoothOnly: boards.length - wifi.length,
+    offline: boards.length - online,
     versions,
     unknown,
     things: boards
@@ -180,14 +177,13 @@ export function fleetCounts(boards) {
 export function snapshotFleet(item) {
   const fleet = item?.fleet;
   if (fleet === null || typeof fleet !== 'object') return null;
-  if (!['boards', 'online', 'offline', 'bluetoothOnly'].every((name) => COUNT(fleet[name]))) return null;
+  if (!['boards', 'online', 'offline'].every((name) => COUNT(fleet[name]))) return null;
   const versions = {};
   for (const [version, count] of Object.entries(fleet.versions ?? {})) if (COUNT(count)) versions[version] = count;
   return {
     boards: fleet.boards,
     online: fleet.online,
     offline: fleet.offline,
-    bluetoothOnly: fleet.bluetoothOnly,
     versions,
     unknown: COUNT(fleet.unknown) ? fleet.unknown : 0,
     things: Array.isArray(fleet.things) ? fleet.things.filter((thing) => typeof thing === 'string') : null,

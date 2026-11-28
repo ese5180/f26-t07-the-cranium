@@ -60,7 +60,7 @@ copied as they are. A change to a workflow file calls for all of that workflow's
 | `android` | `ci.yml` | `apps/android/`, the pages* | `./gradlew testDebugUnitTest assembleDebug`, then `./gradlew --stop` | With JDK 17 and the Android SDK |
 | `ios` | `ci.yml` | `apps/ios/`, the pages* | `swift test`, then the XcodeGen project built for iPhone without signing; then `xcrun simctl shutdown all` | macOS |
 | `macos` | `ci.yml` (allowed to fail) | `apps/macos/`, the pages* | The project made `--ad-hoc`, and `xcodebuild test` | macOS |
-| `firmware-default`, `firmware-no-bt`, `firmware-pi`, `firmware-nrf5340dk` | `ci.yml`, the firmware matrix (`firmware-pi` only on a branch whose ci.yml or build.sh has the Pi delta updates configuration) | `firmware/app/`, `firmware/netcore/`, the keys, `tools/`, `scripts/firmware/build.sh` | `scripts/firmware/build.sh --keep --no-upload --without-key --build-dir .local-ci/build/<job>` (with `--cmake-arg -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf`, `--pi`, or `--board nrf5340dk`) and a throwaway golden key, then `tools/memory_budget.py` and the configuration's checks from ci.yml | macOS, Linux, with nrfutil and the SDK |
+| `firmware-default`, `firmware-no-bt`, `firmware-pi` | `ci.yml`, the firmware matrix (`firmware-pi` only on a branch whose ci.yml or build.sh has the Pi delta updates configuration) | `firmware/app/`, `firmware/netcore/`, the keys, `tools/`, `scripts/firmware/build.sh` | `scripts/firmware/build.sh --keep --no-upload --without-key --build-dir .local-ci/build/<job>` (with `--cmake-arg -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf`, `--pi`, or `--board nrf5340dk`) and a throwaway golden key, then `tools/memory_budget.py` and the configuration's checks from ci.yml | macOS, Linux, with nrfutil and the SDK |
 | `cranium-mix` | `cranium-mix.yml` (comes with `pi/cranium-mix/`) | `pi/cranium-mix/` | `bash tools/test.sh` | Where `pi/cranium-mix/` exists |
 | `firmware-image` | `firmware-image.yml` | `tools/firmware-image/` | Nothing: skipped | Never locally |
 | `desktop-linux` | `desktop-linux.yml` | Its own paths | The AppImage, .deb and .rpm built and looked into; with `--install-packages`, the .deb installed, started and removed | Linux |
@@ -159,16 +159,19 @@ no second turn, which would wait for ever for the one it is inside.
 | --- | --- | --- | --- |
 | No private key in git | Each push to `main` or `feature/**`, each pull request, and by hand | `scripts/ci/scan-tracked-files.sh` | No tracked file of this commit holds a PEM private key, and no `wifi_secrets.h` is tracked, in any case of its name. It looks at this commit, not at older ones |
 | Host tests | The same | `make -C firmware/tests/host` with gcc, with the address and undefined-behaviour sanitizers on | The parsers, the console, the update code and the golden policy do what their tests say, on a fake of the hardware |
-| Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py`, `test_memory_budget.py`, `test_check_image.py`, `test_flash_layout.py`, `test_memfault_upload.py`, `test_provision.py`, `test_bt_only_check.py`, and `test_new_board.py` for `scripts/board/new-board.sh` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal. `scripts/board/new-board.sh` runs against stand-ins for nrfutil, west, AWS and the tools, and has not run on a board |
+| Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py`, `test_memory_budget.py`, `test_check_image.py`, `test_flash_layout.py`, `test_memfault_upload.py`, `test_provision.py`, and `test_new_board.py` for `scripts/board/new-board.sh` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal. `scripts/board/new-board.sh` runs against stand-ins for nrfutil, west, AWS and the tools, and has not run on a board |
 | Closed-loop bench | The same | `./bench test` in `closed-loop/`, in its own Python 3.12 environment from `closed-loop/requirements.txt` | The bench's 29 host tests pass: its C protocol code compiled and loaded, its Saleae and PPK2 analysis on made-up data, its MCP adapter over stdio, and its refusal to flash or power anything without a verified rig. The job fails on any skip. No board, logic analyzer or PPK2 is used ([docs/README.md](README.md#closed-loop-bench)) |
 | Cloud tests | The same | `node --test` in `cloud/api`, `cloud/web` and `cloud/dev`, with Node 22 | The console's API and pages do what their tests say, with an in-memory stand-in for AWS |
 | Desktop app (core) | Ubuntu, Node 22 | `npm ci` and `npm test` in `apps/desktop`, then the app started once under a virtual display with the example configuration | The desktop app's core does what its tests say, with no Electron, and the app opens on Linux and draws the customer site's sign-in from its built-in pages ([docs/desktop-app.md](desktop-app.md)). It cannot sign in, and nothing is packaged |
 | Firmware (default) | The same | `west build` of the default configuration, in Nordic's toolchain image for the SDK | The commit compiles, links and fits, with a job summary of its sizes and an artifact, and every image keeps its [memory headroom](#memory-headroom). See [The firmware jobs](#the-firmware-jobs) |
 | Firmware (no Bluetooth) | The same | The same build with `-DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf` | A build without Bluetooth, which every build has from 1.9.0, still compiles and links, and keeps its [memory headroom](#memory-headroom) |
-| Firmware (nRF5340 DK) | The same | `west build` for `nrf5340dk/nrf5340/cpuapp/ns`, the board with Bluetooth only | It compiles, links without Wi-Fi, cloud or Memfault code, and fits, with the Bluetooth controller on the network core, and the image says board type `nrf5340dk` and flash layout `1` (TLVs `0xA1`, `0xA2`). A job summary of its sizes and an artifact, and its [memory headroom](#memory-headroom), as for the default |
 | Android app | Ubuntu, JDK 17 | `./gradlew testDebugUnitTest assembleDebug` in `apps/android`, with the example configuration | The app's unit tests pass (with the parity test of `apps/shared/pages.json` against the console's pages) and it builds. It cannot sign in: the real configuration is never in git |
 | iPhone app | macOS, the runner's newest Xcode | `swift test` in `apps/ios/CraniumKit`, then the XcodeGen project built for iPhone without signing | The logic package's tests pass (with the same parity test) and the app compiles for iPhone. Nothing is signed or installed |
 | Check the release's files | A release is published | `scripts/release/verify-github-release.sh` | See [The check on a release](#the-check-on-a-release) |
+
+The nRF5340 DK is on ice ([docs/versions.md](versions.md#on-ice)): `ci.yml` still has its firmware configuration and
+`test_bt_only_check.py`, since `.github/` is never edited, but neither is on `main` any more, and local CI skips both.
+The branch `ice/nrf5340dk` has them.
 
 The last job is the only one that runs for a release, and it runs for nothing else: not for a release made for a phone
 app's tag (`android-v…`, `ios-v…`), which has no files. The phone apps are released by a workflow of their own,
@@ -311,7 +314,7 @@ change `NCS_VERSION`, `NCS_COMMIT` and the image in the workflow, and the commit
 `firmware/tests/fetch-sdk-files.sh`. A test in `cloud/api/test/release.test.mjs` fails if they disagree
 about the commit of `sdk-nrf`.
 
-The default build and the nRF5340 DK's each write a table to the job summary, from
+The default build writes a table to the job summary, from
 `tools/build_report.py`: the version and commit, flash and RAM of MCUboot, the application and TF-M,
 and the length of the signed image. Each
 size is shown against its limit. The limits come from the build itself: the region table in the
@@ -379,9 +382,7 @@ docker run --rm -it -v "$PWD":/workdir/repo ghcr.io/ese5180/f26-t07-the-cranium/
 Each default build uploads an artifact named
 `firmware-<version>-<commit>-ci-key-not-installable`, which is kept for 30 days. It holds the image,
 named so that nobody takes it for a release, with `latest.json`, the size table, and
-`NOT-INSTALLABLE.txt`, which says what this section says. The nRF5340 DK's is
-`firmware-nrf5340dk-<version>-<commit>-ci-key-not-installable`, with `latest-nrf5340dk.json`, named
-as `binaries/` names that board type's files. On a pull request the commit is the merge
+`NOT-INSTALLABLE.txt`, which says what this section says. On a pull request the commit is the merge
 commit that GitHub made to test it.
 
 Open a run in the Actions tab and go to Artifacts at the bottom of its summary, or:
@@ -714,7 +715,6 @@ python3 firmware/tests/hil/test_check_image.py
 python3 firmware/tests/hil/test_flash_layout.py
 python3 firmware/tests/hil/test_memfault_upload.py
 python3 firmware/tests/hil/test_provision.py
-python3 firmware/tests/hil/test_bt_only_check.py
 (cd cloud/api && node --test); (cd cloud/web && node --test); (cd cloud/dev && node --test)
 ```
 

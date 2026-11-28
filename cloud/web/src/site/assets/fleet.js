@@ -12,8 +12,7 @@
  *    its health gate, and why it stopped, with the board and the Memfault issue when the gate stopped it;
  *  - on the Overview, the fleet's health: versions by type, the last week's updates, and the boards
  *    that need looking at;
- *  - on the Devices page, each board's type and groups, "Bluetooth only" for a board without Wi-Fi
- *    with its version as a phone last saw it, the board types and the groups;
+ *  - on the Devices page, each board's type and groups, the board types and the groups;
  *  - on the Deployments page, every staged rollout, and the buttons for "Update everything" and
  *    "Roll back to last good".
  *
@@ -72,7 +71,6 @@ const FLEET_REFRESH_MS = 30_000;
 const ROLLOUT_REFRESH_MS = 5_000;
 const ATTENTION_SHOWN = 6;
 const LEFT_OUT_REASONS = Object.freeze({
-  bluetooth_only: 'Bluetooth only',
   other_type: 'Another type',
   other_layout: 'Another layout',
   current: 'Already current',
@@ -200,7 +198,6 @@ function readBoard(raw) {
     typeFrom: words(item.typeFrom, 16),
     layout: layout(item.layout),
     layoutFrom: words(item.layoutFrom, 16),
-    bluetoothOnly: item.bluetoothOnly === true,
     online: item.online === true,
     lastSeen: iso(item.lastSeen),
     version: version(item.version),
@@ -538,7 +535,6 @@ const fleetApi = {
           boards: count(entry.boards),
           newest: version(entry.newest),
           previous: version(entry.previous),
-          bluetoothOnly: entry.bluetoothOnly === true,
         })),
     };
   },
@@ -554,7 +550,6 @@ const fleetApi = {
           boards: count(entry.boards),
           newest: version(entry.newest),
           onNewest: count(entry.onNewest),
-          bluetoothOnly: entry.bluetoothOnly === true,
           unknown: count(entry.unknown),
           versions: array(entry.versions)
             .map(object)
@@ -625,16 +620,11 @@ const fleetApi = {
     ),
 };
 
-/** Each board's type, for the New deployment dialog: thing -> { type, bluetoothOnly }. */
+/** Each board's type, for the New deployment dialog: thing -> { type, layout }. */
 export async function boardTypes() {
   const fleet = await fleetApi.fleet();
   Object.assign(tools.state.fleet, { value: fleet, error: null, loadedAt: tools.clock.now() });
-  return new Map(
-    fleet.boards.map((board) => [
-      board.thing,
-      { type: board.type, layout: board.layout, bluetoothOnly: board.bluetoothOnly },
-    ])
-  );
+  return new Map(fleet.boards.map((board) => [board.thing, { type: board.type, layout: board.layout }]));
 }
 
 /** A staged rollout of boards named one by one, from the New deployment dialog. */
@@ -788,7 +778,7 @@ function leftOutList(entries, ctx) {
   );
 }
 
-// On the Devices page: a board's type and groups, and for a board without Wi-Fi what a phone saw.
+// On the Devices page: a board's type and groups.
 
 export function boardTags(device, ctx) {
   const fleet = fleetOf(ctx);
@@ -812,24 +802,6 @@ export function groupsOf(device, ctx) {
   if (!board) return [];
   const names = fleet.groups.filter((group) => board.groups.includes(group.id)).map((group) => group.name);
   return [board.type, ...names].filter((name) => typeof name === 'string');
-}
-
-export function bluetoothOnly(device, ctx) {
-  const board = fleetOf(ctx)?.boards.find((item) => item.thing === device.thing);
-  if (!board?.bluetoothOnly) return null;
-  const seen = board.seen;
-  return {
-    badge: badge('idle', 'chip', 'Bluetooth only', 'No Wi-Fi: it updates over Bluetooth from a phone, or over USB'),
-    line: seen?.version
-      ? [
-          'Runs ',
-          mono(seen.version),
-          ' as a phone saw it ',
-          when(seen.at, ctx.state.now),
-          seen.by ? [' (', seen.by, ')'] : null,
-        ]
-      : 'No phone has seen it yet. It shows its version here once the phone app connects to it.',
-  };
 }
 
 // On a board's page: what it is, how its flash is laid out, and the newest release it can take.
@@ -858,9 +830,6 @@ export function compatibilityCard(device, ctx) {
       [
         'Takes',
         newest ? [mono(newest.version), ' is the newest release built for it'] : 'No release is built for it yet',
-        board.bluetoothOnly
-          ? h('span', { class: 'fact-note' }, 'Over Bluetooth from the phone app: it has no Wi-Fi')
-          : null,
       ],
     ]),
     h(
@@ -1001,7 +970,6 @@ export function healthCard(ctx) {
                 'p',
                 { class: 'health-type-head' },
                 typeChip(entry.type),
-                entry.bluetoothOnly ? h('span', { class: 'quiet' }, ' Bluetooth only') : null,
                 h(
                   'span',
                   { class: 'health-share' },
@@ -1170,10 +1138,7 @@ export function groupsCard(ctx) {
               'p',
               { class: 'group-name' },
               typeChip(entry.boardType),
-              h('span', { class: 'quiet' }, ` · ${plural(entry.boards.length, 'board')}`),
-              fleet.types.find((item) => item.type === entry.boardType)?.bluetoothOnly
-                ? h('span', { class: 'quiet' }, ' · Bluetooth only')
-                : null
+              h('span', { class: 'quiet' }, ` · ${plural(entry.boards.length, 'board')}`)
             ),
             h(
               'p',
@@ -1264,16 +1229,12 @@ export function boardTypesPanel(ctx) {
           String(entry.boards),
           h('span', null, entry.boards === 1 ? ' board' : ' boards')
         ),
-        h(
-          'p',
-          { class: 'fleet-type-note' },
-          entry.bluetoothOnly ? 'Bluetooth only: updated from a phone' : 'Wi-Fi: updated over the air'
-        ),
+        h('p', { class: 'fleet-type-note' }, 'Wi-Fi: updated over the air'),
         h(
           'p',
           { class: 'fleet-type-note' },
           entry.newest
-            ? ['Newest ', mono(entry.newest), onNewest === null || entry.bluetoothOnly ? null : ` · ${onNewest} on it`]
+            ? ['Newest ', mono(entry.newest), onNewest === null ? null : ` · ${onNewest} on it`]
             : 'No release for it yet'
         )
       );
@@ -1694,7 +1655,7 @@ function openGroup(group) {
                 },
               },
               [mono(boardName(board)), boardThing(board)],
-              h('span', { class: 'choice-note' }, typeChip(board.type), board.bluetoothOnly ? ' Bluetooth only' : null)
+              h('span', { class: 'choice-note' }, typeChip(board.type))
             )
           )
         ),
@@ -2271,7 +2232,7 @@ function openGroupRollout(group) {
                 h('p', { class: 'callout-title' }, 'What happens'),
                 consequences([
                   `The ${plural(ofType.length, 'board', 'boards')} of the group that are ${boardTypeLabel(release?.board ?? 'nrf7002dk')}s are considered; ` +
-                    'the server leaves out those already on it, those busy with another update and any without Wi-Fi, and says why.',
+                    'the server leaves out those already on it and those busy with another update, and says why.',
                   `${plural(model.canary, 'board gets', 'boards get')} it first. ${stageWords(model)}`,
                   `It stops by itself once ${model.abortPercent}% of the boards that finished have failed.`,
                 ])

@@ -129,7 +129,6 @@ Listed here only; each stays where it is. Paths are from the repository root.
 | Script | What it does |
 | --- | --- |
 | `firmware/app/flash_layout.py` | A build's flash layout, and the check that its number is right; run by every build |
-| `firmware/app/bt_only_check.py` | Checks that a Bluetooth-only image has nothing of the cloud in it; run by the build |
 | `firmware/tests/fetch-sdk-files.sh` | Fetches the few SDK files the host and Python tests read |
 | `firmware/tests/host/mutate_join.py`, `mutate_net.py`, `mutate_stuck.py` | Mutation checks: do the host tests notice when the policy is wrong? |
 | `firmware/tests/hil/run_sharded.py` | Runs one test file's tests in several processes; used by CI for `test_board.py` |

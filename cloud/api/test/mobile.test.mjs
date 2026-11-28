@@ -12,6 +12,7 @@ import { test } from 'node:test';
 import { objectKey } from '../src/handlers/firmware.mjs';
 import { PAIRING_FRESH_MS, deviceFromShadow, pairingFromShadow } from '../src/lib/shadow.mjs';
 import { accessClaims, createTestConsole, fixture } from './fake-aws.mjs';
+import { makeCsr } from './fake-provision.mjs';
 
 const THING = 'cranium-fe5b26c0c5b1dcd7';
 const OTHER_THING = 'cranium-0123456789abcdef';
@@ -377,7 +378,7 @@ const ROUTES = [
     route: 'POST /api/devices/register',
     status: 200,
     phone: true,
-    body: { id: '00000000000000aa', board: 'nrf5340dk' },
+    body: { id: '00000000000000aa', csr: makeCsr({ commonName: 'cranium-00000000000000aa' }).pem },
   },
   // Board setup's Wi-Fi defaults: none stored in this world.
   { route: 'GET /api/setup/wifi-defaults', status: 200, phone: true },
@@ -713,7 +714,13 @@ test("every route takes the console's session; a phone app's only where the apps
       assert.equal(phone.status, entry.status, `${entry.route} with a phone app's session`);
       if (Buffer.isBuffer(console_.body)) assert.ok(console_.body.equals(phone.body), entry.route);
       else if (entry.route === 'POST /api/tokens') assert.equal(typeof phone.body.token, 'string', entry.route);
-      else assert.deepEqual(withoutRequestId(phone.body), withoutRequestId(console_.body), entry.route);
+      else if (entry.route === 'POST /api/devices/register') {
+        // A certificate is signed afresh for each request; the rest of the answer is the same.
+        const { certificatePem: theirPem, ...theirRest } = withoutRequestId(phone.body);
+        const { certificatePem: ourPem, ...ourRest } = withoutRequestId(console_.body);
+        assert.deepEqual(theirRest, ourRest, entry.route);
+        assert.deepEqual([typeof theirPem, typeof ourPem], ['string', 'string'], entry.route);
+      } else assert.deepEqual(withoutRequestId(phone.body), withoutRequestId(console_.body), entry.route);
       continue;
     }
     assert.deepEqual(

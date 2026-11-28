@@ -127,10 +127,6 @@ export function planLastGood({ boards, histories, releases, busy = new Map(), no
       to,
     });
   for (const board of [...boards].sort((a, b) => (a.thing < b.thing ? -1 : 1))) {
-    if (board.bluetoothOnly) {
-      out(board, 'bluetooth_only');
-      continue;
-    }
     if (!histories.has(board.thing)) {
       out(board, 'unreadable');
       continue;

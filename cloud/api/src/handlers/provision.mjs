@@ -4,9 +4,7 @@
  * tools/provision_device.py, scripts/board/new-board.sh).
  *
  *   body   { "id": "<16 hex>", "csr": "-----BEGIN CERTIFICATE REQUEST-----...", "reregister": false }
- *          { "id": "<16 hex>", "board": "nrf5340dk" }     a board with Bluetooth only: no request, no certificate
  *   200    { thing, certificatePem, rootCa, endpoint, downloadPrefix }
- *   200    { thing }                                       for an nrf5340dk
  *
  * What tools/provision_device.py otherwise does with an AWS administrator's sign-in, so that whoever sets up a
  * board needs no access to the AWS account. `id` is the board's identifier, the 16 hex digits of its SoC that
@@ -24,8 +22,7 @@
  * `reregister` is true, as for a board that was wiped. Then its earlier certificates are retired (detached, made
  * inactive, deleted), so that a board has one identity: what provision_device.py and --new-identity do.
  *
- * An nRF5340 DK never reaches AWS by itself: a thing with the attribute board=nrf5340dk in the group, and no
- * certificate (docs/fleet.md). A thing whose attribute names another board type is refused (409).
+ * A thing whose attribute names another board type is refused (409).
  *
  * Release managers only, never from a phone, on record as device.register with the board type, whether the
  * thing is new, the certificate's first 16 hex digits and how many were retired. At most REGISTRATIONS_PER_HOUR
@@ -38,7 +35,7 @@ import { AMAZON_ROOT_CA1, certificateFor, parseCsr } from '../lib/provision.mjs'
 import { requireBoolean, requireThing } from '../lib/validate.mjs';
 
 export const REGISTRATIONS_PER_HOUR = 20;
-export const BOARD_TYPES = Object.freeze(['nrf7002dk', 'nrf5340dk']);
+export const BOARD_TYPES = Object.freeze(['nrf7002dk']);
 const DEFAULT_BOARD = 'nrf7002dk';
 const FIELDS = Object.freeze(['id', 'csr', 'reregister', 'board']);
 const BOARD_ID = /^[0-9a-f]{16}$/;
@@ -78,12 +75,7 @@ export function createProvisionHandlers({ aws, config, now }) {
     }
     entry.detail.board = board;
     const reregister = requireBoolean(field(body, 'reregister'), 'reregister', false);
-    const given = field(body, 'csr');
-    if (board !== DEFAULT_BOARD) {
-      if (given !== undefined) throw badRequest('unexpected_field', `An ${board} has no certificate: send no "csr".`);
-      return { thing, board, csr: null, reregister };
-    }
-    const csr = parseCsr(given);
+    const csr = parseCsr(field(body, 'csr'));
     if (csr === null) {
       throw badRequest(
         'invalid_csr',
@@ -104,15 +96,6 @@ export function createProvisionHandlers({ aws, config, now }) {
     if (known !== null && (said ?? DEFAULT_BOARD) !== board) {
       throw conflict('board_mismatch', `${thing} is registered as an ${said ?? DEFAULT_BOARD}, not an ${board}.`);
     }
-  }
-
-  async function registerBluetoothOnly(thing, board, entry) {
-    const attributes = { board };
-    const { created } = await aws.createThing({ thing, attributes });
-    if (!created) await aws.updateThingAttributes({ thing, attributes });
-    await aws.addThingToGroup(thing);
-    entry.detail.created = created;
-    return { status: 200, body: { thing } };
   }
 
   async function registerWithCertificate(thing, csr, reregister, entry) {
@@ -172,9 +155,7 @@ export function createProvisionHandlers({ aws, config, now }) {
         );
       }
       await refuseOtherType(thing, board);
-      return csr === null
-        ? registerBluetoothOnly(thing, board, entry)
-        : registerWithCertificate(thing, csr, reregister, entry);
+      return registerWithCertificate(thing, csr, reregister, entry);
     },
   };
 }

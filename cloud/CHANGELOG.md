@@ -7,6 +7,19 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.31.2
+
+The console knows one board type again, the nRF7002 DK: the nRF5340 DK is set aside. An image built for the nRF5340 DK is refused when it is uploaded, as any type the console does not know, and every registration through the console needs the board's certificate signing request. The "Bluetooth only" board is gone from the pages: its badge, filter and count on Devices, its tile and count on the Overview, its reason on the Map, its row on Vitals and its line in the weekly report. No registered board and no release is of that type, so what the fleet shows does not change.
+
+- Board types: `lib/boards.mjs`, `handlers/provision.mjs`, `core.js`, `setup.js`, the release notes and `build-versions.mjs` list `nrf7002dk` alone. Kept for every type: the image's protected board TLV (`0xA1`) and layout TLV (`0xA2`), `resolveBoard`/`resolveLayout`, a release's `board` and `layout`, the compatibility checks by type and layout, and `incompatible_board`, `incompatible_layout` and `unknown_board`.
+- Bluetooth-only handling, removed: `BLUETOOTH_ONLY`/`isBluetoothOnly`; `bluetoothOnly` in the fleet's boards and types, a board's location, its vitals, the fleet's vitals, the weekly report's boards and the health snapshots (a snapshot stored with it is still read); the `bluetooth_only` refusals of commands, deployments, rollouts, Update everything and Roll back to last good, and their words; the "unseen" attention reason; the location handler's look at a silent board's thing.
+- Registration: no thing without a certificate (`registerBluetoothOnly`), so a body without `"csr"` is `invalid_csr`; `updateThingAttributes` is gone, and with it the API role's `iot:UpdateThing`.
+- Board setup: no "online" step skipped for a board of another type, and no early end to first-time setup for one. A board of another type still skips the golden image, which is the nRF7002 DK's.
+- Kept: updates over Bluetooth from a phone, offline mode, passkeys and pairing. A phone's sighting (`POST /api/devices/{thing}/seen`) is still kept and on record; no page shows it.
+- Local preview: the fleet scenario has no nRF5340 DKs, no release for them and no sightings.
+- A stored type the console does not know any more keeps its word instead of passing for an nRF7002 DK: a release recorded as `nrf5340dk`, or a thing whose attribute says so, shows as "nrf5340dk (unknown type)" and matches no board, so no deployment, rollout or Bluetooth send offers it to one (`unknownType` in `lib/boards.mjs`). None exists live.
+- Tests: an image whose TLV says `nrf5340dk` is refused at upload (`unknown_board`), and `nrf5340dk` is not a type for a registration, a rollout or a Bluetooth check; where a test needs a board of another type it uses a made-up word, or a board of another flash layout.
+
 ## 2.31.1
 
 The customer site, redesigned onto the console's look. A customer's Overview now opens on their boards: each board's label first and its own name second, its health as a sentence ("Running normally") with the week's restarts drawn by day and said in words beside them ("1 restart this week, expected"), then what the boards did and the four figures; the mixes follow under their own heading. On a phone the sections sit in a floating glass tab bar shaped for the iPhone 17 Pro's rounded corners, the boards first, and a dialog rises as a sheet with the screen's corners. Every page, sign-in step, admin mode and figure is still there.

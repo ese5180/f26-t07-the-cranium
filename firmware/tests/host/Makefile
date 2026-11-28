@@ -16,7 +16,7 @@ BUILD := build
 CC ?= cc
 SANITIZE := -fsanitize=address,undefined -fno-sanitize-recover=undefined
 # The firmware's sources are in folders under src/, each on the include path, as in its CMakeLists.txt.
-SRC_DIRS := $(SRC) $(addprefix $(SRC)/,bt bt_only cloud mflt ota policy)
+SRC_DIRS := $(SRC) $(addprefix $(SRC)/,bt cloud mflt ota policy)
 CFLAGS := -std=c11 -O1 -g $(SANITIZE) $(addprefix -I,$(SRC_DIRS)) -Istubs -I$(CJSON_DIR)
 WARNINGS := -Wall -Wextra -Werror
 
@@ -39,9 +39,8 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/console_sim_fault $(BUILD)/cloud_tests $(BUILD)/cloud_events_tests \
 		$(BUILD)/command_tests $(BUILD)/location_tests $(BUILD)/location_bt_tests $(BUILD)/image_compat_tests \
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
-		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
-		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests
+		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests $(BUILD)/bt_ota_passkey_tests \
+		$(BUILD)/console_bt_offline_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -76,10 +75,8 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/reset_cause_tests
 	./$(BUILD)/bt_passkey_policy_tests
 	./$(BUILD)/bt_passkey_tests
-	./$(BUILD)/bt_only_tests
-	./$(BUILD)/bt_only_ota_tests
-	./$(BUILD)/console_bt_only_tests
-	./$(BUILD)/bt_only_leds_tests
+	./$(BUILD)/bt_ota_passkey_tests
+	./$(BUILD)/console_bt_offline_tests
 	./$(BUILD)/sessions_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
@@ -275,48 +272,37 @@ $(BUILD)/ui_bt_tests: test_ui.c $(SRC)/ui.c $(SRC)/ui.h $(SRC)/app_events.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 $(BT_DEFINES) -o $@ test_ui.c
 
-# A board with Bluetooth only (CONFIG_APP_BT_ONLY): the nRF5340 DK. Which board an image is for, the
-# board's own passkey and its policy, the status a phone reads, bt_ota.c and bt_only_ota.c with no cloud
-# at all, the console's commands there, and LED3 and LED4.
-BT_ONLY_DEFINES := -DCONFIG_APP_BT_OTA=1 -DCONFIG_APP_BT_ONLY=1 -DCONFIG_APP_BT_STATIC_PASSKEY=1 \
+# A board's own passkey (CONFIG_APP_BT_STATIC_PASSKEY, which offline mode selects) and its policy.
+PASSKEY_DEFINES := -DCONFIG_APP_BT_OTA=1 -DCONFIG_APP_BT_STATIC_PASSKEY=1 \
 	-DCONFIG_APP_BT_PASSKEY_FAILURE_BUDGET=3 -DCONFIG_BT_DEVICE_NAME=\"Cranium\"
-CONSOLE_BT_ONLY_DEFINES := $(filter-out -DCONFIG_APP_LOCATION=1,$(subst \"nrf7002dk\",\"nrf5340dk\",$(CONSOLE_DEFINES))) \
-	$(BT_ONLY_DEFINES) -DCONFIG_APP_BT_OFFLINE=1
 
 $(BUILD)/bt_passkey_policy_tests: test_bt_passkey_policy.c $(SRC)/policy/bt_passkey_policy.c $(SRC)/policy/bt_passkey_policy.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_bt_passkey_policy.c $(SRC)/policy/bt_passkey_policy.c
 
+# bt_ota.c as every nRF7002 DK has it: offline mode selects the board's own passkey. test_bt_ota_passkey.c
+# includes test_bt_ota.c and runs all of it in this build, then the tests of the passkey.
+$(BUILD)/bt_ota_passkey_tests: test_bt_ota_passkey.c test_bt_ota.c $(SRC)/bt/bt_ota.c $(SRC)/bt/bt_ota.h $(SRC)/bt/bt_passkey.h \
+		$(SRC)/policy/bt_ota_policy.c $(SRC)/policy/bt_ota_policy.h $(SRC)/policy/bt_passkey_policy.c $(SRC)/bt/bt_status.c \
+		$(SRC)/ota/ota_job.c $(SRC)/ota/ota_outcome.c $(SRC)/ota/version.c $(SRC)/ota/image_compat.c $(SRC)/ota/image_compat.h \
+		stubs/host_bt.h stubs/zephyr/kernel.h $(BUILD)/cJSON.o
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -o $@ test_bt_ota_passkey.c $(SRC)/policy/bt_ota_policy.c \
+		$(SRC)/policy/bt_passkey_policy.c $(SRC)/bt/bt_status.c $(SRC)/ota/ota_job.c $(SRC)/ota/ota_outcome.c \
+		$(SRC)/ota/version.c $(SRC)/ota/image_compat.c $(BUILD)/cJSON.o -lm
+
+# The console as every nRF7002 DK has it, with offline mode and the board's own passkey: BT_PASSKEY,
+# BT_OFFLINE|NEW, STATUS|bluetooth and a factory reset, against a fake of bt_passkey.c.
+$(BUILD)/console_bt_offline_tests: test_console_bt_offline.c $(CONSOLE_SOURCES) $(SRC)/policy/bt_passkey_policy.c \
+		$(BUILD)/base64.o $(CONSOLE_HEADERS)
+	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) $(PASSKEY_DEFINES) -DCONFIG_APP_BT_OFFLINE=1 -o $@ $(filter-out %.h,$^)
+
 # bt_passkey.c, included by its test to get at its state, against a fake of TF-M's protected storage.
 $(BUILD)/bt_passkey_tests: test_bt_passkey.c $(SRC)/bt/bt_passkey.c $(SRC)/bt/bt_passkey.h $(SRC)/policy/bt_passkey_policy.c \
 		stubs/psa/protected_storage.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 $(BT_ONLY_DEFINES) -o $@ test_bt_passkey.c \
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 $(PASSKEY_DEFINES) -o $@ test_bt_passkey.c \
 		$(SRC)/policy/bt_passkey_policy.c
-
-# test_bt_only.c includes test_bt_ota.c, and runs its tests that are not about the cloud on this board:
-# the others are left there unused.
-$(BUILD)/bt_only_tests: test_bt_only.c test_bt_ota.c $(SRC)/bt/bt_ota.c $(SRC)/bt/bt_ota.h $(SRC)/policy/bt_ota_policy.c $(SRC)/policy/bt_passkey_policy.c \
-		$(SRC)/bt/bt_status.c $(SRC)/ota/ota_outcome.c $(SRC)/ota/image_compat.c $(SRC)/ota/version.c stubs/host_bt.h
-	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(WARNINGS) -Wno-unused-function -DCONFIG_APP_BT_ONLY=1 -o $@ test_bt_only.c $(SRC)/policy/bt_ota_policy.c \
-		$(SRC)/policy/bt_passkey_policy.c \
-		$(SRC)/bt/bt_status.c $(SRC)/ota/ota_outcome.c $(SRC)/ota/image_compat.c $(SRC)/ota/version.c
-
-# bt_only_ota.c and health.c, included by their test: the trial, kept by a person or reverted by the deadline.
-$(BUILD)/bt_only_ota_tests: test_bt_only_ota.c $(SRC)/bt_only/bt_only_ota.c $(SRC)/health.c $(SRC)/ota/ota.h stubs/host_bt.h \
-		stubs/zephyr/drivers/watchdog.h
-	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 $(BT_ONLY_DEFINES) -o $@ test_bt_only_ota.c
-
-$(BUILD)/console_bt_only_tests: test_console_bt_only.c $(CONSOLE_SOURCES) $(SRC)/policy/bt_passkey_policy.c $(BUILD)/base64.o \
-		$(CONSOLE_HEADERS)
-	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_BT_ONLY_DEFINES) -o $@ $(filter-out %.h,$^)
-
-# LED3 and LED4, included by their test to get at the pattern they show.
-$(BUILD)/bt_only_leds_tests: test_bt_only_leds.c $(SRC)/bt_only/bt_only_leds.c $(SRC)/bt_only/bt_only.h
-	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 $(BT_ONLY_DEFINES) -o $@ test_bt_only_leds.c
 
 # When a board that is stuck gets restarted, and when a join may start. tests/host/mutate_stuck.py,
 # mutate_join.py and mutate_net.py show that these tests notice when a policy, or what net.c tells

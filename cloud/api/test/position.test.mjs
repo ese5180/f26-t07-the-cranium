@@ -526,7 +526,7 @@ test('the boards carry their position, and GET /api/devices/{thing}/positions th
   const byThing = Object.fromEntries(list.body.devices.map((device) => [device.thing, device]));
   const at = new Date(NOW).toISOString();
   assert.deepEqual(byThing[THING].position, { lat: 39.9522, lon: -75.191, accuracy: 25, at });
-  assert.deepEqual(byThing[THING].location, { status: 'ok', at, apCount: 2, checkedAt: at, bluetoothOnly: false });
+  assert.deepEqual(byThing[THING].location, { status: 'ok', at, apCount: 2, checkedAt: at });
   assert.deepEqual(byThing[other].position, null);
   assert.equal(byThing[other].location.status, 'none');
 
@@ -534,8 +534,11 @@ test('the boards carry their position, and GET /api/devices/{thing}/positions th
   assert.deepEqual(one.body.device.position, byThing[THING].position);
 
   const history = await console_.call('GET', `/api/devices/${THING}/positions`, { as: viewer });
-  const { bluetoothOnly: _type, ...location } = byThing[THING].location;
-  assert.deepEqual(history.body, { thing: THING, location, positions: [byThing[THING].position] });
+  assert.deepEqual(history.body, {
+    thing: THING,
+    location: byThing[THING].location,
+    positions: [byThing[THING].position],
+  });
   assert.equal(
     (await console_.call('GET', '/api/devices/cranium-1111111111111111/positions', { as: viewer })).status,
     404

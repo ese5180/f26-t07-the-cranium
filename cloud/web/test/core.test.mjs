@@ -1242,10 +1242,7 @@ test('what a board reports is cut down to known shapes', async () => {
     'uptime',
   ]);
   // No position, and nothing said of where it is (docs/fleet.md).
-  assert.deepEqual(
-    [bad.position, bad.location],
-    [null, { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false }]
-  );
+  assert.deepEqual([bad.position, bad.location], [null, { status: 'none', at: null, apCount: null, checkedAt: null }]);
   assert.deepEqual([bad.name, bad.stuck, bad.diag, bad.diary, bad.bt], [null, null, null, null, null]);
   assert.equal(bad.online, false);
   assert.equal(bad.lastSeen, null);
@@ -1268,7 +1265,7 @@ test('what a board reports is cut down to known shapes', async () => {
     diary: null,
     bt: null,
     position: null,
-    location: { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false },
+    location: { status: 'none', at: null, apCount: null, checkedAt: null },
   });
 
   // From firmware 1.11.4 a board reports its own name; only letters and digits, at most 32, are one.
@@ -3964,4 +3961,13 @@ test('the log says what was done with a token, and which token made a change', (
       ['The token had', 'been revoked'],
     ]
   );
+});
+
+test('a board type this console does not know, such as one on ice, shows as unknown', () => {
+  assert.equal(core.boardTypeLabel('nrf7002dk'), 'nRF7002 DK');
+  assert.equal(core.boardTypeLabel('nrf5340dk'), 'nrf5340dk (unknown type)');
+  assert.equal(core.boardTypeLabel(null), '');
+  assert.equal(core.boardTypeLabel(''), '');
+  assert.equal(core.compatibilityWords({ board: 'nrf5340dk', layout: 1 }), 'For nrf5340dk (unknown type) · layout 1');
+  assert.equal(core.compatibilityWords({ board: 'nrf7002dk' }), 'For nRF7002 DK · layout 1');
 });
