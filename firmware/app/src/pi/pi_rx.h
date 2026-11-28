@@ -58,4 +58,10 @@ size_t pi_rx_status(const struct pi_rx *rx, uint8_t *buf, size_t size);
  */
 void pi_rx_clean_text(uint8_t *text, size_t length);
 
+/*
+ * How many bytes of a cleaned message to keep for at most max: max or fewer, so that the cut is
+ * not inside a multi-byte character, which would leave the invalid UTF-8 pi_rx_clean_text() removed.
+ */
+size_t pi_rx_text_cut(const uint8_t *text, size_t length, size_t max);
+
 #endif /* PI_RX_H_ */

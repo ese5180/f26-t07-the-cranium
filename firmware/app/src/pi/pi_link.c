@@ -115,7 +115,8 @@ static void handle_transfer(size_t received)
 		pi_rx_clean_text((uint8_t *)frame.payload, frame.length);
 		into = kept_for(frame.payload, frame.length);
 		if (into != NULL) {
-			size_t n = MIN((size_t)frame.length, (size_t)PI_LINK_KEPT_MAX);
+			size_t n = pi_rx_text_cut((const uint8_t *)frame.payload, frame.length,
+						  PI_LINK_KEPT_MAX);
 
 			memcpy(into, frame.payload, n);
 			into[n] = '\0';
@@ -132,10 +133,10 @@ static void handle_transfer(size_t received)
 		 * Only on the serial console: a line per message would be too many for the cloud's events.
 		 */
 		uint8_t *line = (uint8_t *)frame.payload - PRINT_PREFIX_LENGTH;
+		size_t n = pi_rx_text_cut((const uint8_t *)frame.payload, frame.length, PRINT_MAX);
 
 		memcpy(line, PRINT_PREFIX, PRINT_PREFIX_LENGTH);
-		console_port_event((const char *)line,
-				   PRINT_PREFIX_LENGTH + MIN((size_t)frame.length, (size_t)PRINT_MAX));
+		console_port_event((const char *)line, PRINT_PREFIX_LENGTH + n);
 	} else if (result == PI_RX_BAD) {
 		LOG_DBG("bad frame of %u bytes", (unsigned int)received);
 	}

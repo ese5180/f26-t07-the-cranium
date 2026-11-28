@@ -117,3 +117,14 @@ void pi_rx_clean_text(uint8_t *text, size_t length)
 		i += n;
 	}
 }
+
+size_t pi_rx_text_cut(const uint8_t *text, size_t length, size_t max)
+{
+	size_t n = length < max ? length : max;
+
+	/* Back up over continuation bytes (10xxxxxx): the byte at n then starts a character. */
+	while (n > 0 && n < length && (text[n] & 0xc0) == 0x80) {
+		n--;
+	}
+	return n;
+}
