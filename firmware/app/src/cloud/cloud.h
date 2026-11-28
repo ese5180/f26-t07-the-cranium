@@ -83,6 +83,12 @@ bool cloud_is_connected(void);
 /* An attempt is running: APP_EVENT_CLOUD_UP or _DOWN is still to come. */
 bool cloud_is_connecting(void);
 
+/*
+ * The connection that is up, or being made, goes over a phone's Bluetooth relay (src/bt/ble_relay.h). Always
+ * false in a build without CONFIG_APP_BLE_RELAY.
+ */
+bool cloud_is_relayed(void);
+
 /* A copy of the statistics, consistent in itself. From any thread. */
 void cloud_stats_get(struct cloud_stats *out);
 

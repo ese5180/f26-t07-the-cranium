@@ -41,7 +41,8 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests \
+		$(BUILD)/ble_relay_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -81,6 +82,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/console_bt_only_tests
 	./$(BUILD)/bt_only_leds_tests
 	./$(BUILD)/sessions_tests
+	./$(BUILD)/ble_relay_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -329,6 +331,14 @@ $(BUILD)/stuck_policy_tests: test_stuck_policy.c $(SRC)/policy/stuck_policy.c $(
 $(BUILD)/join_policy_tests: test_join_policy.c $(SRC)/policy/join_policy.c $(SRC)/policy/join_policy.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_join_policy.c $(SRC)/policy/join_policy.c
+
+# The Bluetooth relay's frames and decisions (src/policy/ble_relay_*.c). --print gives the sample frames
+# that the apps' tests hold.
+$(BUILD)/ble_relay_tests: test_ble_relay.c $(SRC)/policy/ble_relay_proto.c $(SRC)/policy/ble_relay_proto.h \
+		$(SRC)/policy/ble_relay_policy.c $(SRC)/policy/ble_relay_policy.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_ble_relay.c $(SRC)/policy/ble_relay_proto.c \
+		$(SRC)/policy/ble_relay_policy.c
 
 .PHONY: mutants
 mutants:

@@ -111,6 +111,11 @@ target_sources_ifdef(CONFIG_APP_BT_OFFLINE app PRIVATE
   src/bt/bt_offline.c
   src/policy/bt_offline_policy.c
 )
+target_sources_ifdef(CONFIG_APP_BLE_RELAY app PRIVATE
+  src/bt/ble_relay.c
+  src/policy/ble_relay_proto.c
+  src/policy/ble_relay_policy.c
+)
 target_sources_ifdef(CONFIG_APP_BT_STATIC_PASSKEY app PRIVATE
   src/bt/bt_passkey.c
   src/policy/bt_passkey_policy.c

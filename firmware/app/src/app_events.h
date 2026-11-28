@@ -28,6 +28,9 @@ enum app_event_type {
 	 * connect again at once, with the back-off from the start. Ignored during an update.
 	 */
 	APP_EVENT_CLOUD_RECONNECT,
+	/* A phone's Bluetooth relay channel opened, or closed (src/bt/ble_relay.h, from 1.21.0). */
+	APP_EVENT_RELAY_UP,
+	APP_EVENT_RELAY_DOWN,
 	/* A jobs message (the next job, or the reply to a request for it) is waiting. */
 	APP_EVENT_JOB_MESSAGE,
 	/* AWS IoT answered a job status update that the update logic is waiting on. */

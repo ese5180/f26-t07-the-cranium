@@ -7,6 +7,24 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.21.0
+
+Bluetooth relay, not yet tried on a board, and only in its own build (ble_relay_sysbuild.conf): after a minute with no Wi-Fi the board advertises the relay, and a phone running the Cranium app carries its connection to AWS IoT. The board keeps its own TLS session and certificate; the phone only passes the bytes on. Back on Wi-Fi after 30 s. No update downloads over the relay.
+
+nRF7002 DK only, behind `CONFIG_APP_BLE_RELAY` (`docs/ble-relay.md`). `src/bt/ble_relay.c` registers an L2CAP
+server (dynamic PSM, security level 1, credits given by the board with `seg_recv`), a GATT service with the PSM,
+a socket family between the TLS layer and the native sockets, and a DNS hook for the one endpoint name; both are on
+only while `cloud.c` makes a relayed connection, so the TLS socket, `mqtt_helper` and `aws_iot` are unchanged.
+`src/policy/ble_relay_proto.c` has the frames (HELLO, OPEN, OPENED, DATA, CLOSE) and
+`src/policy/ble_relay_policy.c` the decisions: offer after 60 s without Wi-Fi, Wi-Fi first for every connection,
+hand back after 30 s of Wi-Fi, OPENED within 15 s, credits only for room in the 768-byte ring. `bt_ota.c` gets a
+relay gate next to the status one: the relay link never pairs, and a window or the post-update status takes the
+radio from it. A job offer that comes over the relay stays queued in AWS IoT until the board is on Wi-Fi.
+
+Memory (`tools/memory_budgets.json`, new configuration "BLE relay"): the relay takes 13,416 bytes of flash and
+2,568 of RAM. Its build gives it the 4 KB that `bt_ota.conf` adds to the kernel heap (44,240 to 40,144): app
+24,722 flash / 2,452 RAM free. The default build has no relay and is unchanged at 38,138 / 924.
+
 ## 1.19.3
 
 Golden image promotion, not yet tried on a board: the golden image can be replaced over the air with a record signed by the offline golden key, from the console's Make golden. The board seals only a release it runs and has confirmed, and never an older golden image. Needs this version's bootloader, which takes one debug-port flash; the gesture works as before.

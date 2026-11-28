@@ -41,6 +41,7 @@ The firmware is one Zephyr application (`firmware/app`) behind MCUboot, document
 | LED and button language | Fixed patterns for every state on both DKs | 1.x | `docs/led-guide.md`, README "Buttons" | One table a customer can read |
 | Memory budgets | Every build reports flash and RAM free per board; CI fails below the floors | — (#189) | `tools/memory_budget.py`, `tools/memory_budgets.json` | Catch growth before it reaches the board |
 | nRF5340 DK support | The same app as a Bluetooth-only board | 1.x | README "The nRF5340 DK" | Shows how to port to a board with no Wi-Fi |
+| Bluetooth relay | With no Wi-Fi, a phone running the app carries the board's own TLS connection to AWS IoT over an L2CAP channel; the phone only passes bytes on. Opt-in build, nRF7002 DK | 1.21.0 | `src/bt/ble_relay.c`, `src/policy/ble_relay_*.c`, `docs/ble-relay.md` | Any Zephyr device whose TLS runs in the socket layer: a socket family and a DNS hook under the TLS socket, nothing above it changes |
 
 ## Cloud and console features
 

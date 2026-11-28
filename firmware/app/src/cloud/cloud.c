@@ -20,6 +20,11 @@
 #if defined(CONFIG_APP_MEMFAULT)
 #include "mflt_link.h"
 #endif
+#if defined(CONFIG_APP_BLE_RELAY)
+#include "ble_relay.h"
+#include "ble_relay_policy.h"
+#include "net.h"
+#endif
 
 LOG_MODULE_REGISTER(cloud, CONFIG_APP_LOG_LEVEL);
 
@@ -108,6 +113,13 @@ static char connect_url_prefix[IDENTITY_URL_PREFIX_MAX];
 
 static atomic_t connected;
 static atomic_t connecting;
+#if defined(CONFIG_APP_BLE_RELAY)
+/*
+ * The connection that is up or being made goes over the Bluetooth relay (src/bt/ble_relay.h). Decided by
+ * cloud_connect() on the main loop, for the whole of that connection.
+ */
+static atomic_t relayed;
+#endif
 
 /*
  * The report that cloud_shadow_report_acked() waits for: its message ID plus one, 0 for none. Set by
@@ -411,7 +423,19 @@ static void connect_work_handler(struct k_work *work)
 	atomic_set(&attempt_refused, 0);
 
 	/* Blocks until the broker has acknowledged the subscriptions, or fails. */
+#if defined(CONFIG_APP_BLE_RELAY)
+	/* Over a phone: the socket and the name that this connection makes and resolves go to the relay. */
+	if (atomic_get(&relayed)) {
+		LOG_INF("Through the Bluetooth relay");
+		ble_relay_route_begin(connect_host);
+	}
 	err = aws_iot_connect(&aws_config);
+	if (atomic_get(&relayed)) {
+		ble_relay_route_end();
+	}
+#else
+	err = aws_iot_connect(&aws_config);
+#endif
 
 	/* Counted before the flag goes: whoever sees the attempt over sees its error as well. */
 	if (err) {
@@ -521,6 +545,10 @@ void cloud_connect(void)
 
 	strcpy(connect_host, config->endpoint);
 	strcpy(connect_url_prefix, config->download_url_prefix);
+#if defined(CONFIG_APP_BLE_RELAY)
+	/* Wi-Fi whenever there is Wi-Fi: see ble_relay_policy.h. */
+	(void)atomic_set(&relayed, ble_relay_use_relay(net_is_up(), ble_relay_is_ready()));
+#endif
 	(void)k_work_submit_to_queue(&connect_queue, &connect_work);
 }
 
@@ -539,6 +567,15 @@ bool cloud_is_connected(void)
 bool cloud_is_connecting(void)
 {
 	return atomic_get(&connecting) != 0;
+}
+
+bool cloud_is_relayed(void)
+{
+#if defined(CONFIG_APP_BLE_RELAY)
+	return atomic_get(&relayed) != 0 && (atomic_get(&connected) != 0 || atomic_get(&connecting) != 0);
+#else
+	return false;
+#endif
 }
 
 void cloud_stats_get(struct cloud_stats *out)
