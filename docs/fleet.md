@@ -10,17 +10,18 @@ is said where it comes up. [`test-results.md`](test-results.md) says what has ru
 | Type | Board | Network | How it updates |
 | --- | --- | --- | --- |
 | `nrf7002dk` | nRF7002 DK (nRF5340 with the nRF7002 Wi-Fi companion) | Wi-Fi to AWS IoT, Bluetooth LE | Over the internet (AWS IoT Jobs), or over Bluetooth from a phone |
-
-The nRF5340 DK (`nrf5340dk`, Bluetooth only) is on ice: see [versions.md](versions.md#on-ice). The mechanism below stays
-for any board type added later.
+| `nrf5340dk` | nRF5340 DK | Bluetooth LE only: no Wi-Fi chip | Over Bluetooth from a phone, or over USB. It never reaches AWS by itself |
 
 - **The image says what it is for.** Every signed image carries a protected TLV (inside the signed area, so it cannot be
   changed without the key), tag `0xA1`, whose value is the board type in ASCII, for example `nrf7002dk`. An image
   without it is a `nrf7002dk` image: every release up to 1.12.0.
-- **The board says what it is.** From 1.13.0 the diagnostics report carries `"board": "nrf7002dk"`. Otherwise its type
-  comes from its thing's attribute `board`, where one is set. Without either, a board is `nrf7002dk`.
+- **The board says what it is.** From 1.13.0 the diagnostics report carries `"board": "nrf7002dk"`. A board that never
+  connects (a `nrf5340dk`) gets its type from its thing's attribute `board`, set when it is provisioned
+  (`tools/provision_device.py --board nrf5340dk`). Without either, a board is `nrf7002dk`.
 - **The console refuses a mismatch.** A release is for one type. A deployment, a Bluetooth send or a group rollout never
   offers a release to a board of another type, and the API refuses it (`400 incompatible_board`).
+- A `nrf5340dk` is never a target of an AWS IoT job. The console lists it as "Bluetooth only", with its last version
+  as a phone last saw it.
 
 ## Board names
 
@@ -56,7 +57,7 @@ image on a board checks it. The board's own check is the last word.
 
 | Protected TLV | Value (ASCII) | Meaning | A legacy image without it |
 | --- | --- | --- | --- |
-| `0xA1` | `nrf7002dk` (1–16 lowercase letters and digits) | The board type it is built for | `nrf7002dk` |
+| `0xA1` | `nrf7002dk`, `nrf5340dk` (1–16 lowercase letters and digits) | The board type it is built for | `nrf7002dk` |
 | `0xA2` | `1`, `2`, … (a positive integer) | The flash layout it is built for: partitions, slot sizes, the golden area. It goes up whenever the partitions change, so an image never lands on a board whose flash is divided differently | `1` |
 
 - **The build** sets both: `CONFIG_APP_BOARD_TYPE` and `CONFIG_APP_IMAGE_LAYOUT` (per board, in the board's conf). The
@@ -142,7 +143,7 @@ image on a board checks it. The board's own check is the last word.
   not installed or pending. A board that never reaches AWS IoT has no reports to make one from.
 - **Update everything.** One action: for each board type, its newest active release goes to every board of that type
   that is not on it, each type as its own staged deployment. The review step lists, by type, the release and the
-  boards, and what is left out (offline long, already current).
+  boards, and what is left out (offline long, Bluetooth only, already current).
 - **Roll back** (a group's, before 2.14.0; removed in 2.19.1). The release before the newest of each type in the
   group. It reached only boards behind both releases, so Roll back to last good (below) replaced it. Rollouts it
   started stay in the history as `rollback` (`group.rollback`).
@@ -165,7 +166,7 @@ image on a board checks it. The board's own check is the last word.
   - **The preview** (`GET /api/fleet/last-good`, `GET /api/groups/{id}/last-good`) lists, by target release, each
     board from → to and the canary, and the boards left out with why: no known good version (`no_good`), its last good
     version revoked (`good_revoked`), no rebuild of it yet (`no_rebuild`), its history unreadable (`unreadable`),
-    offline for more than a day, never reported, another board type or layout, or busy.
+    Bluetooth only, offline for more than a day, never reported, another board type or layout, or busy.
   - **The start** (`POST` to the same address, `{ targets: [{ version, things }], ... }`, release managers) is checked
     against the plan as it is then (`409 plan_changed`) and starts one staged rollout per target release (`purpose`
     `last_good`), each with a canary, the stages chosen and the **health gate always on** (10 minutes unless asked for
@@ -284,9 +285,9 @@ Release managers turn each rule on or off and set its threshold on the Alerts pa
 kind per hour; the rest go into the next one. The rules, how each is checked, and what a phone notification would
 need: [`alerts.md`](alerts.md).
 
-## The phone's sightings
+## Bluetooth-only boards and the phone
 
 A phone that connects to a board over Bluetooth tells the console what it saw: the board, its version, and when
-(`POST /api/devices/{thing}/seen`). Planned for the apps, and
+(`POST /api/devices/{thing}/seen`). That is how a `nrf5340dk` shows on the console at all. Planned for the apps, and
 not in them yet: sending that sighting, and "Update all nearby", every board in Bluetooth range that is behind its
 type's newest release, one after another.

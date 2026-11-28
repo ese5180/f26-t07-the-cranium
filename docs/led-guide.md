@@ -1,7 +1,8 @@
 # What the board's LEDs mean
 
-A quick guide to reading a Cranium board from across the room: every LED pattern on the nRF7002 DK, what it
-means, and what to do about it. The code behind it is `firmware/app/src/ui.c` (LED1 and LED2).
+A quick guide to reading a Cranium board from across the room: every LED pattern on the nRF7002 DK and the
+nRF5340 DK, what it means, and what to do about it. The code behind it is `firmware/app/src/ui.c` (LED1 and
+LED2 on both boards) and `firmware/app/src/bt_only/bt_only_leds.c` (LED3 and LED4, nRF5340 DK only).
 
 ## How to read the patterns
 
@@ -30,7 +31,25 @@ the firmware.
 | Fast blink | `█·█·█·█·█·█·█·█·` | dark | An update is waiting for a button press: an image that arrived over Bluetooth, or one from the cloud on firmware before 1.7.2, golden image 1.5.0 or a build with `CONFIG_APP_OTA_REQUIRE_USER_CONSENT` | **Button 1** installs it, **Button 2** declines (or erases) it |
 | Four flashes | `█·█·█·█·········` | dark | Bluetooth update window open for 180 s, nothing linked yet (Bluetooth builds; hold **Button 1** for 5 s to open it) | Connect from the app's **Bluetooth** page |
 
-## Patterns that override the state
+## nRF5340 DK (Bluetooth only)
+
+LED1 and LED2 use the same patterns as the nRF7002 DK where the state exists on this board (there is no
+Wi-Fi or cloud here). LED3 and LED4 are extra.
+
+| What you see | LEDs | Meaning | What to do |
+| --- | --- | --- | --- |
+| Long flash | LED1 `████············` | Factory mode, waiting for `INIT` | **Board setup** or `INIT` on the serial console |
+| Short flash | LED1 `█···············` | Set up, but no passkey of its own: nothing can pair without the serial console | Provision it in **Board setup** |
+| Taking turns | LED1 and LED2, as above | Ready: nothing to do, a Bluetooth window can be opened | Nothing |
+| Four flashes | LED1 `█·█·█·█·········` | Bluetooth is open, nothing paired yet | Connect from the app's **Bluetooth** page |
+| Double flash | LED1 `█·█·····█·█·····` | A phone or computer is paired | Send the update |
+| Fast blink | LED1 `█·█·█·█·█·█·█·█·` | An image has arrived | **Button 1** installs it, **Button 2** erases it |
+| Triple flash | LED1 `█·█·█···········` | New firmware running on trial | A person has to prove it works |
+| LED3 steady | LED3 `████████████████` | A phone or computer is connected | — |
+| LED3 fast blink | LED3 `█·█·█·█·█·█·█·█·` | An image is arriving | Keep the device near the board |
+| LED4 steady | LED4 on for 30 s | Something went wrong that a person should see: a refused command or upload, a failed pairing, an image that did not stay (reverted), or Bluetooth failing to start | Look at the serial console or the app for the reason |
+
+## Patterns that override the state (both boards)
 
 | What you see | Meaning |
 | --- | --- |

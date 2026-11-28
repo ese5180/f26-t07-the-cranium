@@ -4,7 +4,7 @@ As of 2026-11-12. Every feature of the platform, kept up to date as features mer
 
 ## How to use this catalog
 
-Cranium is a complete IoT fleet platform: firmware on Nordic nRF7002 DK boards, a cloud console on AWS, phone and desktop apps, and a customer website. Every feature here can be lifted into a new IoT product.
+Cranium is a complete IoT fleet platform: firmware on Nordic nRF7002 DK and nRF5340 DK boards, a cloud console on AWS, phone and desktop apps, and a customer website. Every feature here can be lifted into a new IoT product.
 
 - **Firmware** (`firmware/`): Zephyr / nRF Connect SDK app, MCUboot bootloader, AWS IoT over Wi-Fi, Bluetooth update and offline mode.
 - **Cloud and console** (`cloud/`): AWS SAM stack (API, IoT jobs, device shadow, state table) and the team console at console.craniumiot.com.
@@ -38,9 +38,9 @@ The firmware is one Zephyr application (`firmware/app`) behind MCUboot, document
 | Board's own passkey | A 6-digit passkey kept in protected storage, for boards with no cloud | 1.x | `src/bt/bt_passkey.c` | Locks after 3 wrong tries |
 | Offline mode | With no Wi-Fi or cloud, a paired phone reads the board's status and accepts a waiting update | 1.19.0 | `src/bt/bt_offline.c` | Own GATT service, authenticated link only |
 | Listening sessions | Sends what is played to the cloud for the customer site | 1.18.0 | README "Sessions" | Product-specific telemetry over MQTT |
-| LED and button language | Fixed patterns for every state on the nRF7002 DK | 1.x | `docs/led-guide.md`, README "Buttons" | One table a customer can read |
+| LED and button language | Fixed patterns for every state on both DKs | 1.x | `docs/led-guide.md`, README "Buttons" | One table a customer can read |
 | Memory budgets | Every build reports flash and RAM free per board; CI fails below the floors | — (#189) | `tools/memory_budget.py`, `tools/memory_budgets.json` | Catch growth before it reaches the board |
-| nRF5340 DK support | On ice since 2026-11-27: the branch `ice/nrf5340dk` (tag `archive/nrf5340dk`) brings back the same app as a Bluetooth-only board | 1.x | `docs/versions.md` "On ice" | Shows how to port to a board with no Wi-Fi |
+| nRF5340 DK support | The same app as a Bluetooth-only board | 1.x | README "The nRF5340 DK" | Shows how to port to a board with no Wi-Fi |
 
 ## Cloud and console features
 
@@ -70,7 +70,7 @@ The cloud is one AWS SAM stack (`cloud/infra/template.yaml`): an HTTP API, AWS I
 | Issues (our own) | Crashes, faults and stuck restarts grouped by signature from the boards' own events: counts, boards, versions, fixed and regressed | 2.30.3 | `cloud/api/src/lib/issues.mjs`, `handlers/issues.mjs`, `issues-page.js`, `docs/own-observability.md` | Needs only restart events with a reason; a fault's function or address joins the signature when the firmware sends it |
 | Vitals (our own) | Crash-free boards, connected time and the share on the newest release over 7, 30 or 90 days, by day, board and version (cohorts); a board's days with its signal, lowest free heap and longest uptime | 2.31.0 | `cloud/api/src/lib/vitals.mjs`, `handlers/vitals.mjs`, `vitals-page.js`, `docs/own-observability.md` | From the events and samples boards already send; samples are kept 7 days, so signal and memory reach back a week |
 | Diagnostics and serial console | Read a board's diagnostics; talk to it over USB from the browser | 2.x | `diagnostics`, `serial` | Web Serial in Chrome, native serial in apps |
-| Board setup | First-time setup of an nRF7002 DK over USB | 2.x | `setup`, `docs/new-board-setup.md` | Guided, step by step |
+| Board setup | First-time setup of an nRF7002 DK or nRF5340 DK over USB | 2.x | `setup`, `docs/new-board-setup.md` | Guided, step by step |
 | Bluetooth update | Send a release to a board from a phone or laptop over BLE | 2.x | `bluetooth` | Passkey relayed through the console |
 | Offline page | Read a board's status and accept an update with no network | 2.27.0 | `offline` | Opens from the sign-in screen; merging into Bluetooth (#202) |
 | Accounts and roles | Release managers manage who signs in; only they see Team and Customers | 2.17.0 | `team`, `customers`, `docs/accounts.md` | Role checks on every write |

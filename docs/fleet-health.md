@@ -9,6 +9,8 @@ Code: `cloud/api/src/lib/fleet-score.mjs` (the sums), `cloud/api/src/handlers/fl
 
 ## The parts
 
+A board without Wi-Fi (Bluetooth only) is in none of them: it never connects to AWS IoT and has no events.
+
 | Part | Weight | What it counts | Links to |
 | --- | --- | --- | --- |
 | Online | 0.35 | Boards with Wi-Fi that are connected now, of the registered boards with Wi-Fi. | Devices, filtered to offline |
