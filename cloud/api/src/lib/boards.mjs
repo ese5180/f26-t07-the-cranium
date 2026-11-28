@@ -42,6 +42,15 @@ export function isBoardType(value) {
   return typeof value === 'string' && BOARD_TYPES.includes(value);
 }
 
+/**
+ * A type word this console does not know (any more: a type put on ice, docs/versions.md, "On ice"), or
+ * null. A stored release, a board's report or its thing that names one keeps it, so that it matches no
+ * board and no release, shows as unknown, and is never taken for the default.
+ */
+export function unknownType(value) {
+  return typeof value === 'string' && TYPE_WORD.test(value) && !isBoardType(value) ? value : null;
+}
+
 /** A reason an image's board TLV was refused. `code` is stable and safe to show. */
 export class BoardTlvError extends Error {
   constructor(code, message) {
@@ -173,10 +182,19 @@ export function resolveBoard({ shadow = null, attributes = null } = {}) {
   const registered = boardFromAttributes(attributes);
   if (said !== null) return { type: said, from: 'board', said, registered };
   if (registered !== null) return { type: registered, from: 'thing', said, registered };
+  // A type this console does not know matches nothing, rather than passing for the default.
+  const saidUnknown = unknownType(own(own(own(own(shadow, 'state'), 'reported'), 'diag'), 'board'));
+  if (saidUnknown !== null) return { type: saidUnknown, from: 'board', said, registered };
+  const registeredUnknown = unknownType(own(attributes, 'board'));
+  if (registeredUnknown !== null) return { type: registeredUnknown, from: 'thing', said, registered };
   return { type: DEFAULT_BOARD, from: 'default', said, registered };
 }
 
-/** The board type of a release as stored. Every release from before types is a nrf7002dk one. */
+/**
+ * The board type of a release as stored. Every release from before types is a nrf7002dk one. One that
+ * names a type this console does not know keeps it (unknownType), and so is offered to no board.
+ */
 export function releaseBoard(item) {
-  return isBoardType(item?.board) ? item.board : DEFAULT_BOARD;
+  if (isBoardType(item?.board)) return item.board;
+  return unknownType(item?.board) ?? DEFAULT_BOARD;
 }

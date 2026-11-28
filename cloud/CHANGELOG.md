@@ -17,6 +17,7 @@ The console knows one board type again, the nRF7002 DK: the nRF5340 DK is set as
 - Board setup: no "online" step skipped for a board of another type, and no early end to first-time setup for one. A board of another type still skips the golden image, which is the nRF7002 DK's.
 - Kept: updates over Bluetooth from a phone, offline mode, passkeys and pairing. A phone's sighting (`POST /api/devices/{thing}/seen`) is still kept and on record; no page shows it.
 - Local preview: the fleet scenario has no nRF5340 DKs, no release for them and no sightings.
+- A stored type the console does not know any more keeps its word instead of passing for an nRF7002 DK: a release recorded as `nrf5340dk`, or a thing whose attribute says so, shows as "nrf5340dk (unknown type)" and matches no board, so no deployment, rollout or Bluetooth send offers it to one (`unknownType` in `lib/boards.mjs`). None exists live.
 - Tests: an image whose TLV says `nrf5340dk` is refused at upload (`unknown_board`), and `nrf5340dk` is not a type for a registration, a rollout or a Bluetooth check; where a test needs a board of another type it uses a made-up word, or a board of another flash layout.
 
 ## 2.31.1

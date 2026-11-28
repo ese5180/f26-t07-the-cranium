@@ -1532,9 +1532,13 @@ export function compatibilityWords(release) {
   return `For ${boardTypeLabel(release.board)} · layout ${release.layout ?? 1}`;
 }
 
-/** "nRF7002 DK" for nrf7002dk; the type itself for one this console does not know. */
+/**
+ * "nRF7002 DK" for nrf7002dk. A type this console does not know, such as one put on ice, says so:
+ * "nrf5340dk (unknown type)". Nothing for none.
+ */
 export function boardTypeLabel(type) {
-  return BOARD_LABELS[type] ?? String(type ?? '');
+  if (type === null || type === undefined || type === '') return '';
+  return BOARD_LABELS[type] ?? `${type} (unknown type)`;
 }
 
 function readFirmware(body) {

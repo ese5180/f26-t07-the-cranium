@@ -12,6 +12,7 @@ import {
   boardOfImage,
   releaseBoard,
   resolveBoard,
+  unknownType,
 } from '../src/lib/boards.mjs';
 import { ImageError, loadSigningKey, validateImage } from '../src/lib/mcuboot.mjs';
 import { A, B, C, fleetConsole, report } from './fleet-world.mjs';
@@ -125,7 +126,14 @@ test('a release records its board type; a release from before types is a nrf7002
     'nrf7002dk'
   );
   assert.equal(releaseBoard({}), 'nrf7002dk');
-  assert.equal(releaseBoard({ board: 'esp32' }), 'nrf7002dk');
+  // A stored type this console does not know keeps its word, so that no board takes it for its own.
+  assert.equal(releaseBoard({ board: 'esp32' }), 'esp32');
+  assert.equal(releaseBoard({ board: 'nrf5340dk' }), 'nrf5340dk');
+  // What is not a type word at all is from before types, or nothing the console wrote.
+  for (const board of [null, 42, '', 'NRF7002DK', 'a'.repeat(17)]) assert.equal(releaseBoard({ board }), 'nrf7002dk');
+  assert.equal(unknownType('nrf5340dk'), 'nrf5340dk');
+  assert.equal(unknownType('nrf7002dk'), null);
+  assert.equal(unknownType('nRF5340'), null);
 
   // Refused uploads leave nothing behind.
   for (const [protectedTlvs, code] of [
@@ -159,12 +167,19 @@ test('a board is what it says it is, else what its thing says, else a nrf7002dk'
     registered: 'nrf7002dk',
   });
   assert.equal(resolveBoard({ attributes: { board: 'nrf7002dk' } }).from, 'thing');
+  // A type this console does not know, from the board or its thing, is kept: it matches no release.
   assert.deepEqual(resolveBoard({ attributes: { board: 'nrf5340dk' } }), {
-    type: 'nrf7002dk',
-    from: 'default',
+    type: 'nrf5340dk',
+    from: 'thing',
     said: null,
     registered: null,
   });
+  assert.deepEqual(
+    resolveBoard({ shadow: shadow({ board: 'nrf5340dk' }), attributes: { board: 'nrf7002dk' } }).type,
+    'nrf7002dk'
+  );
+  assert.equal(resolveBoard({ shadow: shadow({ board: 'nrf5340dk' }) }).from, 'board');
+  assert.deepEqual(resolveBoard({ attributes: { board: 'Not A Type' } }).type, 'nrf7002dk');
   assert.deepEqual(resolveBoard({}), { type: 'nrf7002dk', from: 'default', said: null, registered: null });
 });
 
@@ -196,4 +211,34 @@ test("the fleet says each board's type and where it is known from; the thing is 
   world.advance(10_000);
   const said = await fleet();
   assert.deepEqual([said[C].type, said[C].typeFrom], ['nrf7002dk', 'board']);
+});
+
+test('a stored release or thing of a type this console does not know is offered to no nRF7002 DK', async () => {
+  const world = fleetConsole();
+  world.online(A, '1.0.0+0', { board: 'nrf7002dk', layout: 1 });
+  // A thing registered when its type was still known (docs/versions.md, "On ice").
+  world.fake.addThing(C, { attributes: { board: 'nrf5340dk' } });
+  await world.release('1.13.0+0', 'nrf7002dk');
+  // A release recorded then: an upload naming the type is refused now (unknown_board, above).
+  await world.release('1.13.1+0', 'nrf7002dk');
+  const stored = [...world.fake.releases.values()].find((item) => item.version === '1.13.1+0');
+  stored.board = 'nrf5340dk';
+
+  const old = (await world.call('GET', `/api/firmware/${encodeURIComponent('1.13.1+0')}`)).body.release;
+  assert.equal(old.board, 'nrf5340dk');
+  const deploy = await world.call('POST', '/api/deployments', { version: '1.13.1+0', things: [A] });
+  assert.deepEqual([deploy.status, deploy.body.error.code], [400, 'incompatible_board']);
+  const send = await world.call('POST', `/api/firmware/${encodeURIComponent('1.13.1+0')}/bluetooth`, {
+    sha256: old.sha256,
+    thing: A,
+  });
+  assert.deepEqual([send.status, send.body.error.code], [400, 'incompatible_board']);
+
+  const fleet = (await world.call('GET', '/api/fleet')).body;
+  const board = fleet.boards.find((item) => item.thing === C);
+  assert.deepEqual([board.type, board.typeFrom], ['nrf5340dk', 'thing']);
+  const toC = await world.call('POST', '/api/deployments', { version: '1.13.0+0', things: [C] });
+  assert.deepEqual([toC.status, toC.body.error.code], [400, 'incompatible_board']);
+  // Nothing went out.
+  assert.equal(world.fake.jobs.size, 0);
 });

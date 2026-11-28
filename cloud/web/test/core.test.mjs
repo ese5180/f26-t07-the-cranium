@@ -3962,3 +3962,12 @@ test('the log says what was done with a token, and which token made a change', (
     ]
   );
 });
+
+test('a board type this console does not know, such as one on ice, shows as unknown', () => {
+  assert.equal(core.boardTypeLabel('nrf7002dk'), 'nRF7002 DK');
+  assert.equal(core.boardTypeLabel('nrf5340dk'), 'nrf5340dk (unknown type)');
+  assert.equal(core.boardTypeLabel(null), '');
+  assert.equal(core.boardTypeLabel(''), '');
+  assert.equal(core.compatibilityWords({ board: 'nrf5340dk', layout: 1 }), 'For nrf5340dk (unknown type) · layout 1');
+  assert.equal(core.compatibilityWords({ board: 'nrf7002dk' }), 'For nRF7002 DK · layout 1');
+});
