@@ -172,3 +172,53 @@
 &pwm0 {
 	status = "disabled";
 };
+
+/*
+ * The SPI link from the Raspberry Pi (src/pi/pi_link.c, docs/pi-link.md). The Pi is the controller;
+ * the board is the peripheral on the Arduino SPI pins, and raises READY on D9 while it can take a
+ * transfer:
+ *
+ *   D13 P1.15  SCK     Pi GPIO11, header pin 23
+ *   D11 P1.13  MOSI    Pi GPIO10, header pin 19
+ *   D12 P1.14  MISO    Pi GPIO9,  header pin 21
+ *   D10 P1.12  CS      Pi GPIO8 (CE0), header pin 24
+ *   D9  P1.11  READY   Pi GPIO25, header pin 22
+ */
+&pinctrl {
+	spi3_pi_default: spi3_pi_default {
+		group1 {
+			psels = <NRF_PSEL(SPIS_SCK, 1, 15)>,
+				<NRF_PSEL(SPIS_MOSI, 1, 13)>,
+				<NRF_PSEL(SPIS_MISO, 1, 14)>,
+				<NRF_PSEL(SPIS_CSN, 1, 12)>;
+		};
+	};
+
+	spi3_pi_sleep: spi3_pi_sleep {
+		group1 {
+			psels = <NRF_PSEL(SPIS_SCK, 1, 15)>,
+				<NRF_PSEL(SPIS_MOSI, 1, 13)>,
+				<NRF_PSEL(SPIS_MISO, 1, 14)>,
+				<NRF_PSEL(SPIS_CSN, 1, 12)>;
+			low-power-enable;
+		};
+	};
+};
+
+&spi3 {
+	compatible = "nordic,nrf-spis";
+	status = "okay";
+	/* Clocked out while the board is not armed: the Pi reads all 0xff as no answer. */
+	def-char = <0xff>;
+	overrun-character = <0xff>;
+	pinctrl-0 = <&spi3_pi_default>;
+	pinctrl-1 = <&spi3_pi_sleep>;
+	pinctrl-names = "default", "sleep";
+	/delete-property/ cs-gpios;
+};
+
+/ {
+	zephyr,user {
+		pi-ready-gpios = <&gpio1 11 GPIO_ACTIVE_HIGH>;
+	};
+};

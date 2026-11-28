@@ -41,7 +41,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests \n		$(BUILD)/pi_rx_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -81,6 +81,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/console_bt_only_tests
 	./$(BUILD)/bt_only_leds_tests
 	./$(BUILD)/sessions_tests
+	./$(BUILD)/pi_rx_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -95,6 +96,13 @@ $(BUILD)/base64.o: $(ZEPHYR_BASE)/lib/utils/base64.c
 $(BUILD)/sessions_tests: test_sessions.c $(SRC)/cloud/sessions.c $(SRC)/cloud/sessions.h $(SRC)/cloud/cloud.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_sessions.c $(SRC)/cloud/sessions.c
+
+# What the board does with a message's text from the Raspberry Pi (src/pi/pi_rx.c): control characters and
+# bytes that are not valid UTF-8 become '?', and a message is not cut inside a character. It needs nothing
+# but the C library.
+$(BUILD)/pi_rx_tests: test_pi_rx.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_rx.h $(SRC)/pi/pi_frame.c $(SRC)/pi/pi_frame.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -I$(SRC)/pi -o $@ test_pi_rx.c $(SRC)/pi/pi_rx.c $(SRC)/pi/pi_frame.c
 
 $(BUILD)/host_tests: test_main.c $(SRC)/ota/ota_job.c $(SRC)/ota/ota_outcome.c $(SRC)/ota/version.c $(BUILD)/cJSON.o
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ $^ -lm

@@ -30,3 +30,9 @@ CRANIUM_HEARTBEAT=10
 
 # messages.jsonl is moved to messages.jsonl.1 (replacing the one before) when it reaches this many MB.
 CRANIUM_MESSAGES_MAX_MB=10
+
+# The SPI link to the nRF7002 DK (bin/cranium-link, docs/pi-link.md): /dev/spidev<bus>.<device>,
+# its clock in Hz, and the GPIO number of the board's READY pin.
+CRANIUM_SPI=0.0
+CRANIUM_SPI_HZ=1000000
+CRANIUM_READY_GPIO=25

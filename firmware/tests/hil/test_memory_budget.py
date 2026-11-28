@@ -190,8 +190,9 @@ class TheProjectsFloors(unittest.TestCase):
         # 1000 bytes of RAM until golden image promotion (firmware 1.19.3, #216), which takes 72: 900 since.
         self.assertGreaterEqual(floors["app"]["ram_free_min"], 900)
         # 40 KiB until offline Bluetooth mode (firmware 1.19.1, #127), which takes about 4.5 KB: 39.5 KiB
-        # then, and 37 KiB since golden image promotion, which takes about 2.6 KB.
-        self.assertGreaterEqual(floors["app"]["flash_free_min"], 37 * 1024)
+        # then, 37 KiB since golden image promotion, which takes about 2.6 KB, and 32 KiB since the Pi
+        # message link (#58), which takes about 4.9 KB.
+        self.assertGreaterEqual(floors["app"]["flash_free_min"], 32 * 1024)
         # The bootloader: 14 KiB free until golden image promotion took about 2.7 KB, 12 KiB since.
         self.assertGreaterEqual(floors["mcuboot"]["flash_free_min"], 12 * 1024)
         self.assertGreaterEqual(floors["tfm"]["flash_free_min"], 500)
