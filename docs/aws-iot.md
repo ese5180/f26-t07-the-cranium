@@ -652,7 +652,7 @@ What [fleet.md](fleet.md) agrees for the firmware and the console, as the consol
 and the alerts are in the same document and are described with them.
 
 **Compatibility: board type and flash layout.** A release is for one board type, `nrf7002dk` (Wi-Fi, updated by
-AWS IoT Jobs or a phone) or `nrf5340dk` (Bluetooth only, updated by a phone or over USB), and for one flash layout,
+AWS IoT Jobs or a phone; the nRF5340 DK is on ice, [versions.md](versions.md#on-ice)), and for one flash layout,
 a positive whole number that goes up whenever the partitions change. The upload reads both from the image's
 protected TLVs, which the image's hash and signature cover: `0xA1`, the type in ASCII (1 to 16 lower-case letters
 and digits), and `0xA2`, the layout in ASCII (the build sets them from `CONFIG_APP_BOARD_TYPE` and
@@ -661,9 +661,8 @@ breaking the signature, and the console refuses such an image (`unexpected_tlv`)
 `nrf7002dk` image for layout 1, as every release up to 1.12.0 is; a value that is not a known type or a positive
 whole number is refused (`unknown_board`, `invalid_board_tlv`, `invalid_layout_tlv`). The release shows what it is
 built for ("For nRF7002 DK · layout 1"). A board's type and layout are what it says in its diagnostics from 1.13.0
-(`diag.board`, `diag.layout`), else its thing's attributes `board` and `layout` (`tools/provision_device.py
---board nrf5340dk`, read with `DescribeThing` at most once a minute per board, and only for a board that has not
-said both), else `nrf7002dk` and 1. A board can only write its own shadow, so a board that lies about itself keeps
+(`diag.board`, `diag.layout`), else its thing's attributes `board` and `layout` (read with `DescribeThing` at most
+once a minute per board, and only for a board that has not said both), else `nrf7002dk` and 1. A board can only write its own shadow, so a board that lies about itself keeps
 releases from itself and from nothing else, and the board checks an image's TLVs again before it installs it.
 
 **One version is one image.** Versions are one sequence across all board types and layouts: a new release of any
@@ -672,12 +671,11 @@ type takes the next number (`1.13.0+0` for one, `1.13.0+1` or `1.13.1` for the o
 
 **The guard.** A deployment, a staged rollout that names its boards, "Update everything" (for the
 boards their reviewed plan names), and the check before a Bluetooth send refuse a board of another type
-(`400 incompatible_board`) or another flash layout (`400 incompatible_layout`), on record; a deployment refuses a
-board without Wi-Fi as a job target (`400 bluetooth_only`). The check before a Bluetooth send takes the board's
+(`400 incompatible_board`) or another flash layout (`400 incompatible_layout`), on record. The check before a Bluetooth send takes the board's
 thing name (`thing`), or the type and layout the board told the phone (`type`, `layout`); without any of them it has
 nothing to check, as before types, so the phone apps send `thing`. A rollout to a group, a type or the fleet, and the
 plan of "Update everything" leaves such boards out instead, each with why (`other_type`,
-`other_layout`, `bluetooth_only`). "Update everything" takes the newest release of each type: a board of that type
+`other_layout`). "Update everything" takes the newest release of each type: a board of that type
 on another layout is left out until a release is built for its layout.
 
 **Groups** are stored in the state table (pk `GRP`), not as AWS IoT thing groups: a rollout has to check every
@@ -713,7 +711,7 @@ read the releases and the fleet's records, write rollouts only, add to the activ
 cancel this console's jobs; it serves no request.
 
 **"Update everything"** plans, for each board type, its newest active release to every board of that type that is
-not on it, leaving out the Bluetooth-only boards, those offline for more than a day, those already current, those
+not on it, leaving out those offline for more than a day, those already current, those
 on something newer and those busy with another update; it starts one staged rollout per type, after checking the
 reviewed plan against the plan as it is then (`409 plan_changed`). Rolling back is "Roll back to last good" ([`fleet.md`](fleet.md)): a board takes only firmware newer than what it runs
 (`ota_job.c`, `ota_job_check`: equal versions are refused too), so a real roll back is a rebuild of the old source under a
@@ -777,8 +775,7 @@ publish on `topic/cranium/cranium-*/commands` and on no other topic. `id` is 16 
 The board answers in its own log with tag `CMD`, which the recorder files as kind `setting`
 (`identify for 15 s (3f9c2a1b7d4e6f80)`); the website looks for that line every 3 s for 45 s after it sent the
 command and shows it on the board's page. A board that is offline misses the command, as the contract means:
-`online: false` in the answer says so, and an offline board's Identify button is greyed out. A Bluetooth-only board
-(`nrf5340dk`) is refused (`409 bluetooth_only`).
+`online: false` in the answer says so, and an offline board's Identify button is greyed out.
 
 Release managers only, on record as `board.command` with the command, its length and its id. At most 10 a minute
 per person, counted from the activity log as the serial console's records are; one over that is refused with 429
@@ -849,8 +846,8 @@ whole metres, `at` the time AWS IoT received the scan), the last 20, the status,
 signal, in the table or the log. A board's first position is an event (`health`, `located`), and so is a move
 (`health`, `moved`, a warning) of more than 1 km that is also further than the two positions' uncertainties together,
 so that two fuzzy fixes do not make one; neither has a coordinate in its text. The API adds `position` and
-`location` (`status`: `none`, `ok`, `too_few`, `unsolved`, `failed`, `unknown`; `apCount`; `checkedAt`;
-`bluetoothOnly`, from the thing's attribute for a board that has never reported) to every board, and
+`location` (`status`: `none`, `ok`, `too_few`, `unsolved`, `failed`, `unknown`; `apCount`; `checkedAt`) to every
+board, and
 `GET /api/devices/{thing}/positions` gives the last 20.
 
 **The map.** The website's Map page and the map on a board's page are drawn with Leaflet 1.9.4, the files of its npm

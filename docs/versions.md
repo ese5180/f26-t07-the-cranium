@@ -7,10 +7,10 @@ first; see [Which number goes up](#which-number-goes-up). Each version is a git 
 | What | Version lives in | Changelog | In the files (2026-11-20) | Shown |
 | --- | --- | --- | --- | --- |
 | Firmware | `firmware/app/VERSION` (`scripts/firmware/build.sh` sets the next one) | [`firmware/CHANGELOG.md`](../firmware/CHANGELOG.md) | 1.19.3 (not tried on a board; the golden promotion in it is untried too); the newest tags are `v1.19.2` and `v1.19.3` (from 1.19.2 the tag is `v<version>`; `firmware-v1.18.0` and earlier have the old name; 1.19.0 and 1.19.1 have none) | On the console's Firmware page, each release with its note from the changelog |
-| Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | 2.31.1, not yet deployed; the newest tag is `console-v2.28.0`, pushed so that GitHub Actions deploys it | At the foot of every page of the console ("Console 2.28.0"), What's new on its History page, and `GET /api/me` |
-| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.9.5; the newest tag is `ios-v0.9.1` | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
-| Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.9.5; the newest tag is `android-v0.9.1` | More, Help, About in the app; the console's Apps page, each version as it was published |
-| Desktop app, Windows and Linux (one each) | `extraMetadata.version` in `apps/desktop/electron-builder.<platform>.yml`, `windows` or `linux`; a checkout of `apps/desktop/` alone runs as 0.0.0 | `apps/desktop/CHANGELOG.<platform>.md` | 0.1.19 for each; the newest tags are `desktop-windows-v0.1.0` and `desktop-linux-v0.1.0` (the installers kept in `apps/dist/` are 0.1.0) | The app's Settings and About; the pages' foot names the app's version ([docs/desktop-app.md](desktop-app.md)) |
+| Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | 2.31.2, not yet deployed; the newest tag is `console-v2.28.0`, pushed so that GitHub Actions deploys it | At the foot of every page of the console ("Console 2.28.0"), What's new on its History page, and `GET /api/me` |
+| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.9.6; the newest tag is `ios-v0.9.1` | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
+| Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.9.6; the newest tag is `android-v0.9.1` | More, Help, About in the app; the console's Apps page, each version as it was published |
+| Desktop app, Windows and Linux (one each) | `extraMetadata.version` in `apps/desktop/electron-builder.<platform>.yml`, `windows` or `linux`; a checkout of `apps/desktop/` alone runs as 0.0.0 | `apps/desktop/CHANGELOG.<platform>.md` | 0.1.20 for each; the newest tags are `desktop-windows-v0.1.0` and `desktop-linux-v0.1.0` (the installers kept in `apps/dist/` are 0.1.0) | The app's Settings and About; the pages' foot names the app's version ([docs/desktop-app.md](desktop-app.md)) |
 | Mac app | `MARKETING_VERSION` in `apps/macos/project.yml` | [`apps/macos/CHANGELOG.md`](../apps/macos/CHANGELOG.md) | 0.4.1; no tag yet | The app's Settings and About ([docs/mac-app.md](mac-app.md)) |
 
 ## Which number goes up
@@ -62,10 +62,27 @@ what the apps show without a new app version, and the app's settings say which c
 | 2026-11-25 | 2.30.4 | | | AWS lets the console make Pi image deployments and golden promotions (their jobs were refused; Make golden on the live console since 2.27.7) |
 | 2026-11-26 | 2.31.0 | 0.9.5 | 0.1.19 | Vitals under Monitoring, stage 2 of our own Memfault (#236): crash-free boards, connected time, the newest release, by day, board and version |
 | 2026-11-26 | 2.31.1 | | | The customer site redesigned: boards before mixes, health in plain words, a floating tab bar for the iPhone 17 Pro (#122) |
+| 2026-11-27 | 2.31.2 | 0.9.6 | 0.1.20 | The nRF5340 DK on ice: the console and the apps know the nRF7002 DK alone, and the "Bluetooth only" board is gone from the pages (#314) |
 
 The console's 2.18.0 to 2.28.0 are tagged `console-v<version>`, except 2.25.7 and 2.27.4, which have no tag (2.27.1 to 2.27.3 have no entry). The apps' 0.8.17 to 0.8.20 and
 the desktop app's 0.1.1 to 0.1.15 have no tags (the app tags are `ios-v0.8.21`, `ios-v0.9.0`, `ios-v0.9.1` and the same for
 Android).
+
+## On ice
+
+A board type put aside leaves `main`, and a branch keeps it ready to come back.
+
+| What | Since | Brought back by | The last `main` with it |
+| --- | --- | --- | --- |
+| The nRF5340 DK (`nrf5340dk`, Bluetooth only): its board files, `CONFIG_APP_BT_ONLY` and `src/bt_only/`, `build.sh --board nrf5340dk`, the tools' and the console's board type and words, Board setup's path, its tests and the local CI job `firmware-nrf5340dk` | 2026-11-27 (#314) | The branch `ice/nrf5340dk` and its draft pull request "Bring back the nRF5340 DK": it reverts the removal | Tag `archive/nrf5340dk` |
+
+What the nRF7002 DK uses stays on `main`: Bluetooth update (SMP), offline Bluetooth mode and the board's own passkey
+(`CONFIG_APP_BT_STATIC_PASSKEY`, `BT_PASSKEY`), and the image's board-type and layout TLVs (`0xA1`, `0xA2`) with every
+check of them. `.github/workflows/ci.yml` keeps its "nRF5340 DK" configuration and its `test_bt_only_check.py` line,
+since `.github/` is never edited; local CI skips both.
+
+Merge the branch's pull request only when the board comes off ice. When `main` changes in the files it touches, refresh
+it: replay its commits onto a new branch from `main` and open a new pull request in its place. Never force-push it.
 
 ## Making a version
 

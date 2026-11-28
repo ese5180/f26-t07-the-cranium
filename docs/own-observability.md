@@ -174,7 +174,7 @@ needs one, and the Database page, the backups and the permissions follow it with
 - **Fleet vitals**: over the boards with Wi-Fi that were seen in the window (some time known or an event), so a board
   in a drawer all window does not count against the fleet. Crash-free boards: those with no crash. Connected: online
   hours of known hours. Newest release: boards on the newest active release of their type (`fleet.releasesByType`), of
-  those with a known version whose type has one, Bluetooth-only boards included (their version is a phone's sighting).
+  those with a known version whose type has one.
 - **API**: `GET /api/vitals?days=1-90` (7 if not given) and `GET /api/vitals/{thing}?days=1-90`
   (`cloud/api/src/handlers/vitals.mjs`), reads for every member, never a customer. One Query per board of its
   connection, restart, firmware and health events, the newest 5,000 at most (a board with more is `cut` and its window

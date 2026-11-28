@@ -17,7 +17,7 @@ The API serves this week and the 52 weeks before it. The Reports page lists the 
 | Section | Made from |
 | --- | --- |
 | Fleet health score: each day's score, the last, the lowest, and the change since the week before | the daily `HEALTH` snapshots (`lib/fleet-score.mjs`) |
-| Boards: in all, online, offline, Bluetooth only, new | the week's last snapshot; for the week under way, the boards now. New boards were registered through the console that week (`device.register`), or appear in the week's last snapshot and not in the one before the week |
+| Boards: in all, online, offline, new | the week's last snapshot; for the week under way, the boards now. New boards were registered through the console that week (`device.register`), or appear in the week's last snapshot and not in the one before the week |
 | Firmware versions and how many boards ran each | the same snapshot |
 | Deployments started that week, with their outcome (succeeded, some failed, failed, cancelled, under way) | AWS IoT Jobs (`handlers/deployments.mjs between`) |
 | Staged rollouts started or ended that week: done, stopped, cancelled, under way. Health-gate stops and rollbacks (`rollback`, `last_good`) are counted separately | the `ROL` records |
