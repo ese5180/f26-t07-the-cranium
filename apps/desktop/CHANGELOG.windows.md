@@ -4,6 +4,12 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-windows-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.20
+
+One board type (console 2.31.2 and later): the nRF5340 DK is set aside, and the pages no longer mark a board as "Bluetooth only".
+
+Nothing of the app changed but its version and a comment in `src/lib/serial-ports.mjs`, which names the nRF7002 DK alone: the pages are the console's, and the app loads them as before.
+
 ## 0.1.19
 
 Vitals (console 2.31.0 and later): a new page under Monitoring shows how the boards are doing over 7, 30 or 90 days, from what they already send: the share of boards with no crash, the share of the time they were connected, the share on the newest release, restarts, connection drops and memory that ran low, by day, by board and by version. A board's vitals add its Wi-Fi signal, lowest free heap and longest uptime of the last 7 days.
