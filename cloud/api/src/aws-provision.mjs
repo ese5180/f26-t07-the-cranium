@@ -10,6 +10,7 @@
  *
  *   createThing({ thing, attributes })   -> { created: boolean }   false: the thing was there already,
  *                                           and is left as it is (attributes: { name: value } or null)
+ *   updateThingAttributes({ thing, attributes }) -> undefined   merged into the thing's attributes
  *   addThingToGroup(thing)               -> undefined   into the project's thing group
  *   createCertificateFromCsr(csr)        -> { arn, id, pem }   an active certificate issued by AWS IoT for
  *                                           the request (PEM text)
@@ -33,6 +34,7 @@ import {
   DetachThingPrincipalCommand,
   IoTClient,
   UpdateCertificateCommand,
+  UpdateThingCommand,
 } from '@aws-sdk/client-iot';
 
 // As in aws.mjs: no call may hang, and a call is tried twice at most. The helpers are this module's own,
@@ -110,6 +112,13 @@ export function createProvisionAws(env) {
       if (attributes !== null) input.attributePayload = { attributes, merge: true };
       const out = await send('CreateThing', new CreateThingCommand(input), ['ResourceAlreadyExistsException']);
       return { created: out !== null };
+    },
+
+    async updateThingAttributes({ thing, attributes }) {
+      await send(
+        'UpdateThing',
+        new UpdateThingCommand({ thingName: thing, attributePayload: { attributes, merge: true } })
+      );
     },
 
     async addThingToGroup(thing) {

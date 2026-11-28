@@ -2003,7 +2003,9 @@ Resources:
               # whose resource is the certificate.
               - Sid: RegisterBoards
                 Effect: Allow
-                Action: iot:CreateThing
+                Action:
+                  - iot:CreateThing
+                  - iot:UpdateThing
                 Resource: !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'
               - Sid: PutBoardsInTheGroup
                 Effect: Allow

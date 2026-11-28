@@ -5,42 +5,79 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { attentionReasons, updateResults, versionsByType } from '../src/lib/fleet.mjs';
-import { A, B, C, E, fleetConsole, report } from './fleet-world.mjs';
+import { A, B, C, D, E, fleetConsole, report } from './fleet-world.mjs';
 
 const V = (version) => encodeURIComponent(version);
 
-test('the check before a Bluetooth send refuses a type or a board it does not know, on record', async () => {
+test('a deployment refuses a board of another type, and a board without Wi-Fi, on record', async () => {
   const world = fleetConsole();
   world.online(A, '1.0.0+0');
-  await world.release('1.13.0+0', 'nrf7002dk');
+  world.online(B, '1.0.0+0', { board: 'nrf7002dk' });
+  world.bluetoothOnly(C);
+  await world.release('1.13.0+0', 'nrf5340dk');
+  await world.release('1.13.1+0');
+
+  const other = await world.call('POST', '/api/deployments', { version: '1.13.0+0', things: [A, B] });
+  assert.deepEqual([other.status, other.body.error.code], [400, 'incompatible_board']);
+  assert.match(other.body.error.message, /is for the nRF5340 DK/);
+  assert.deepEqual(other.body.error.details, [
+    { thing: A, type: 'nrf7002dk' },
+    { thing: B, type: 'nrf7002dk' },
+  ]);
+  const away = await world.call('POST', '/api/deployments', { version: '1.13.0+0', things: [C] });
+  assert.deepEqual([away.status, away.body.error.code], [400, 'bluetooth_only']);
+  const mixed = await world.call('POST', '/api/deployments', { version: '1.13.1+0', things: [A, C] });
+  assert.deepEqual([mixed.status, mixed.body.error.code], [400, 'incompatible_board']);
+  assert.equal(world.fake.calls.filter((call) => call.method === 'createJob').length, 0);
+  assert.deepEqual(
+    world.entries('deployment.create').map((entry) => [entry.outcome, entry.detail.code]),
+    [
+      ['rejected', 'incompatible_board'],
+      ['rejected', 'bluetooth_only'],
+      ['rejected', 'incompatible_board'],
+    ]
+  );
+
+  // Of the right type, it goes ahead as before.
+  const fine = await world.call('POST', '/api/deployments', { version: '1.13.1+0', things: [A, B] });
+  assert.equal(fine.status, 201, JSON.stringify(fine.body));
+});
+
+test('the check before a Bluetooth send refuses a release of another type, on record', async () => {
+  const world = fleetConsole();
+  world.bluetoothOnly(C);
+  world.online(A, '1.0.0+0');
+  await world.release('1.13.0+0', 'nrf5340dk');
   // An image is signed afresh each time it is built: the release says which one was uploaded.
   const { sha256: digest } = (await world.call('GET', `/api/firmware/${V('1.13.0+0')}`)).body.release;
   const check = (body) => world.call('POST', `/api/firmware/${V('1.13.0+0')}/bluetooth`, { sha256: digest, ...body });
 
-  assert.equal((await check({ thing: A })).status, 200);
-  assert.equal((await check({ type: 'nrf7002dk', board: 'Cranium-1A2B' })).status, 200);
+  assert.equal((await check({ thing: C })).status, 200);
+  assert.equal((await check({ type: 'nrf5340dk', board: 'Cranium-1A2B' })).status, 200);
   // Without either the console has nothing to go by, as before types.
   assert.equal((await check({})).status, 200);
 
+  const wrong = await check({ thing: A });
+  assert.deepEqual([wrong.status, wrong.body.error.code], [400, 'incompatible_board']);
+  const said = await check({ type: 'nrf7002dk' });
+  assert.deepEqual([said.status, said.body.error.code], [400, 'incompatible_board']);
   const unknown = await check({ thing: E });
   assert.deepEqual([unknown.status, unknown.body.error.code], [404, 'unknown_device']);
   const bad = await check({ type: 'esp32' });
   assert.deepEqual([bad.status, bad.body.error.code], [400, 'invalid_type']);
-  // The nRF5340 DK is not a type this console knows.
-  const gone = await check({ type: 'nrf5340dk' });
-  assert.deepEqual([gone.status, gone.body.error.code], [400, 'invalid_type']);
 
   const entries = world.entries('firmware.bluetooth_send');
   assert.deepEqual(
     entries.map((entry) => entry.outcome),
-    ['ok', 'ok', 'ok', 'rejected', 'rejected', 'rejected']
+    ['ok', 'ok', 'ok', 'rejected', 'rejected', 'rejected', 'rejected']
   );
-  assert.deepEqual([entries[3].detail.thing, entries[3].detail.code], [E, 'unknown_device']);
+  assert.deepEqual([entries[3].detail.thing, entries[3].detail.code], [A, 'incompatible_board']);
+  assert.deepEqual([entries[4].detail.type, entries[4].detail.code], ['nrf7002dk', 'incompatible_board']);
 });
 
-test('a phone says what it saw of a board: kept and on record', async () => {
+test("a phone says what it saw of a board: kept, on record, and shown as that board's version", async () => {
   const world = fleetConsole();
-  world.fake.addThing(C);
+  world.bluetoothOnly(C);
   const before = (await world.call('GET', '/api/fleet')).body.boards.find((board) => board.thing === C);
   assert.deepEqual([before.version, before.versionFrom, before.seen], [null, null, null]);
 
@@ -58,24 +95,20 @@ test('a phone says what it saw of a board: kept and on record', async () => {
     [entry.target, entry.outcome, entry.detail],
     [C, 'ok', { version: '1.13.0+0', board: 'Cranium-1A2B' }]
   );
-  // What the board runs is what it reports itself: a sighting is kept beside it.
   const after = (await world.call('GET', '/api/fleet')).body.boards.find((board) => board.thing === C);
-  assert.deepEqual(
-    [after.version, after.versionFrom, after.seen.version, after.seen.by],
-    [null, null, '1.13.0+0', world.manager.email]
-  );
+  assert.deepEqual([after.version, after.versionFrom, after.seen.by], ['1.13.0+0', 'phone', world.manager.email]);
 
   // The last sighting is the one kept.
   world.advance(60_000);
   assert.equal((await world.call('POST', `/api/devices/${C}/seen`, { version: '1.13.1+0' })).status, 201);
   world.advance(6000);
   const later = (await world.call('GET', '/api/fleet')).body.boards.find((board) => board.thing === C);
-  assert.deepEqual([later.seen.version, later.seen.name], ['1.13.1+0', null]);
+  assert.deepEqual([later.version, later.seen.name], ['1.13.1+0', null]);
 });
 
 test('a sighting takes a version and a name only, of a registered board, from a release manager', async () => {
   const world = fleetConsole();
-  world.fake.addThing(C);
+  world.bluetoothOnly(C);
   for (const [body, code] of [
     [{}, 'invalid_version'],
     [{ version: '1.0' }, 'invalid_version'],
@@ -96,7 +129,7 @@ test('a sighting takes a version and a name only, of a registered board, from a 
 
 test('at most 60 sightings a minute for one person; one over that leaves no entry', async () => {
   const world = fleetConsole();
-  world.fake.addThing(C);
+  world.bluetoothOnly(C);
   for (let index = 0; index < 60; index += 1) {
     assert.equal((await world.call('POST', `/api/devices/${C}/seen`, { version: '1.0.0+0' })).status, 201);
   }
@@ -110,7 +143,8 @@ test('at most 60 sightings a minute for one person; one over that leaves no entr
 test('GET /api/fleet: every board with its type and groups, and each type with its newest releases', async () => {
   const world = fleetConsole();
   world.online(A, '1.13.1+0');
-  world.fake.addThing(C);
+  world.bluetoothOnly(C);
+  await world.release('1.13.0+0', 'nrf5340dk');
   await world.release('1.13.1+0');
   await world.release('1.13.2+0');
   const group = await world.call('POST', '/api/groups', { name: 'Bench', things: [A, C] });
@@ -119,7 +153,7 @@ test('GET /api/fleet: every board with its type and groups, and each type with i
     body.boards.map((board) => [board.thing, board.type, board.groups]),
     [
       [A, 'nrf7002dk', [group.body.group.id]],
-      [C, 'nrf7002dk', [group.body.group.id]],
+      [C, 'nrf5340dk', [group.body.group.id]],
     ]
   );
   assert.deepEqual(
@@ -128,7 +162,10 @@ test('GET /api/fleet: every board with its type and groups, and each type with i
   );
   assert.deepEqual(
     body.types.map((type) => [type.type, type.boards, type.newest, type.previous]),
-    [['nrf7002dk', 2, '1.13.2+0', '1.13.1+0']]
+    [
+      ['nrf7002dk', 1, '1.13.2+0', '1.13.1+0'],
+      ['nrf5340dk', 1, '1.13.0+0', null],
+    ]
   );
   assert.equal((await world.call('GET', '/api/fleet', undefined, world.viewer)).status, 200);
 });
@@ -142,6 +179,7 @@ test("fleet health: versions by type, the last week's updates, and the boards th
   world.online(B, '1.13.0+0', { rssi: -82, heap: { free: 4000, least: 3000, size: 44240 } });
   world.fake.device(B).report({ stuck: { count: 2, reason: 'wifi_silent' } });
   world.online(C, '1.13.0+0');
+  world.bluetoothOnly(D);
   // A's last week: an update that succeeded, and one before that which rolled back.
   world.fake.device(A).report({ ota: { state: 'downloading', progress: 0, last: 'none', error: '' } });
   world.fake.device(A).report({ ota: { state: 'idle', progress: 0, last: 'rolled_back', error: 'not confirmed' } });
@@ -160,12 +198,15 @@ test("fleet health: versions by type, the last week's updates, and the boards th
     { version: '1.13.1+0', count: 1, newest: true },
     { version: '1.13.0+0', count: 2, newest: false },
   ]);
+  const bt = body.types.find((type) => type.type === 'nrf5340dk');
+  assert.deepEqual([bt.boards, bt.unknown, bt.bluetoothOnly], [1, 1, true]);
   assert.deepEqual(body.updates, { days: 7, succeeded: 1, failed: 0, rolledBack: 1 });
   const attention = Object.fromEntries(
     body.attention.map((entry) => [entry.thing, entry.reasons.map((reason) => reason.code)])
   );
   assert.deepEqual(attention[B], ['stuck', 'low_memory', 'weak_signal']);
   assert.deepEqual(attention[C], ['offline']);
+  assert.deepEqual(attention[D], ['unseen']);
   assert.equal(attention[A], undefined);
 });
 
@@ -188,15 +229,13 @@ test('the pieces of fleet health, one by one', () => {
   const boards = [
     { type: 'nrf7002dk', version: '1.2.0+0' },
     { type: 'nrf7002dk', version: null },
-    { type: 'otherboard', version: '1.0.0+0' },
+    { type: 'nrf5340dk', version: '1.0.0+0' },
   ];
-  const [wifi, other] = versionsByType(boards, { nrf7002dk: '1.3.0+0', otherboard: '1.0.0+0' }, [
-    'nrf7002dk',
-    'otherboard',
-  ]);
+  const [wifi, bt] = versionsByType(boards, { nrf7002dk: '1.3.0+0', nrf5340dk: '1.0.0+0' }, ['nrf7002dk', 'nrf5340dk']);
   assert.deepEqual([wifi.onNewest, wifi.share, wifi.unknown], [0, 0, 1]);
-  assert.deepEqual([other.onNewest, other.share], [1, 1]);
+  assert.deepEqual([bt.onNewest, bt.share], [1, 1]);
   const board = {
+    bluetoothOnly: false,
     online: false,
     lastSeen: new Date(now - 3 * 86_400_000).toISOString(),
     seen: null,

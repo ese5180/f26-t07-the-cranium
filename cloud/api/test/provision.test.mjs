@@ -165,10 +165,8 @@ test('only an identifier of 16 lowercase hex digits, and only a request of that 
     [{ id: ID, csr: makeCsr({ commonName: null }).pem }, 'csr_mismatch'],
     [{ id: ID, csr: good, reregister: 'yes' }, 'invalid_reregister'],
     [{ id: ID, csr: good, board: 'esp32' }, 'invalid_board'],
-    [{ id: ID, csr: good, board: 'nrf5340dk' }, 'invalid_board'],
     [{ id: ID, csr: good, thing: THING }, 'unexpected_field'],
-    // Every board sends its request: there is no registration without a certificate.
-    [{ id: ID, board: 'nrf7002dk' }, 'invalid_csr'],
+    [{ id: ID, board: 'nrf5340dk', csr: good }, 'unexpected_field'],
   ];
   for (const [body, code] of cases) {
     const answer = await call('POST', PATH, { as: manager, body });
@@ -202,28 +200,39 @@ test('a certificate AWS IoT issued for another key is never handed on, nor attac
   assert.equal(fake.methodsCalled().includes('attachDevicePolicy'), false);
 });
 
-test('a thing whose attribute names another board type is refused, and nothing is issued', async () => {
-  const { call, manager, fake } = world();
-  fake.addThing(THING, { attributes: { board: 'otherboard' } });
+test('an nRF5340 DK gets a thing of its type in the group and no certificate; another type is refused', async () => {
+  const { call, manager, fake, entries } = world();
+  const answer = await call('POST', PATH, { as: manager, body: { id: ID, board: 'nrf5340dk' } });
+  assert.deepEqual([answer.status, answer.body], [200, { thing: THING }]);
+  assert.deepEqual(await fake.describeThing(THING), { attributes: { board: 'nrf5340dk' } });
+  assert.ok((await fake.listGroupThings()).includes(THING));
+  assert.deepEqual(Object.keys(fake.certificates()), []);
+  // Again: the same, and the thing is kept.
+  assert.equal((await call('POST', PATH, { as: manager, body: { id: ID, board: 'nrf5340dk' } })).status, 200);
+  assert.deepEqual(
+    entries().map((entry) => entry.detail),
+    [
+      { board: 'nrf5340dk', created: 'true' },
+      { board: 'nrf5340dk', created: 'false' },
+    ]
+  );
+  // An nRF7002 DK's request for the thing of an nRF5340 DK.
   const wrong = await call('POST', PATH, { as: manager, body: { id: ID, csr: makeCsr({ commonName: THING }).pem } });
   assert.deepEqual([wrong.status, wrong.body.error.code], [409, 'board_mismatch']);
-  assert.deepEqual(Object.keys(fake.certificates()), []);
 });
 
 test(`at most ${REGISTRATIONS_PER_HOUR} an hour a person, and one over that leaves no entry`, async () => {
   const { call, manager, entries, advance } = world();
   for (let index = 0; index < REGISTRATIONS_PER_HOUR; index += 1) {
     const id = createHash('sha256').update(String(index)).digest('hex').slice(0, 16);
-    const csr = makeCsr({ commonName: `cranium-${id}` }).pem;
-    const answer = await call('POST', PATH, { as: manager, body: { id, csr } });
+    const answer = await call('POST', PATH, { as: manager, body: { id, board: 'nrf5340dk' } });
     assert.equal(answer.status, 200, JSON.stringify(answer.body));
   }
-  const csr = makeCsr({ commonName: THING }).pem;
-  const over = await call('POST', PATH, { as: manager, body: { id: ID, csr } });
+  const over = await call('POST', PATH, { as: manager, body: { id: ID, board: 'nrf5340dk' } });
   assert.deepEqual([over.status, over.body.error.code], [429, 'rate_limited']);
   assert.equal(entries().length, REGISTRATIONS_PER_HOUR);
   advance(61 * 60_000);
-  assert.equal((await call('POST', PATH, { as: manager, body: { id: ID, csr } })).status, 200);
+  assert.equal((await call('POST', PATH, { as: manager, body: { id: ID, board: 'nrf5340dk' } })).status, 200);
 });
 
 test('the root CA handed out is firmware/certs/AmazonRootCA1.pem, Amazon Root CA 1', () => {

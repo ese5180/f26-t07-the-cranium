@@ -105,16 +105,22 @@ test('it reads only its environment, its client waits for nothing without a limi
 test('a thing, new or there already, with its attributes merged, into the group', async () => {
   const aws = fresh();
   reply('CreateThingCommand', { thingName: THING }, fails('ResourceAlreadyExistsException', 409));
-  assert.deepEqual(await aws.createThing({ thing: THING, attributes: { board: 'nrf7002dk' } }), { created: true });
+  assert.deepEqual(await aws.createThing({ thing: THING, attributes: { board: 'nrf5340dk' } }), { created: true });
   assert.deepEqual(await aws.createThing({ thing: THING, attributes: null }), { created: false });
+  reply('UpdateThingCommand', {});
+  await aws.updateThingAttributes({ thing: THING, attributes: { board: 'nrf5340dk' } });
   reply('AddThingToThingGroupCommand', {});
   await aws.addThingToGroup(THING);
   assert.deepEqual(sdk.sent, [
     {
       name: 'CreateThingCommand',
-      input: { thingName: THING, attributePayload: { attributes: { board: 'nrf7002dk' }, merge: true } },
+      input: { thingName: THING, attributePayload: { attributes: { board: 'nrf5340dk' }, merge: true } },
     },
     { name: 'CreateThingCommand', input: { thingName: THING } },
+    {
+      name: 'UpdateThingCommand',
+      input: { thingName: THING, attributePayload: { attributes: { board: 'nrf5340dk' }, merge: true } },
+    },
     { name: 'AddThingToThingGroupCommand', input: { thingName: THING, thingGroupName: 'cranium-devices' } },
   ]);
 });

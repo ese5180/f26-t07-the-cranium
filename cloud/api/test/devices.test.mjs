@@ -14,7 +14,7 @@ const CERT_2 = `${'0f0e0d0c0b0a0908'}${'7'.repeat(48)}`;
 // What a board with no position from Wi-Fi has beside its Device (handlers/location.mjs).
 const UNPLACED = Object.freeze({
   position: null,
-  location: { status: 'none', at: null, apCount: null, checkedAt: null },
+  location: { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false },
 });
 
 const reported = (version = '1.0.0+3') => ({

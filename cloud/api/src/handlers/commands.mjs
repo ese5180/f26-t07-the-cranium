@@ -21,6 +21,7 @@
  * two LEDs for at most a minute, changes nothing and costs nothing, and it is what a person standing
  * at a bench of boards uses to tell which one is which. "report" does need one: it is used from
  * anywhere, and it makes the board send its Wi-Fi scan to AWS, which is a paid position estimate.
+ * A Bluetooth-only board (nrf5340dk) never reaches AWS IoT and is refused (409).
  *
  * "memfault" makes the board take its Memfault heartbeat now and send what it holds for Memfault
  * (its metrics, its reboots, a coredump) over AWS IoT at once, instead of within the hour; the
@@ -31,7 +32,7 @@
 import { randomBytes } from 'node:crypto';
 
 import { requireFreshSignIn } from '../auth.mjs';
-import { HttpError, badRequest, field, notFound } from '../http.mjs';
+import { HttpError, badRequest, conflict, field, notFound } from '../http.mjs';
 import { requireThing } from '../lib/validate.mjs';
 
 export const COMMANDS = Object.freeze(['identify', 'report', 'memfault']);
@@ -41,7 +42,19 @@ const FIELDS = Object.freeze(['cmd', 'seconds']);
 const MINUTE_MS = 60_000;
 const COMMAND_ID = /^[0-9a-f]{16}$/;
 
-export function createCommandHandlers({ aws, config, now, randomHex }, { devices }) {
+/**
+ * Whether a board has Bluetooth only, as the fleet knows its type (handlers/fleet.mjs): its own report,
+ * else its thing's attribute. Without the fleet, by what the board list says of it.
+ */
+async function bluetoothOnly(thing, device, fleet) {
+  if (typeof fleet?.boards === 'function') {
+    const [known] = await fleet.boards({ only: [thing] });
+    if (typeof known?.board?.bluetoothOnly === 'boolean') return known.board.bluetoothOnly;
+  }
+  return device?.board === 'nrf5340dk';
+}
+
+export function createCommandHandlers({ aws, config, now, randomHex }, { devices, fleet = null }) {
   /** How many commands this person has on record from the last minute. */
   async function recentCommands(sub) {
     const after = new Date(now() - MINUTE_MS).toISOString();
@@ -89,6 +102,13 @@ export function createCommandHandlers({ aws, config, now, randomHex }, { devices
         throw notFound('unknown_device', 'No board with that name is registered.');
       }
       const [device] = await devices.loadDevices([thing]);
+      if (await bluetoothOnly(thing, device, fleet)) {
+        throw conflict(
+          'bluetooth_only',
+          'This board has Bluetooth only and never connects to AWS IoT, so it cannot ' +
+            'be sent a command. Use the phone app next to it.'
+        );
+      }
       if ((await recentCommands(caller.sub)) >= COMMANDS_PER_MINUTE) {
         throw new HttpError(
           429,

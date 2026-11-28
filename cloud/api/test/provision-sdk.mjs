@@ -18,4 +18,8 @@ export const PROVISION_COMMANDS = Object.freeze({
   DetachPolicyCommand: { required: ['policyName', 'target'], optional: [] },
   DetachThingPrincipalCommand: { required: ['thingName', 'principal'], optional: [] },
   UpdateCertificateCommand: { required: ['certificateId', 'newStatus'], optional: [] },
+  UpdateThingCommand: {
+    required: ['thingName'],
+    optional: ['thingTypeName', 'attributePayload', 'expectedVersion', 'removeThingType'],
+  },
 });

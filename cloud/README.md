@@ -592,11 +592,12 @@ page, and some of it on the others.
 - **Compatibility.** A release shows what its image is built for, "For nRF7002 DK · layout 1": the board type and the
   flash layout, read from its signed TLVs (`0xA1`, `0xA2`), which the build sets from `CONFIG_APP_BOARD_TYPE` and
   `CONFIG_APP_IMAGE_LAYOUT`. An image without them is for the `nrf7002dk`, layout 1. One version is one image:
-  versions are one sequence for all types, so a build for another type takes the next number. A board on 1.13.0
-  or later says its type and layout itself. A board's page has its Compatibility; the New deployment dialog
+  versions are one sequence for all types, so a build for another type takes the next number. Provision a board
+  without Wi-Fi with `tools/provision_device.py --board nrf5340dk` so that its thing says what it is; a board on
+  1.13.0 or later says its type and layout itself. A board's page has its Compatibility; the New deployment dialog
   only offers a release to the boards of its type and layout, and the API refuses any other
-  (`incompatible_board`, `incompatible_layout`). An image for a type this console does not know is refused at
-  upload (`unknown_board`).
+  (`incompatible_board`, `incompatible_layout`). The Devices page marks a board without Wi-Fi as "Bluetooth only",
+  with the version a phone last saw on it, and the Overview counts it apart from boards that never connected.
 - **Groups.** Release managers make, rename, change and delete them on the Devices page (the Fleet page is gone since 2.28.0). A board
   can be in several. Every board is also in the group of its type.
 - **Staged rollouts.** A deployment of more than one board from the website, a rollout to a group (its "Roll out"
@@ -628,9 +629,9 @@ The rest of [docs/fleet.md](../docs/fleet.md); how the console does it is in
 - **Map.** The **Map** page shows every board where the Wi-Fi it hears puts it, from firmware 1.13.0: a marker in
   the colour of its state, a shaded circle for how sure the position is, and a popup with its name, thing,
   firmware, whether it is online, when it was placed and how closely. Beside it, the same boards as a list, and the
-  boards that are not on the map with why (no scan yet, too few access points, AWS could not place it). A board's
-  page has a small map of its last 20 positions. The map's tiles come from OpenStreetMap: opening it fetches them
-  from `tile.openstreetmap.org`, which learns the viewer's address and roughly where the boards are.
+  boards that are not on the map with why (Bluetooth only, no scan yet, too few access points, AWS could not place
+  it). A board's page has a small map of its last 20 positions. The map's tiles come from OpenStreetMap: opening it
+  fetches them from `tile.openstreetmap.org`, which learns the viewer's address and roughly where the boards are.
   Positions cost US$1.00 per 1,000 (the first 1,000 free in an account's first year); a board makes a few a day.
 - **Identify** (a button on every board's row and page) makes the board blink LED1 and LED2 for 15 s; **Report now**
   (the menu on its page) makes it send its heartbeat, diagnostics and a Wi-Fi scan at once. Release managers only,
@@ -671,8 +672,8 @@ console as admin mode at `/admin`; `--scenario customers` gives it customers and
 While a scenario is built the boards that are on report every minute, and every report and
 connection goes through the recorder's own code, so the Events and Diagnostics pages have a
 history. `--scenario fleet` has two days of three boards with an event of every kind and a
-board on firmware 1.10.0 with its diagnostics, and for Devices and Deployments a release with its board type, two
-groups and a staged rollout whose wave waits for a board that is offline. Its images
+board on firmware 1.10.0 with its diagnostics, and for Devices and Deployments two nRF5340 DKs that a phone has seen, a
+release of each type, two groups and a staged rollout whose wave waits for a board that is offline. Its images
 are built for the run and signed with a key the preview makes (`api/test/images.mjs`), so in that scenario a
 fixture image is refused as signed with another key. The preview runs the rollouts' schedule every minute.
 The same scenario puts boards on the Map page: the boards on 1.13.0 send scans of made-up access points of a campus

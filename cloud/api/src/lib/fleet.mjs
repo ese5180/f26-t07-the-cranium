@@ -6,12 +6,13 @@
  * Every function here is plain: it takes what the handlers read and gives back what they act on
  * or answer with. Nothing here decides who may do something; the router does (app.mjs).
  *
- * A board here is a fleet board (handlers/fleet.mjs): { thing, name, type, online, lastSeen, version,
- * groups, ... }, where `version` is what it runs as far as it is known: what it reported itself.
+ * A board here is a fleet board (handlers/fleet.mjs): { thing, name, type, bluetoothOnly, online,
+ * lastSeen, version, groups, ... }, where `version` is what it runs as far as it is known: what it
+ * reported itself, or for a Bluetooth-only board what a phone last saw.
  */
 
 import { badRequest } from '../http.mjs';
-import { BOARD_LABELS } from './boards.mjs';
+import { BOARD_LABELS, isBluetoothOnly } from './boards.mjs';
 import { IN_PROGRESS_TIMEOUT_MIN } from './jobs.mjs';
 import { compareVersions, parseVersion } from './mcuboot.mjs';
 import { RESTART_WINDOW_MS } from './shadow.mjs';
@@ -71,6 +72,7 @@ const CONTROL = /[\p{C}\p{Zl}\p{Zp}]/u;
 
 // Why a board is not in a rollout. The words are the console's; `text` adds the details.
 export const LEFT_OUT = Object.freeze({
+  bluetooth_only: 'Bluetooth only: updated from a phone',
   other_type: 'Another type of board',
   other_layout: 'Another flash layout',
   current: 'Already runs this release',
@@ -142,6 +144,8 @@ export function selectTargets({ release, candidates, busy = new Map(), nowMs, le
         'other_layout',
         `Flash layout ${board.layout ?? 1}: this release is built for layout ${release.layout ?? 1}`
       );
+    } else if (board.bluetoothOnly) {
+      out(board, 'bluetooth_only');
     } else if (board.version !== null && order === 0) {
       out(board, 'current', `Already runs ${release.version}`);
     } else if (board.version !== null && order > 0) {
@@ -528,6 +532,7 @@ export function versionsByType(boards, newestByType, types) {
     return {
       type,
       label: boardLabel(type),
+      bluetoothOnly: isBluetoothOnly(type),
       boards: ofType.length,
       newest,
       onNewest,
@@ -546,6 +551,10 @@ function hoursOrDays(ms) {
 /** Why a board needs looking at: [{ code, text }], empty when nothing is wrong. */
 export function attentionReasons(board, device, nowMs) {
   const reasons = [];
+  if (board.bluetoothOnly) {
+    if (board.seen === null) reasons.push({ code: 'unseen', text: 'No phone has seen it yet' });
+    return reasons;
+  }
   const silent = silentFor(board, nowMs);
   if (board.lastSeen === null && !board.online) {
     reasons.push({ code: 'offline', text: 'Has never reported' });

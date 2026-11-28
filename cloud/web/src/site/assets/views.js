@@ -29,6 +29,7 @@ import {
   MAX_BOARD_LABEL,
   compareHref,
   boardOf,
+  BLUETOOTH_ONLY_TYPES,
   boardTypeLabel,
   busyBoards,
   compatibilityWords,
@@ -769,12 +770,14 @@ function stats(rows) {
  * One tile per board: filled while it is online, an outline once it has gone quiet, a
  * dashed outline if it has never reported. The words next to the tiles count the same.
  */
-function boardTiles(devices) {
+function boardTiles(devices, phone = new Set()) {
   const rank = (device) => {
     if (isUp(device)) return 0;
+    if (phone.has(device.thing)) return 3;
     return device.lastSeen ? 1 : 2;
   };
-  const looks = ['is-on', 'is-off', 'is-never'];
+  // A board without Wi-Fi never connects: it is no board that has never connected (fleet.js).
+  const looks = ['is-on', 'is-off', 'is-never', 'is-phone'];
   const ordered = [...devices].sort((a, b) => rank(a) - rank(b));
   return h(
     'span',
@@ -2904,37 +2907,47 @@ function isUp(device) {
   return device.online && !isRestarting(device);
 }
 
-/** Boards in the words the tiles draw them in. */
-function boardsCounted(devices) {
+/** The boards without Wi-Fi, as the fleet says (fleet.js): they are never online, and that is no fault. */
+function phoneOnly(ctx) {
+  return new Set(
+    (ctx.state.fleet?.value?.boards ?? []).filter((board) => board.bluetoothOnly).map((board) => board.thing)
+  );
+}
+
+/** Boards in the words the tiles draw them in. A board without Wi-Fi is counted apart. */
+function boardsCounted(devices, phone = new Set()) {
   const online = devices.filter(isUp).length;
-  const quiet = devices.filter((device) => !isUp(device) && device.lastSeen).length;
-  const never = devices.length - online - quiet;
-  return { online, quiet, never };
+  const bluetooth = devices.filter((device) => !isUp(device) && phone.has(device.thing)).length;
+  const quiet = devices.filter((device) => !isUp(device) && !phone.has(device.thing) && device.lastSeen).length;
+  const never = devices.length - online - quiet - bluetooth;
+  return { online, quiet, never, bluetooth };
 }
 
 /** The words next to the tiles, for a fleet of more than one board: one board is said by the figure. */
-function tileWords(devices, extra = []) {
-  const { online, quiet, never } = boardsCounted(devices);
+function tileWords(devices, extra = [], phone = new Set()) {
+  const { online, quiet, never, bluetooth } = boardsCounted(devices, phone);
   return h(
     'p',
     { class: 'tile-words dotted', key: 'words' },
     online ? h('span', { key: 'online' }, `${online} online`) : null,
     quiet ? h('span', { key: 'quiet' }, `${quiet} offline`) : null,
     never ? h('span', { key: 'never' }, `${never} never connected`) : null,
+    bluetooth ? h('span', { key: 'bluetooth' }, `${bluetooth} Bluetooth only`) : null,
     extra.filter(([, count]) => count > 0).map(([word, count]) => h('span', { key: word }, `${count} ${word}`))
   );
 }
 
-function fleetFigure(devices) {
-  const { online } = boardsCounted(devices);
+function fleetFigure(devices, phone = new Set()) {
+  const { online, bluetooth } = boardsCounted(devices, phone);
   return [
     h(
       'p',
       { class: 'figure', key: 'figure' },
       h('span', { class: 'figure-value' }, String(online)),
-      h('span', { class: 'figure-unit' }, ` of ${plural(devices.length, 'board')} online`)
+      // Of the boards that can be online at all: one without Wi-Fi never is.
+      h('span', { class: 'figure-unit' }, ` of ${plural(devices.length - bluetooth, 'board')} online`)
     ),
-    devices.length > 1 ? boardTiles(devices) : null,
+    devices.length > 1 ? boardTiles(devices, phone) : null,
   ];
 }
 
@@ -2946,7 +2959,7 @@ function onlineCard(ctx, devices) {
   } else if (devices.length === 0) {
     body = h('p', { class: 'quiet' }, 'No boards are registered yet.');
   } else {
-    body = [fleetFigure(devices), devices.length > 1 ? tileWords(devices) : null];
+    body = [fleetFigure(devices, phoneOnly(ctx)), devices.length > 1 ? tileWords(devices, [], phoneOnly(ctx)) : null];
   }
   return card({ key: 'online', title: 'Fleet', className: 'is-zone' }, body);
 }
@@ -3714,11 +3727,12 @@ function oldestRead(resources) {
  */
 function glanceStrip(ctx, devices, newest) {
   const known = devices !== null;
-  const counted = known ? boardsCounted(devices) : null;
+  const phone = phoneOnly(ctx);
+  const counted = known ? boardsCounted(devices, phone) : null;
   const updating = known ? devices.filter((device) => deviceActivity(device) !== null).length : null;
   const attention = ctx.state.fleetHealth?.value?.attention?.length ?? null;
   const items = [
-    ['online', '#/devices', known ? `${counted.online}/${devices.length}` : '–', 'Online'],
+    ['online', '#/devices', known ? `${counted.online}/${devices.length - counted.bluetooth}` : '–', 'Online'],
     ['updating', '#/deployments', known ? String(updating) : '–', 'Updating'],
     attention === null
       ? ['offline', '#/devices', known ? String(counted.quiet + counted.never) : '–', 'Offline']
@@ -4014,7 +4028,8 @@ function seenLine(device, now) {
  * heard of (seenLine). Wider, the badge beside it says the state, so the line says only what it adds: when
  * a board that is not online was last heard of, or that it never was.
  */
-function seenInRow(device, now) {
+function seenInRow(device, now, viaPhone) {
+  if (viaPhone) return h('p', { class: 'device-seen' }, viaPhone.line);
   const up = device.online && !isRestarting(device);
   return [
     h('p', { class: 'device-seen is-narrow', key: 'narrow' }, seenLine(device, now)),
@@ -4042,12 +4057,16 @@ function devicesPanel(devices, ctx) {
       'div',
       { class: 'devices-figure' },
       h('h2', { class: 'eyebrow' }, 'Fleet'),
-      fleetFigure(devices),
+      fleetFigure(devices, phoneOnly(ctx)),
       devices.length > 1
-        ? tileWords(devices, [
-            ['updating now', updating],
-            ['on trial', onTrial],
-          ])
+        ? tileWords(
+            devices,
+            [
+              ['updating now', updating],
+              ['on trial', onTrial],
+            ],
+            phoneOnly(ctx)
+          )
         : null
     ),
     h(
@@ -4060,17 +4079,19 @@ function devicesPanel(devices, ctx) {
   );
 }
 
-function presenceLook(device) {
+function presenceLook(device, viaPhone) {
   if (isRestarting(device)) return 'is-restarting';
   if (isUp(device)) return 'is-up';
+  if (viaPhone) return 'is-phone';
   return device.lastSeen ? 'is-down' : 'is-never';
 }
 
 const DEVICE_COLUMNS = ['Board', 'Status', 'Firmware', 'Update', 'Signal', 'Uptime'];
 
-/** How a board stands, for the Devices page's filter: updating, online or offline. */
-export function boardStanding(device) {
+/** How a board stands, for the Devices page's filter: updating, Bluetooth only, online or offline. */
+export function boardStanding(device, ctx) {
   if (deviceActivity(device) !== null) return 'updating';
+  if (ctx.fleet?.bluetoothOnly(device, ctx)) return 'bluetooth';
   return device.online ? 'online' : 'offline';
 }
 
@@ -4086,7 +4107,7 @@ export function devicesShown(ctx, devices) {
       ...(ctx.fleet?.groupsOf?.(device, ctx) ?? []),
     ],
     keep: (device, filters) =>
-      (filters.status === '' || boardStanding(device) === filters.status) &&
+      (filters.status === '' || boardStanding(device, ctx) === filters.status) &&
       (filters.version === '' || (device.fw?.version ?? '').startsWith(filters.version)),
   });
 }
@@ -4106,6 +4127,7 @@ function devicesFilters(ctx, devices, shown) {
         options: [
           ['online', 'Online'],
           ['offline', 'Offline'],
+          ['bluetooth', 'Bluetooth only'],
           ['updating', 'Updating'],
         ],
       }),
@@ -4178,13 +4200,14 @@ export function devicesView(ctx) {
   } else if (devices.length === 0) {
     body = [devicesFilters(ctx, all, devices), noneMatch(ctx, 'devices', 'boards')];
   } else {
-    const counted = boardsCounted(devices);
+    const counted = boardsCounted(devices, phoneOnly(ctx));
     body = [
       // On a phone a strip of figures; wider, the panel with the firmware in the fleet.
       glance(
         [
-          ['online', null, `${counted.online}/${devices.length}`, 'Online'],
+          ['online', null, `${counted.online}/${devices.length - counted.bluetooth}`, 'Online'],
           ['offline', null, String(counted.quiet + counted.never), 'Offline'],
+          ['bluetooth', null, String(counted.bluetooth), 'Bluetooth only'],
           [
             'updating',
             '#/deployments',
@@ -4205,11 +4228,13 @@ export function devicesView(ctx) {
           { class: 'device-columns', key: 'columns', 'aria-hidden': 'true' },
           DEVICE_COLUMNS.map((name) => h('span', { key: name }, name))
         ),
-        devices.map((device) =>
-          h(
+        devices.map((device) => {
+          // Its type and its groups, and for a board without Wi-Fi what a phone last saw (fleet.js).
+          const viaPhone = ctx.fleet?.bluetoothOnly(device, ctx) ?? null;
+          return h(
             'article',
             // How it is, for the mark that leads its row on a phone: the badge beside it says it in words.
-            { key: device.thing, class: `ui-card card device ${presenceLook(device)}` },
+            { key: device.thing, class: `ui-card card device ${presenceLook(device, viaPhone)}` },
             h(
               'header',
               { class: 'device-head' },
@@ -4224,15 +4249,17 @@ export function devicesView(ctx) {
                 device.pi
                   ? h('p', { class: 'device-pi' }, badge('info', 'chip', 'Raspberry Pi', piCardWords(device.pi)))
                   : null,
-                seenInRow(device, state.now),
-                device.lastSeen || device.online ? null : h('p', { class: 'device-help' }, NEVER_REPORTED_HELP)
+                seenInRow(device, state.now, viaPhone),
+                device.lastSeen || device.online || viaPhone
+                  ? null
+                  : h('p', { class: 'device-help' }, NEVER_REPORTED_HELP)
               ),
-              presence(device, state.now),
+              viaPhone ? viaPhone.badge : presence(device, state.now),
               identifyButton(device, ctx, { compact: true })
             ),
             deviceFacts(device, ctx)
-          )
-        )
+          );
+        })
       ),
       // The board types, and the groups of boards, made and changed here by release managers (fleet.js; the
       // Fleet page's until console 2.28.0).
@@ -5253,23 +5280,27 @@ function releaseRow(release, ctx) {
       )
     : null;
   let controls = null;
+  // A release for a board without Wi-Fi is sent from the phone app: no deployment can reach one.
+  const overTheAir = !BLUETOOTH_ONLY_TYPES.includes(release.board);
   if (me.canWrite && active) {
     // Every row has the same two buttons. Their names say which release they act on.
     controls = [
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'ui-btn btn is-small',
-          'aria-label': `Deploy ${release.version}`,
-          onClick: () => actions.openDeploy(release.version),
-        },
-        icon('send'),
-        'Deploy'
-      ),
+      overTheAir
+        ? h(
+            'button',
+            {
+              type: 'button',
+              class: 'ui-btn btn is-small',
+              'aria-label': `Deploy ${release.version}`,
+              onClick: () => actions.openDeploy(release.version),
+            },
+            icon('send'),
+            'Deploy'
+          )
+        : null,
       // Golden image promotion (console 2.27.7): a release of a board whose bootloader has the golden image,
       // from firmware 1.19.3 on, on a stack that has the golden key.
-      actions.openGolden && ctx.state.firmware.value?.goldenKey === true && takesGolden(release.version)
+      overTheAir && actions.openGolden && ctx.state.firmware.value?.goldenKey === true && takesGolden(release.version)
         ? h(
             'button',
             {
@@ -7370,7 +7401,8 @@ export function deployDialog(model, ctx) {
       title: `No board can take ${model.version}.`,
       text:
         `It is for the ${boardTypeLabel(release?.board)} with flash layout ${release?.layout ?? 1}, and none is registered ` +
-        'that can take it over the internet.',
+        'that can take it over the internet. ' +
+        'A board without Wi-Fi updates over Bluetooth from the phone app.',
     });
   } else if (model.step === 1 && devices.length === 0) {
     body = empty(NO_BOARDS);
@@ -7384,7 +7416,7 @@ export function deployDialog(model, ctx) {
             'p',
             { class: 'choice-hint', key: 'types' },
             `For the ${boardTypeLabel(release?.board)}, layout ${release?.layout ?? 1}, only: `,
-            `${plural(notOffered, 'board', 'boards')} of another type or flash layout ` +
+            `${plural(notOffered, 'board', 'boards')} of another type or flash layout, or without Wi-Fi, ` +
               `${notOffered === 1 ? 'is' : 'are'} not offered it.`
           )
         : null,
@@ -8478,11 +8510,11 @@ const COMMAND_TITLES = { identify: 'Identify', report: 'Report now', memfault: '
 /**
  * Whether the board's Memfault data reaches Memfault (docs/memfault.md): a project key stored in AWS, and
  * firmware 1.14.0 or later, which sends it over AWS IoT. With the link to the board in Memfault when the
- * console knows the organization's and the project's slugs. Nothing from a server that says nothing of
- * Memfault.
+ * console knows the organization's and the project's slugs. Nothing for a board that never reaches AWS IoT,
+ * or from a server that says nothing of Memfault.
  */
 function memfaultCard(device, memfault) {
-  if (memfault === null) return null;
+  if (memfault === null || device.location?.bluetoothOnly) return null;
   let line;
   let details = null;
   if (!memfault.keyStored) {

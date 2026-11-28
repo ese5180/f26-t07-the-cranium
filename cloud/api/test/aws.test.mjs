@@ -2468,9 +2468,10 @@ test("the Lambda entry point serves a viewer's reads through the adapter", async
     sdk.reset();
     sdk.reply('ListThingsInThingGroupCommand', { things: [THING] });
     sdk.reply('GetThingShadowCommand', fails('ResourceNotFoundException', { status: 404 }));
-    // The names given in the console (src/lib/names.mjs), the positions of the boards (src/aws-map.mjs), and the
-    // activity log's two partitions: the console's and the customers'.
+    // The names given in the console (src/lib/names.mjs), the positions of the boards (src/aws-map.mjs), what the
+    // board that never reported is, and the activity log's two partitions: the console's and the customers'.
     sdk.reply('QueryCommand', { Items: [] }, { Items: [] }, { Items: [] }, { Items: [] }, { Items: [] });
+    sdk.reply('DescribeThingCommand', { attributes: {} });
     sdk.reply('ListJobsCommand', { jobs: [] });
     sdk.reply('AdminGetUserCommand', {
       Enabled: true,
@@ -2506,7 +2507,7 @@ test("the Lambda entry point serves a viewer's reads through the adapter", async
       bt: null,
       label: null,
       position: null,
-      location: { status: 'none', at: null, apCount: null, checkedAt: null },
+      location: { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false },
     },
   ]);
   assert.deepEqual(JSON.parse(responses[1].body).releases, []);
@@ -2523,6 +2524,7 @@ test("the Lambda entry point serves a viewer's reads through the adapter", async
       'GetThingShadowCommand',
       'QueryCommand',
       'QueryCommand',
+      'DescribeThingCommand',
       'QueryCommand',
       'ListJobsCommand',
       'QueryCommand',
@@ -2561,11 +2563,11 @@ test("describeThing reads a thing's attributes, and nothing for an unknown thing
   const aws = adapter();
   sdk.reply(
     'DescribeThingCommand',
-    { thingName: THING, attributes: { board: 'nrf7002dk', other: 7 } },
+    { thingName: THING, attributes: { board: 'nrf5340dk', other: 7 } },
     fails('ResourceNotFoundException', { status: 404 }),
     fails('ThrottlingException')
   );
-  assert.deepEqual(await aws.describeThing(THING), { attributes: { board: 'nrf7002dk' } });
+  assert.deepEqual(await aws.describeThing(THING), { attributes: { board: 'nrf5340dk' } });
   assert.deepEqual(sdk.inputs('DescribeThingCommand'), [{ thingName: THING }]);
   assert.equal(await aws.describeThing(THING), null);
   await rejectsWith(aws.describeThing(THING), { code: 'throttled', operation: 'DescribeThing' });

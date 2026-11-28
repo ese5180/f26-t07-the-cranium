@@ -34,7 +34,7 @@ export function memfaultWorld() {
       {
         id: 2,
         device_serial: 'bench-unit-1',
-        hardware_version: { name: 'nrf7002dk' },
+        hardware_version: { name: 'nrf5340dk' },
         cohort: { id: 1, name: 'default', slug: 'default' },
         first_seen: '2026-11-06T10:00:00+00:00',
         last_seen: '2026-11-06T11:00:00+00:00',

@@ -131,6 +131,7 @@ export function readReport(raw) {
       total: count(boards.total),
       online: count(boards.online),
       offline: count(boards.offline),
+      bluetoothOnly: count(boards.bluetoothOnly),
       added: list(boards.added).filter((thing) => typeof thing === 'string'),
       addedCount: count(boards.addedCount) ?? 0,
     },

@@ -10,7 +10,7 @@ async function withBoards() {
   const world = fleetConsole();
   world.online(A);
   world.online(B);
-  world.online(C);
+  world.bluetoothOnly(C);
   return world;
 }
 
@@ -39,7 +39,10 @@ test('a group is made, renamed, changed and deleted, each change on record', asy
   // Every board is in the group of its type as well, which is not stored.
   assert.deepEqual(
     listed.body.types.map((type) => [type.type, type.things]),
-    [['nrf7002dk', [A, B, C]]]
+    [
+      ['nrf7002dk', [A, B]],
+      ['nrf5340dk', [C]],
+    ]
   );
 
   const deleted = await world.call('POST', `/api/groups/${group.id}/delete`, {});

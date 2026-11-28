@@ -97,9 +97,9 @@ const radioWords = (device) => ({
 
 /**
  * What the page says when the console has no passkey for the board that is pairing. A board with a passkey
- * of its own (an nRF7002 DK after BT_OFFLINE|NEW, firmware 1.19.0 and later) never reports one, so the console
- * cannot have it: the person types the board's own passkey. The console cannot tell that board from one that is
- * offline, so both are said.
+ * of its own (an nRF7002 DK after BT_OFFLINE|NEW, firmware 1.19.0 and later, or an nRF5340 DK set up with one
+ * the console does not hold) never reports one, so the console cannot have it: the person types the board's
+ * own passkey. The console cannot tell that board from one that is offline, so both are said.
  */
 export function noPasskeyWords(device) {
   return {

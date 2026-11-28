@@ -7,10 +7,11 @@
  * to keep polling browsers within the request limits of AWS IoT.
  *
  * What a board reports decides one thing here, and only about itself: its board type
- * (lib/boards.mjs), which a release has to match (400 incompatible_board). Whether a release
- * may be deployed is decided by its record; whether a board is free is decided by its
- * executions in AWS IoT Jobs. The shadow otherwise only adds the live step and progress to
- * the picture.
+ * (lib/boards.mjs), which a release has to match (400 incompatible_board), and which keeps a
+ * board that updates over Bluetooth only from being made the target of a job at all (400
+ * bluetooth_only). Whether a release may be deployed is decided by its record; whether a
+ * board is free is decided by its executions in AWS IoT Jobs. The shadow otherwise only adds
+ * the live step and progress to the picture.
  *
  * A staged rollout (handlers/rollouts.mjs) is made of deployments too: its canary and its
  * waves are each a job started by launch() below, the same way as one made here.

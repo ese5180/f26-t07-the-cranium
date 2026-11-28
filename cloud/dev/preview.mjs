@@ -73,10 +73,11 @@
  * demo, and one hears too few. The boards on 1.13.0 answer the console's commands in their log. The
  * e-mail alerts are made as when deployed, and listed on the Account page; none is sent anywhere.
  *
- * The fleet scenario also has groups of boards, and a staged rollout whose canary has confirmed and
- * whose stages are under way. Its images are made by api/test/images.mjs with a board type and signed
- * with a key made for the run, which that scenario's console trusts in place of the fixtures' key: the
- * fixtures' own key is gone, and an image with a board type has to be signed. The schedule that moves staged
+ * The fleet scenario also has two nRF5340 DKs, which have no Wi-Fi and are only ever seen by a phone,
+ * groups of boards, and a staged rollout whose canary has confirmed and whose stages are under way.
+ * Its images are made by api/test/images.mjs for either board type and signed with a key made for
+ * the run, which that scenario's console trusts in place of the fixtures' key: the fixtures' own
+ * key is gone, and an image for the nRF5340 DK has to be signed. The schedule that moves staged
  * rollouts on (api/src/tick.mjs) runs every minute, as EventBridge runs it when deployed.
  *
  * The page is the one that is deployed. Nothing in web/ knows about the preview. With
@@ -1102,12 +1103,15 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
       await request('POST', '/api/serial/commands', { command, device: board.diag?.id, version: board.version }, 'ok');
     },
 
-    /** What tools/provision_device.py does: a thing in the group, with its certificate. */
-    provision(number, version) {
+    /**
+     * What tools/provision_device.py does: a thing in the group, with its certificate, and for a
+     * board without Wi-Fi (--board nrf5340dk) the attribute that says so.
+     */
+    provision(number, version, { type = null } = {}) {
       const thing = `cranium-${previewId(`board ${number}`, 16)}`;
       fake.addThing(thing, {
         certificates: [previewId(`certificate ${number}`, 64)],
-        attributes: {},
+        attributes: type === null ? {} : { board: type },
       });
       const board = createBoard(fake, thing, version, say);
       boards.push(board);
@@ -1146,6 +1150,11 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
         { filename: 'zephyr.signed.bin', notes, data: data.toString('base64') },
         'ok'
       );
+    },
+
+    /** What a phone app posts once it has connected to a board over Bluetooth. */
+    async seen(board, version, name) {
+      await request('POST', `/api/devices/${board.thing}/seen`, { version, name }, 'ok');
     },
 
     async group(name, members) {
@@ -1338,8 +1347,9 @@ function wobble(at, periodMs, phase = 0) {
  * Three boards over two days, for the Events and Diagnostics pages: every kind of event, a
  * board with diagnostics and a name of its own (its device ID, from firmware 1.11.4), one on
  * firmware too old for either that went offline, and an update through the console. And for the
- * Fleet page: a release with a board type, two groups, and a staged rollout to one of them whose
- * canary has confirmed and whose wave waits for a board that is offline.
+ * Fleet page: two nRF5340 DKs that only a phone sees, a release for each board type, two groups,
+ * and a staged rollout to one of them whose canary has confirmed and whose wave waits for a board
+ * that is offline.
  */
 async function fleet(stage) {
   stage.ago('2d');
@@ -1370,6 +1380,9 @@ async function fleet(stage) {
   third.wander = (board, at) => {
     board.rssi = Math.round(-49 + 3 * wobble(at, 7 * 3_600_000, 3));
   };
+  // Two nRF5340 DKs: no Wi-Fi, so they never connect; provisioned with --board nrf5340dk.
+  const fourth = stage.provision(4, '1.12.0+3', { type: 'nrf5340dk' });
+  const fifth = stage.provision(5, '1.12.0+3', { type: 'nrf5340dk' });
   for (const board of [first, second, third]) board.connect(40);
   // Firmware 1.12.0 sends what it printed while it was coming up, once it is connected.
   first.log('app', 'Network is up', { waitedMs: 12_000, boot: 40, seq: 1 });
@@ -1425,12 +1438,22 @@ async function fleet(stage) {
   stage.ago('2h37m');
   third.comeBack({ kept: true });
 
-  // A release with its board type.
+  // A release for each board type, and what a phone saw of the two boards without Wi-Fi.
   stage.ago('2h20m');
   await stage.uploadBuilt('1.13.0+0', 'nrf7002dk', 'Reconnects to AWS IoT within seconds of the Wi-Fi coming back.');
+  stage.ago('2h15m');
+  await stage.uploadBuilt(
+    '1.13.0+1',
+    'nrf5340dk',
+    'The first build for the nRF5340 DK: Bluetooth only, updated from the phone app.'
+  );
+  stage.ago('2h10m');
+  await stage.seen(fourth, '1.13.0+1', 'Cranium-4D21');
+  stage.ago('1h50m');
+  await stage.seen(fifth, '1.12.0+3', 'Cranium-9B07');
   stage.ago('1h40m');
-  await stage.group('Lab bench', [first]);
-  const demo = await stage.group('Demo', [second, third]);
+  await stage.group('Lab bench', [first, fourth]);
+  const demo = await stage.group('Demo', [second, third, fifth]);
   // A set on the first board's Raspberry Pi (firmware 1.20.1), for its Plays card: one track a few minutes,
   // the key only on the tracks the Pi had one for.
   for (const [ago, np] of [
@@ -1449,7 +1472,7 @@ async function fleet(stage) {
   second.disconnect('CONNECTION_LOST');
 
   // A staged rollout to the Demo group: its canary takes it and confirms it, and the schedule
-  // then starts the wave, which waits for the board that is offline.
+  // then starts the wave, which waits for the board that is offline. The nRF5340 DK is left out.
   stage.ago('50m');
   await stage.rollout('1.13.0+0', { kind: 'group', group: demo.id }, 'Demo boards first.');
   stage.ago('49m');
@@ -1718,7 +1741,7 @@ export const SCENARIOS = Object.freeze({
   },
   fleet: {
     summary:
-      'Three boards over two days: every kind of event, diagnostics, groups and a ' +
+      'Five boards over two days, two of them nRF5340 DKs: every kind of event, diagnostics, groups and a ' +
       'staged rollout. For the Events, Diagnostics and Fleet pages.',
     build: fleet,
     // Its images are built and signed with a key of the run (api/test/images.mjs), which this console trusts.

@@ -89,7 +89,7 @@ const KEPT = Object.freeze([
   'private key',
   'certificate',
 ]);
-const BOARD_LABELS = { nrf7002dk: 'nRF7002 DK' };
+const BOARD_LABELS = { nrf7002dk: 'nRF7002 DK', nrf5340dk: 'nRF5340 DK' };
 
 // How long things take, in milliseconds (docs/new-board-setup.md, "Time-outs"). The tests and the self-check
 // give shorter ones.
@@ -373,6 +373,13 @@ export function createSetupFlow({
     if (flow.current === 'golden' && flow.board?.type !== DEFAULT_BOARD) {
       set('golden', 'skipped', { note: `A ${label(flow.board?.type)} has no golden image.` });
       advance('golden');
+      return;
+    }
+    if (flow.current === 'online' && flow.board?.type !== DEFAULT_BOARD) {
+      set('online', 'skipped', {
+        note: `A ${label(flow.board?.type)} has Bluetooth only, and never reaches AWS IoT itself.`,
+      });
+      advance('online');
       return;
     }
     changed();
@@ -728,6 +735,16 @@ export function createSetupFlow({
         await comeBack(null);
         status = await readStatus();
       }
+      const type = status.board ?? DEFAULT_BOARD;
+      if (type !== DEFAULT_BOARD) {
+        flow.board = identifyFrom(status);
+        return {
+          note:
+            `First-time setup is done. A ${label(type)} is registered with its own passkey by ` +
+            'tools/provision_device.py --board nrf5340dk, which this page does not do yet.',
+        };
+      }
+
       const hasNetwork = status['wifi password'] === 'set';
       if (!(keepWifi && hasNetwork)) {
         const problem = RULES.ssid(ssid) ?? RULES.passphrase(passphrase);

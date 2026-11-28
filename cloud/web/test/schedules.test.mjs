@@ -37,6 +37,7 @@ const FLEET = {
       thing: A,
       name: null,
       type: 'nrf7002dk',
+      bluetoothOnly: false,
       online: true,
       version: '1.13.0+0',
       groups: [GROUP],
@@ -45,13 +46,14 @@ const FLEET = {
       thing: B,
       name: null,
       type: 'nrf7002dk',
+      bluetoothOnly: false,
       online: true,
       version: '1.13.0+0',
       groups: [GROUP],
     },
   ],
   groups: [{ id: GROUP, name: 'Bench', things: [A, B], gone: 0, window: WINDOW }],
-  types: [{ type: 'nrf7002dk', boards: 2, newest: '1.13.1+0', previous: '1.13.0+0' }],
+  types: [{ type: 'nrf7002dk', boards: 2, newest: '1.13.1+0', previous: '1.13.0+0', bluetoothOnly: false }],
 };
 const RELEASES = [
   {

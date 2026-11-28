@@ -116,6 +116,7 @@ export function createVitalsHandlers({ aws, now, log }, { fleet }) {
       thing: board.thing,
       name: board.name,
       type: board.type,
+      bluetoothOnly: board.bluetoothOnly,
       online: board.online,
       version: board.version,
       rssi: device.rssi,
@@ -129,6 +130,7 @@ export function createVitalsHandlers({ aws, now, log }, { fleet }) {
       // At most MAX_IN_FLIGHT Queries at once, as the issues and the weekly report read the events.
       const read = await mapLimit(loaded, MAX_IN_FLIGHT, async (one) => {
         const row = rowOf(one);
+        if (row.bluetoothOnly) return { ...row, vitals: null, cut: false };
         try {
           const { events, fromMs: from, cut, before } = await eventsOf(row.thing, fromMs, toMs);
           const vitals = boardVitals({
@@ -176,16 +178,18 @@ export function createVitalsHandlers({ aws, now, log }, { fleet }) {
       const row = rowOf(loaded[0]);
       const samplesFromMs = Math.max(fromMs, toMs - SAMPLE_DAYS * DAY_MS);
       const [read, samples] = await Promise.all([
-        eventsOf(thing, fromMs, toMs),
-        Promise.resolve()
-          .then(() => aws.querySamples({ thing, ...sampleRange(samplesFromMs, toMs + 60_000) }))
-          .then(
-            (items) => items.map(sampleFromItem).filter((sample) => sample !== null),
-            (error) => {
-              log({ level: 'warn', event: 'samples_unreadable', thing, error: describeError(error).message });
-              return null;
-            }
-          ),
+        row.bluetoothOnly ? { events: [], fromMs, cut: false, before: null } : eventsOf(thing, fromMs, toMs),
+        row.bluetoothOnly
+          ? []
+          : Promise.resolve()
+              .then(() => aws.querySamples({ thing, ...sampleRange(samplesFromMs, toMs + 60_000) }))
+              .then(
+                (items) => items.map(sampleFromItem).filter((sample) => sample !== null),
+                (error) => {
+                  log({ level: 'warn', event: 'samples_unreadable', thing, error: describeError(error).message });
+                  return null;
+                }
+              ),
       ]);
       const vitals = boardVitals({
         events: read.events,
@@ -196,7 +200,7 @@ export function createVitalsHandlers({ aws, now, log }, { fleet }) {
         before: read.before,
       });
       const detail = boardDetail(vitals, samples === null ? new Map() : samplesByDay(samples));
-      const [board] = fleetVitals([{ ...row, vitals, cut: read.cut }], {
+      const [board] = fleetVitals([{ ...row, vitals: row.bluetoothOnly ? null : vitals, cut: read.cut }], {
         newestByType: newest,
       }).perBoard;
       return {

@@ -319,7 +319,7 @@ function fakeApi({ releaseImage, golden = GOLDEN_BYTES, register = null } = {}) 
           layout: 1,
         },
         { version: '1.14.9+0', status: 'revoked', sha256: 'a'.repeat(64), size: 10, board: 'nrf7002dk', layout: 1 },
-        { version: '1.20.0+0', status: 'active', sha256: 'b'.repeat(64), size: 10, board: 'otherboard', layout: 1 },
+        { version: '1.20.0+0', status: 'active', sha256: 'b'.repeat(64), size: 10, board: 'nrf5340dk', layout: 1 },
         { version: '1.11.0+0', status: 'active', sha256: 'c'.repeat(64), size: 10 },
       ],
     }),
@@ -525,11 +525,11 @@ test('the newest release is the newest active one for the board’s type and lay
     { version: '1.14.5+0', status: 'active', sha256: 'a'.repeat(64) },
     { version: '1.14.10+0', status: 'active', sha256: 'b'.repeat(64), board: 'nrf7002dk', layout: 1 },
     { version: '1.15.0+0', status: 'revoked', sha256: 'c'.repeat(64) },
-    { version: '1.16.0+0', status: 'active', sha256: 'd'.repeat(64), board: 'otherboard' },
+    { version: '1.16.0+0', status: 'active', sha256: 'd'.repeat(64), board: 'nrf5340dk' },
     { version: '1.17.0+0', status: 'active', sha256: 'e'.repeat(64), layout: 2 },
   ];
   assert.equal(setup.newestRelease(releases, 'nrf7002dk').version, '1.14.10+0');
-  assert.equal(setup.newestRelease(releases, 'otherboard').version, '1.16.0+0');
+  assert.equal(setup.newestRelease(releases, 'nrf5340dk').version, '1.16.0+0');
   assert.equal(setup.newestRelease(releases, 'nrf7002dk', 2).version, '1.17.0+0');
   assert.equal(setup.newestRelease([], 'nrf7002dk'), null);
 });

@@ -124,7 +124,7 @@ test('mixed types: one canary of each, online, with the cleanest update history'
   const other = things(3, 16);
   const types = Object.fromEntries([
     ...nrf.map((thing) => [thing, 'nrf7002dk']),
-    ...other.map((thing) => [thing, 'otherboard']),
+    ...other.map((thing) => [thing, 'nrf5340dk']),
   ]);
   const history = new Map([
     [nrf[0], { updates: 6, failures: 2 }],

@@ -1182,6 +1182,12 @@ export function createFakeAws({
       return { created: true };
     },
 
+    async updateThingAttributes({ thing, attributes }) {
+      checkThingName('UpdateThing', thing);
+      if (!things.has(thing)) throw awsError('UpdateThing', 'ResourceNotFoundException', { status: 404 });
+      Object.assign(things.get(thing).attributes, attributes);
+    },
+
     async addThingToGroup(thing) {
       checkThingName('AddThingToThingGroup', thing);
       if (!things.has(thing)) throw awsError('AddThingToThingGroup', 'ResourceNotFoundException', { status: 404 });

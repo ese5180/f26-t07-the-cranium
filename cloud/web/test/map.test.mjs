@@ -26,7 +26,7 @@ const B = 'cranium-00000000000000bb';
 const C = 'cranium-00000000000000cc';
 const D = 'cranium-00000000000000dd';
 const E = 'cranium-00000000000000ee';
-const NONE = Object.freeze({ status: 'none', at: null, apCount: null, checkedAt: null });
+const NONE = Object.freeze({ status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false });
 
 function board(thing, changes = {}) {
   return {
@@ -58,7 +58,7 @@ const FLEET = [
   board(B, { online: false, lastSeen: at(3 * 3_600_000), ...placed(39.9437, -75.2022, 60, 3_600_000) }),
   board(C, { fw: { version: '1.12.0+0', confirmed: true } }),
   board(D, { location: { ...NONE, status: 'too_few', at: at(MINUTE), apCount: 1 } }),
-  board(E, { online: false, lastSeen: null, fw: null, ota: null }),
+  board(E, { online: false, lastSeen: null, fw: null, ota: null, location: { ...NONE, bluetoothOnly: true } }),
 ];
 
 const loaded = (value) => ({ value, error: null, loadedAt: NOW, loading: false });
@@ -190,9 +190,10 @@ function fakeLeaflet() {
 
 // Why a board is not on the map, and the colours of the markers.
 
-test('a board without a position says why: no scan yet, too few access points, and the rest', () => {
+test('a board without a position says why: Bluetooth only, no scan yet, too few access points, and the rest', () => {
   const reason = (changes) => core.unplacedReason(board(A, changes))?.code ?? null;
   assert.equal(reason(placed(1, 2, 3)), null);
+  assert.equal(reason({ location: { ...NONE, bluetoothOnly: true } }), 'bluetooth');
   assert.equal(reason({}), 'no_scan');
   assert.equal(reason({ location: { ...NONE, status: 'too_few', apCount: 1 } }), 'too_few');
   assert.equal(reason({ location: { ...NONE, status: 'unsolved' } }), 'unsolved');
@@ -220,7 +221,7 @@ test('the client reads positions strictly, and leaves out what is not one', asyn
         {
           ...board(A),
           position: { lat: 39.95, lon: -75.19, accuracy: 25, at: at(0) },
-          location: { status: 'ok' },
+          location: { status: 'ok', bluetoothOnly: true },
         },
         { ...board(B), position: { lat: 95, lon: 0, accuracy: 3, at: at(0) }, location: { status: 'somewhere' } },
         { ...board(C), position: { lat: 1, lon: 2, accuracy: 0.5, at: at(0) } },
@@ -242,7 +243,7 @@ test('the client reads positions strictly, and leaves out what is not one', asyn
   });
   const { devices } = await api.devices();
   assert.deepEqual(devices[0].position, { lat: 39.95, lon: -75.19, accuracy: 25, at: at(0) });
-  assert.equal(devices[0].location.status, 'ok');
+  assert.equal(devices[0].location.bluetoothOnly, true);
   assert.deepEqual([devices[1].position, devices[1].location.status], [null, 'none']);
   assert.equal(devices[2].position, null);
   const history = await api.positions(A);
@@ -278,7 +279,7 @@ test('the Map page puts the boards with a position on the map and in a list, and
   );
   assert.match(why[C], /^No scan yet\. /);
   assert.match(why[D], /^Too few access points\. It heard one/);
-  assert.match(why[E], /^No scan yet\. /);
+  assert.match(why[E], /^Bluetooth only\. /);
   // The legend says what each colour is, and what the circle is.
   assert.match(textOf(one(page, 'ul.map-legend')), /Online Updating Last update failed Offline How sure/);
   assert.match(textOf(page), /never the access points/);
@@ -400,7 +401,7 @@ test('a board without a position has a Location card that says why, and no map',
   ctx.state.deviceDetails.set(E, loaded({ device, certificates: [], executions: [], olderExecutions: 0 }));
   const page = drawn(views.deviceView(ctx));
   assert.equal(all(page, 'div.map-canvas').length, 0);
-  assert.match(textOf(one(page, 'section.card', 'Location')), /No scan yet Boards send what they hear of the Wi-Fi/);
+  assert.match(textOf(one(page, 'section.card', 'Location')), /Bluetooth only An nRF5340 DK has no Wi-Fi/);
 });
 
 // Identify and Report now.
@@ -409,7 +410,7 @@ test('Identify is on every board row and on the board page, for release managers
   const ctx = context({ route: { view: 'devices' } });
   const rows = drawn(views.devicesView(ctx));
   const buttons = all(rows, 'button.identify-button');
-  // Not the board that never connected.
+  // Not the Bluetooth-only board, nor one that never connected.
   assert.deepEqual(
     buttons.map((el) => el.getAttribute('aria-label')),
     ['Identify CRVIHAAN01', `Identify ${B.slice(0, 12)}…`, `Identify ${C.slice(0, 12)}…`, `Identify ${D.slice(0, 12)}…`]

@@ -552,9 +552,10 @@ test(
   () => {
     // A command that only a build with a test fault has is no command of a released board's, so
     // the page must not offer it. Nor SESSION_TEST (CONFIG_APP_SESSIONS, 1.18.0), a test bench command that sends
-    // a made-up listening session until the Raspberry Pi link is in the firmware. Nor what only a build with a
-    // static Bluetooth passkey has: a passkey sent from this page would be one the console does not know. Where
-    // such a block has an #else, that stays.
+    // a made-up listening session until the Raspberry Pi link is in the firmware. Nor what only a board with a static Bluetooth passkey has (the
+    // nRF5340 DK): tools/provision_device.py sets that passkey after registering it with the console,
+    // and a passkey sent from this page would be one the console does not know. Where such a block
+    // has an #else, that is the nRF7002 DK's, and it stays.
     // BT_OFFLINE|NEW shows the board's own passkey once, in its reply; Board setup's command line reads it,
     // and this page's transcript must not hold it, so the page does not offer the command.
     const source = readFileSync(new URL('console_cmd.c', FIRMWARE), 'utf8')

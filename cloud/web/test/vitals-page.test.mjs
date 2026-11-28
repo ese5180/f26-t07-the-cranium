@@ -34,6 +34,7 @@ const FLEET = {
   vitals: {
     boards: 3,
     active: 2,
+    bluetoothOnly: 1,
     unread: 0,
     crashFree: { boards: 1, of: 2, share: 0.5 },
     connectivity: { onlineHours: 70, knownHours: 72, share: 0.9718 },
@@ -51,8 +52,7 @@ const FLEET = {
   perBoard: [
     { thing: A, name: 'CRA', version: '1.1.0+0', newest: true, rssi: -60, active: true, crashFree: false, ...COUNTS },
     { thing: B, version: '1.0.0+0', active: true, crashFree: true, ...COUNTS, unexpected: 0 },
-    // A board in a drawer all week.
-    { thing: D, version: '1.0.0+0', newest: true },
+    { thing: D, version: '1.0.0+0', bluetoothOnly: true, newest: true },
   ],
   versions: [
     { version: '1.1.0+0', boards: 1, crashFreeBoards: 1, crashFree: 1, perThousandHours: 0, ...COUNTS, unexpected: 0 },
@@ -223,7 +223,7 @@ test('the Vitals page shows the vitals, a chart a day, the boards and the versio
   assert.equal(one(rows[0], 'a.ui-board').getAttribute('href'), `#/vitals/${A}`);
   assert.match(textOf(rows[0]), /1\.1\.0\+0 Newest 1 crash 96%/);
   assert.match(textOf(rows[1]), /Crash-free/);
-  assert.match(textOf(rows[2]), /Not seen/);
+  assert.match(textOf(rows[2]), /Bluetooth only/);
   const cohorts = one(root, 'table.vitals-versions');
   const older = all(cohorts, 'tr')[2];
   assert.match(textOf(one(older, 'th')), /1\.0\.0\+0/);
@@ -317,12 +317,14 @@ test("a board's page shows its tiles, its days and its versions, with links to t
     ...BOARD,
     cut: true,
     samplesUnread: true,
+    board: { ...BOARD.board, bluetoothOnly: true },
   });
   const noted = draw(
     vitals.boardVitalsView(
       ctx({ view: 'board-vitals', thing: A }, { days: 7, fleet: new Map(), board: new Map([[`${A}|7`, loaded(cut)]]) })
     )
   );
+  assert.match(textOf(noted), /has no Wi-Fi/);
   assert.match(textOf(noted), /too many events to read all 7 days/);
   assert.match(textOf(noted), /could not be read/);
 

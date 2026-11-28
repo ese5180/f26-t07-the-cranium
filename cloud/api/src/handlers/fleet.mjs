@@ -5,7 +5,7 @@
  *   GET  /api/fleet
  *     -> { boards: [FleetBoard], groups: [Group], types: [TypeSummary], generatedAt }
  *   GET  /api/fleet/health?days=30
- *     -> { types: [{ type, label, boards, newest, onNewest, share, versions, unknown }],
+ *     -> { types: [{ type, label, bluetoothOnly, boards, newest, onNewest, share, versions, unknown }],
  *          updates: { days, succeeded, failed, rolledBack }, attention: [{ thing, name, type, reasons }],
  *          score: { value, days, parts, memfault, history: [{ day, score, parts }], change, historyDays },
  *          generatedAt }
@@ -19,29 +19,31 @@
  *   POST /api/devices/{thing}/seen   body { "version": "1.13.0+0", "name": "Cranium-1A2B" }
  *     -> 201 { seen: { thing, version, at, name, by } }
  *
- * A FleetBoard is { thing, name, type, typeFrom, layout, layoutFrom, online, lastSeen, version,
- * versionFrom, seen, groups }: its type and flash layout and where each is known from ("board",
- * "thing" or "default") (lib/boards.mjs), what it runs as far as is known (`versionFrom` "board"
- * for its own report), what a phone last saw of it, and the ids of the named groups it is in.
+ * A FleetBoard is { thing, name, type, typeFrom, layout, layoutFrom, bluetoothOnly, online, lastSeen,
+ * version, versionFrom, seen, groups }: its type and flash layout and where each is known from
+ * ("board", "thing" or "default")
+ * (lib/boards.mjs), what it runs as far as is known (`versionFrom` "board" for its own report,
+ * "phone" for a Bluetooth-only board that a phone saw), and the ids of the named groups it is in.
  *
  * A board's type and layout. What the board says in its diagnostics wins, then its thing's
  * attributes `board` and `layout`, then nrf7002dk and 1. The attributes are read with DescribeThing,
  * at most once a minute per board, and only for a board that has not said both.
  *
- * A sighting. A phone that connects to a board over Bluetooth posts what it saw. Release managers,
- * from the website, a phone or a script; on record as device.seen. Like the other calls of a person
- * at a board it needs no fresh sign-in on the phone (app.mjs atTheBoard): it says what is, and
- * changes no board. At most SEEN_PER_MINUTE a minute per person, counted from the activity log as
- * the serial console's records are: one over that is refused with 429 and leaves no entry. The last
- * sighting of each board is kept (state table, pk SEEN), with when and by whom; never where.
+ * A sighting. A phone that connects to a board over Bluetooth posts what it saw: that is how a
+ * board without Wi-Fi shows on the console at all. Release managers, from the website, a phone or
+ * a script; on record as device.seen. Like the other calls of a person at a board it needs no
+ * fresh sign-in on the phone (app.mjs atTheBoard): it says what is, and changes no board. At most
+ * SEEN_PER_MINUTE a minute per person, counted from the activity log as the serial console's
+ * records are: one over that is refused with 429 and leaves no entry. The last sighting of each
+ * board is kept (state table, pk SEEN), with when and by whom; never where.
  *
  * The guards that the other handlers ask for are here too: requireJobTargets (a deployment's
- * boards are of the release's type and layout) and requireBluetoothBoard (the board a phone is
- * about to send a release to is of its type).
+ * boards are of the release's type and can take a job) and requireBluetoothBoard (the board a
+ * phone is about to send a release to is of its type).
  */
 
 import { HttpError, badRequest, field, notFound } from '../http.mjs';
-import { BOARD_TYPES, resolveBoard, resolveLayout } from '../lib/boards.mjs';
+import { BOARD_TYPES, isBluetoothOnly, resolveBoard, resolveLayout } from '../lib/boards.mjs';
 import { eventFromItem, eventRange } from '../lib/events.mjs';
 import {
   HEALTH_DAYS,
@@ -100,6 +102,17 @@ function incompatibleLayout(boards, release) {
       `${names.join(', ')} ${names.length === 1 ? `has layout ${boards[0].layout}` : 'have another layout'}: its flash is ` +
       'divided differently, and the board would refuse it.',
     boards.map((board) => ({ thing: board.thing, layout: board.layout }))
+  );
+}
+
+function bluetoothOnly(boards) {
+  const names = boards.map((board) => board.thing);
+  return new HttpError(
+    400,
+    'bluetooth_only',
+    `${names.join(', ')} ${names.length === 1 ? 'has' : 'have'} no Wi-Fi ` +
+      'and never reach AWS IoT: update it over Bluetooth from the phone app.',
+    boards.map((board) => ({ thing: board.thing, type: board.type }))
   );
 }
 
@@ -203,6 +216,7 @@ export function createFleetHandlers(
       const layout = saidLayout.from === 'board' ? saidLayout : resolveLayout({ shadow, attributes });
       const { type } = known;
       const sighting = seen.get(thing) ?? null;
+      const viaPhone = isBluetoothOnly(type);
       const board = {
         thing,
         name: device.name,
@@ -210,10 +224,11 @@ export function createFleetHandlers(
         typeFrom: known.from,
         layout: layout.layout,
         layoutFrom: layout.from,
-        online: device.online,
+        bluetoothOnly: viaPhone,
+        online: viaPhone ? false : device.online,
         lastSeen: device.lastSeen,
-        version: device.fw?.version ?? null,
-        versionFrom: device.fw === null ? null : 'board',
+        version: viaPhone ? (sighting?.version ?? null) : (device.fw?.version ?? null),
+        versionFrom: viaPhone ? (sighting === null ? null : 'phone') : device.fw === null ? null : 'board',
         seen: sighting,
         groups: named.filter((group) => group.things.includes(thing)).map((group) => group.id),
       };
@@ -232,6 +247,7 @@ export function createFleetHandlers(
     return BOARD_TYPES.map((type) => ({
       type,
       label: boardLabel(type),
+      bluetoothOnly: isBluetoothOnly(type),
       boards: fleetBoards.filter((board) => board.type === type).length,
       newest: byType[type]?.[0]?.version ?? null,
       previous: byType[type]?.[1]?.version ?? null,
@@ -247,37 +263,41 @@ export function createFleetHandlers(
     const sinceMs = toMs - HEALTH_DAYS * DAY_MS;
     const range = eventRange(sinceMs, toMs);
     const history = updates();
-    const lists = await mapLimit(fleetBoards, MAX_IN_FLIGHT, async (board) => {
-      let events = [];
-      let records = [];
-      try {
-        const items = await aws.queryEvents({
-          thing: board.thing,
-          ...range,
-          kinds: ['update', 'restart'],
-          limit: 500,
-        });
-        events = items.map(eventFromItem).filter((event) => event !== null);
-      } catch (error) {
-        log({
-          level: 'warn',
-          event: 'events_unreadable',
-          thing: board.thing,
-          error: String(error?.message ?? error).slice(0, 200),
-        });
+    const lists = await mapLimit(
+      fleetBoards.filter((board) => !board.bluetoothOnly),
+      MAX_IN_FLIGHT,
+      async (board) => {
+        let events = [];
+        let records = [];
+        try {
+          const items = await aws.queryEvents({
+            thing: board.thing,
+            ...range,
+            kinds: ['update', 'restart'],
+            limit: 500,
+          });
+          events = items.map(eventFromItem).filter((event) => event !== null);
+        } catch (error) {
+          log({
+            level: 'warn',
+            event: 'events_unreadable',
+            thing: board.thing,
+            error: String(error?.message ?? error).slice(0, 200),
+          });
+        }
+        try {
+          records = history === null ? [] : await history.recordsOf(board.thing);
+        } catch (error) {
+          log({
+            level: 'warn',
+            event: 'updates_unreadable',
+            thing: board.thing,
+            error: String(error?.message ?? error).slice(0, 200),
+          });
+        }
+        return { events, records };
       }
-      try {
-        records = history === null ? [] : await history.recordsOf(board.thing);
-      } catch (error) {
-        log({
-          level: 'warn',
-          event: 'updates_unreadable',
-          thing: board.thing,
-          error: String(error?.message ?? error).slice(0, 200),
-        });
-      }
-      return { events, records };
-    });
+    );
     const events = lists.flatMap((part) => part.events);
     const jobs = updateResults(events);
     const others = updateCounts(
@@ -330,13 +350,15 @@ export function createFleetHandlers(
     return aws.listFleetItems(SNAPSHOT_PK, { limit: MAX_HISTORY_DAYS + 1 });
   }
 
-  /** Throws unless every one of `things` is of the release's type and layout. */
+  /** Throws unless every one of `things` is of the release's type and layout and can be the target of a job. */
   async function requireJobTargets(things, release) {
     const known = (await boards({ only: things })).map(({ board }) => board);
     const others = known.filter((board) => board.type !== release.board);
     if (others.length > 0) throw incompatible(others, release);
     const laidOut = known.filter((board) => board.layout !== release.layout);
     if (laidOut.length > 0) throw incompatibleLayout(laidOut, release);
+    const away = known.filter((board) => board.bluetoothOnly);
+    if (away.length > 0) throw bluetoothOnly(away);
     return known;
   }
 

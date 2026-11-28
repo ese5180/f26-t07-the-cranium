@@ -108,6 +108,24 @@ test('a command is exactly one of the two, with a length from 1 to 60 for identi
   assert.equal(fake.commands.length, 0);
 });
 
+test('a Bluetooth-only board is never sent a command', async () => {
+  const { call, manager, fake, commands } = world();
+  // A nrf5340dk never connects: its type is its thing's attribute, set when it is provisioned (docs/fleet.md).
+  const bluetooth = 'cranium-00000000000000ee';
+  fake.addThing(bluetooth, { attributes: { board: 'nrf5340dk' } });
+  const answer = await call('POST', `/api/devices/${bluetooth}/commands`, { as: manager, body: { cmd: 'identify' } });
+  assert.deepEqual([answer.status, answer.body.error.code], [409, 'bluetooth_only']);
+  assert.equal(fake.commands.length, 0);
+  assert.deepEqual(
+    commands().map((entry) => [entry.outcome, entry.detail.code]),
+    [['rejected', 'bluetooth_only']]
+  );
+  // The map says why it has no position.
+  const listed = (await call('GET', '/api/devices', { as: manager })).body.devices;
+  assert.equal(listed.find((device) => device.thing === bluetooth).location.bluetoothOnly, true);
+  assert.equal(listed.find((device) => device.thing === THING).location.bluetoothOnly, false);
+});
+
 test(`at most ${COMMANDS_PER_MINUTE} a minute per person; one over that is refused and leaves no entry`, async () => {
   const { call, manager, fake, commands, advance, addUser } = world();
   for (let index = 0; index < COMMANDS_PER_MINUTE; index += 1) {

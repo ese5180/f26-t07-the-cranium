@@ -24,6 +24,7 @@ const board = (thing, version, changes = {}) => ({
   thing,
   type: 'nrf7002dk',
   layout: 1,
+  bluetoothOnly: false,
   online: true,
   lastSeen: new Date(NOW).toISOString(),
   version,
@@ -114,9 +115,9 @@ test('the release that takes a board back: the old one if newer, else the newest
   assert.equal(releaseFor({ board: on('1.13.1+0'), good: '1.13.0+0', releases: revoked }).reason, 'good_revoked');
   // Of its own type where there is one.
   const typed = [
-    release('1.13.2+0', { notes: 'Rebuild of 1.13.0', board: 'otherboard' }),
+    release('1.13.2+0', { notes: 'Rebuild of 1.13.0', board: 'nrf5340dk' }),
     release('1.13.3+0', { notes: 'Rebuild of 1.13.0' }),
-    release('1.13.6+0', { notes: 'Rebuild of 1.13.0', board: 'otherboard' }),
+    release('1.13.6+0', { notes: 'Rebuild of 1.13.0', board: 'nrf5340dk' }),
   ];
   assert.equal(releaseFor({ board: on('1.13.1+0'), good: '1.13.0+0', releases: typed }).release.version, '1.13.3+0');
 });
@@ -129,11 +130,12 @@ test('the plan groups the boards by the release that takes them back, and says w
     release('1.13.2+0', { notes: 'Rebuild of 1.13.0' }),
     release('1.13.3+0', { notes: 'Rebuild of 1.12.0' }),
     release('1.11.0+0', { status: 'revoked' }),
-    release('1.13.4+0', { notes: 'Rebuild of 1.10.0', board: 'otherboard' }),
+    release('1.13.4+0', { notes: 'Rebuild of 1.10.0', board: 'nrf5340dk' }),
   ];
   const F = 'cranium-00000000000000ff';
   const G = 'cranium-0000000000000011';
   const H = 'cranium-0000000000000022';
+  const I = 'cranium-0000000000000033';
   const J = 'cranium-0000000000000044';
   const boards = [
     board(A, '1.13.1+0'),
@@ -144,6 +146,7 @@ test('the plan groups the boards by the release that takes them back, and says w
     board(F, '1.13.1+0'),
     board(G, '1.13.1+0'),
     board(H, '1.13.1+0'),
+    board(I, null, { type: 'nrf5340dk', bluetoothOnly: true }),
     board(J, '1.13.1+0'),
   ];
   const histories = new Map([
@@ -190,6 +193,7 @@ test('the plan groups the boards by the release that takes them back, and says w
     plan.leftOut.map((entry) => [entry.thing, entry.reason]),
     [
       [H, 'no_rebuild'],
+      [I, 'bluetooth_only'],
       [J, 'unreadable'],
       [D, 'no_good'],
       [F, 'good_revoked'],
