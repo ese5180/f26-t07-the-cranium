@@ -26,6 +26,9 @@
 #if defined(CONFIG_APP_BT_STATIC_PASSKEY)
 #include "bt_passkey.h"
 #endif
+#if defined(CONFIG_APP_BLE_RELAY)
+#include "ble_relay.h"
+#endif
 #include "cloud.h"
 #include "cloud_events.h"
 #include "console.h"
@@ -126,6 +129,19 @@ static bool provisioned(void)
 	return identity_settings_get() != NULL && net_has_credentials();
 }
 
+/*
+ * Somewhere for a cloud connection to go: Wi-Fi, or a phone's Bluetooth relay channel
+ * (src/bt/ble_relay.h). cloud_connect() picks between them.
+ */
+static bool uplink_is_up(void)
+{
+#if defined(CONFIG_APP_BLE_RELAY)
+	return net_is_up() || ble_relay_is_ready();
+#else
+	return net_is_up();
+#endif
+}
+
 static void update_ui(void)
 {
 #if defined(CONFIG_APP_BT_OTA)
@@ -159,7 +175,7 @@ static void update_ui(void)
 		ui_set_state(UI_FACTORY);
 	} else if (!provisioned()) {
 		ui_set_state(UI_UNPROVISIONED);
-	} else if (!net_is_up()) {
+	} else if (!uplink_is_up()) {
 		ui_set_state(UI_NETWORK_CONNECTING);
 	} else if (!cloud_is_connected()) {
 		ui_set_state(UI_CLOUD_CONNECTING);
@@ -318,7 +334,15 @@ static void on_tick(void)
 		net_tick();
 	}
 
-	if (net_is_up() && !cloud_is_connected() && identity_settings_get() != NULL) {
+#if defined(CONFIG_APP_BLE_RELAY)
+	/* Wi-Fi has stayed back: the relayed connection ends, and the next one goes over Wi-Fi at once. */
+	if (ble_relay_on_tick() && cloud_is_connected()) {
+		cloud_reconnect_asked = true;
+		cloud_disconnect();
+	}
+#endif
+
+	if (uplink_is_up() && !cloud_is_connected() && identity_settings_get() != NULL) {
 		/* The events that set this can be lost. Nobody would try again until the link drops. */
 		if (cloud_retry_in < 0 && !cloud_is_connecting()) {
 			cloud_retry_in = cloud_backoff;
@@ -396,6 +420,17 @@ static void on_job_message(void)
 	enum ota_job_result result;
 	const struct ota_job *job;
 
+#if defined(CONFIG_APP_BLE_RELAY)
+	/*
+	 * No firmware comes over the relay (docs/ble-relay.md): an update that has not started waits in AWS IoT,
+	 * queued, until the board is on Wi-Fi again. One under way goes on as it would without a network.
+	 */
+	if (cloud_is_relayed() && ota_state() == OTA_IDLE) {
+		(void)cloud_job_message_done();
+		return;
+	}
+#endif
+
 	if (cloud_job_message_get(&kind, &result, &job)) {
 		ota_on_job_message(kind, result, job);
 	}
@@ -411,7 +446,7 @@ static void connect_cloud_now(void)
 {
 	cloud_retry_in = -1;
 
-	if (!device_is_factory() && net_is_up() && identity_settings_get() != NULL) {
+	if (!device_is_factory() && uplink_is_up() && identity_settings_get() != NULL) {
 		cloud_connect();
 	}
 }
@@ -510,7 +545,7 @@ static void handle(const struct app_event *event)
 		if (cloud_reconnect_asked) {
 			cloud_reconnect_asked = false;
 			connect_cloud_now();
-		} else if (net_is_up()) {
+		} else if (uplink_is_up()) {
 			cloud_retry_in = cloud_backoff;
 			cloud_backoff = MIN(cloud_backoff * 2, CLOUD_BACKOFF_MAX);
 		}
@@ -523,6 +558,20 @@ static void handle(const struct app_event *event)
 	case APP_EVENT_CLOUD_RECONNECT:
 		reconnect_cloud();
 		break;
+#if defined(CONFIG_APP_BLE_RELAY)
+	case APP_EVENT_RELAY_UP:
+		/* Only without Wi-Fi does the channel change anything: connect over it soon. */
+		if (!net_is_up() && !cloud_is_connected() && !cloud_is_connecting()) {
+			cloud_retry_in = CLOUD_SETTLE_SECONDS;
+		}
+		break;
+	case APP_EVENT_RELAY_DOWN:
+		/* The relayed connection has lost its way out: its socket fails too, this only makes it sooner. */
+		if (cloud_is_relayed()) {
+			cloud_disconnect();
+		}
+		break;
+#endif
 	case APP_EVENT_JOB_MESSAGE:
 		on_job_message();
 		break;
@@ -730,6 +779,10 @@ int main(void)
 	if (cloud_init() != 0) {
 		LOG_ERR("The cloud connection could not start");
 	}
+
+#if defined(CONFIG_APP_BLE_RELAY)
+	(void)ble_relay_init();
+#endif
 
 	if (device_is_factory()) {
 		LOG_WRN("Factory mode: send INIT|<id> on the console");

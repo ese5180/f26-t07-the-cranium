@@ -56,6 +56,15 @@ int bt_ota_upload_view(struct fw_version *version);
 bool bt_ota_accept_offer(void);
 
 bool bt_ota_is_open(void);
+
+#if defined(CONFIG_APP_BLE_RELAY)
+/* A window, or the status after an update over Bluetooth, has the radio: the relay may not have it. */
+bool bt_ota_radio_taken(void);
+/* On the main loop: advertise the relay and keep its phone (on), or stop and let the phone go. */
+void bt_ota_relay_offer(bool on);
+/* The link that is up came for the relay. Any thread. */
+bool bt_ota_relay_link(void);
+#endif
 enum ui_state bt_ota_ui_state(void);
 
 #if defined(CONFIG_APP_BT_ONLY)

@@ -65,6 +65,7 @@ Adam's `LICENSE` and `NOTICE.md`; Hapimatic (AGPL-3.0) is downloaded by `setup.s
 | [`customer-site.md`](customer-site.md) | The customer site |
 | [`customer-data.md`](customer-data.md) | What the customer sees, page by page, and what the board must send |
 | [`mobile-apps.md`](mobile-apps.md) | The phone apps: updating a board over Bluetooth |
+| [`ble-relay.md`](ble-relay.md) | Bluetooth relay: a phone carries a board's cloud connection when it has no Wi-Fi |
 | [`desktop-app.md`](desktop-app.md) | The desktop app for Windows and Linux |
 | [`desktop-windows.md`](desktop-windows.md) | The desktop app on Windows |
 | [`desktop-linux.md`](desktop-linux.md) | The desktop app on Linux |

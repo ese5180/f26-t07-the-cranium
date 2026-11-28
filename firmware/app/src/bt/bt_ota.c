@@ -29,6 +29,9 @@
 #include "bt_passkey.h"
 #endif
 #include "bt_status.h"
+#if defined(CONFIG_APP_BLE_RELAY)
+#include "ble_relay.h"
+#endif
 #include "cloud.h"
 #include "console.h"
 #include "device.h"
@@ -186,6 +189,12 @@ static K_SEM_DEFINE(status_sent, 0, 1);
 #define GATE_OPEN    BIT(0)
 #define GATE_UPLOADS BIT(1)
 #define GATE_STATUS  BIT(2)
+/*
+ * GATE_RELAY: a phone may connect to carry the cloud connection over the Bluetooth relay
+ * (src/bt/ble_relay.h), with no pairing, and do nothing else that needs it. Never with a window or the
+ * status: both take the radio from it.
+ */
+#define GATE_RELAY   BIT(3)
 static atomic_t gate;
 
 /* Set by those threads, and read by the main loop once a second. */
@@ -199,6 +208,8 @@ static atomic_t list_reads;
 static atomic_t upload_done;
 /* The link that is up was made for the status alone: it can never pair. */
 static atomic_t status_link;
+/* The link that is up was made for the relay: it never pairs either. */
+static atomic_t relay_link;
 
 /*
  * What the upload under way has done, for the status: the image state and the refusal
@@ -500,6 +511,16 @@ static void on_connected(struct bt_conn *conn, uint8_t err)
 		return;
 	}
 
+#if defined(CONFIG_APP_BLE_RELAY)
+	/* For the relay: no security is asked for. The relay's L2CAP server takes only this link. */
+	if ((now & GATE_OPEN) == 0 && (now & GATE_RELAY) != 0) {
+		(void)atomic_set(&secure, 0);
+		(void)atomic_set(&relay_link, 1);
+		(void)atomic_set(&connected, 1);
+		return;
+	}
+#endif
+
 	if ((now & GATE_OPEN) == 0) {
 		(void)bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 		return;
@@ -523,6 +544,7 @@ static void on_disconnected(struct bt_conn *conn, uint8_t reason)
 	(void)atomic_set(&secure, 0);
 	(void)atomic_set(&connected, 0);
 	(void)atomic_set(&status_link, 0);
+	(void)atomic_set(&relay_link, 0);
 	/* A proof takes one link from start to finish. */
 	(void)atomic_set(&list_reads, 0);
 	(void)atomic_set(&gone_reason, reason);
@@ -592,8 +614,9 @@ static enum bt_security_err on_pairing_accept(struct bt_conn *conn,
 	ARG_UNUSED(conn);
 	ARG_UNUSED(feat);
 
-	/* A link made for the status alone never pairs, also in a window that opened meanwhile. */
-	return (atomic_get(&gate) & GATE_OPEN) != 0 && atomic_get(&status_link) == 0
+	/* A link made for the status or the relay never pairs, also in a window that opened meanwhile. */
+	return (atomic_get(&gate) & GATE_OPEN) != 0 && atomic_get(&status_link) == 0 &&
+			       atomic_get(&relay_link) == 0
 		       ? BT_SECURITY_ERR_SUCCESS
 		       : BT_SECURITY_ERR_PAIR_NOT_ALLOWED;
 }
@@ -1300,8 +1323,25 @@ static void close_status_window(void)
 	console_event("BT", "status no longer advertised");
 }
 
+#if defined(CONFIG_APP_BLE_RELAY)
+/* A window or the status takes the radio: the relay's advertising stops, and its phone goes. */
+static void relay_yield(void)
+{
+	if ((atomic_and(&gate, ~GATE_RELAY) & GATE_RELAY) != 0 && atomic_get(&ready)) {
+		(void)bt_le_adv_stop();
+	}
+	if (atomic_get(&relay_link) != 0) {
+		bt_conn_foreach(BT_CONN_TYPE_LE, disconnect_one, NULL);
+	}
+}
+#endif
+
 static void open_window(bool proof_only)
 {
+#if defined(CONFIG_APP_BLE_RELAY)
+	relay_yield();
+#endif
+
 	if (start_bluetooth() != 0) {
 		console_event("BT", "%s", bt_ota_open_text(BT_OTA_REFUSED_NO_CONTROLLER));
 		return;
@@ -1345,6 +1385,10 @@ static void open_status_window(void)
 		return;
 	}
 
+#if defined(CONFIG_APP_BLE_RELAY)
+	relay_yield();
+#endif
+
 	reset_link_state();
 	memset(&track, 0, sizeof(track));
 	name[0] = '\0';
@@ -1367,9 +1411,19 @@ static const struct bt_data advertised_status[] = {
 	BT_DATA_BYTES(BT_DATA_UUID128_ALL, BT_STATUS_SERVICE_UUID_VAL),
 };
 
+#if defined(CONFIG_APP_BLE_RELAY)
+/* Offering the relay: its service, which the apps scan for. Still nothing of the board's cloud name. */
+static const struct bt_data advertised_relay[] = {
+	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+	BT_DATA_BYTES(BT_DATA_UUID128_ALL, BLE_RELAY_SERVICE_UUID_VAL),
+};
+#endif
+
 static void advertise(void)
 {
 	bool status_only = window.phase == BT_OTA_CLOSED;
+	const struct bt_data *ad = status_only ? advertised_status : advertised;
+	size_t ad_len = status_only ? ARRAY_SIZE(advertised_status) : ARRAY_SIZE(advertised);
 	struct bt_data sd[1];
 	uint16_t tag = 0;
 	int err;
@@ -1401,9 +1455,14 @@ static void advertise(void)
 	sd[0].data = (const uint8_t *)name;
 
 	/* Already running, or the last link's connection object is not free yet: next tick. */
-	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, status_only ? advertised_status : advertised,
-			      status_only ? ARRAY_SIZE(advertised_status) : ARRAY_SIZE(advertised), sd,
-			      ARRAY_SIZE(sd));
+#if defined(CONFIG_APP_BLE_RELAY)
+	if (status_only && !status_window.open && (atomic_get(&gate) & GATE_RELAY) != 0) {
+		ad = advertised_relay;
+		ad_len = ARRAY_SIZE(advertised_relay);
+	}
+#endif
+
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ad_len, sd, ARRAY_SIZE(sd));
 	if (err != 0 && err != -EALREADY && err != -ENOMEM) {
 		LOG_WRN("Advertising did not start: %d", err);
 	}
@@ -1807,6 +1866,14 @@ void bt_ota_on_tick(void)
 		if (status_window.open) {
 			tick_status_window();
 			refresh_status(false);
+#if defined(CONFIG_APP_BLE_RELAY)
+		} else if ((atomic_get(&gate) & GATE_RELAY) != 0 &&
+			   (atomic_get(&connected) == 0 || atomic_get(&relay_link) != 0)) {
+			/* Offered: advertised until a phone comes, and its link kept. */
+			if (atomic_get(&connected) == 0 && atomic_get(&ready)) {
+				advertise();
+			}
+#endif
 		} else if (atomic_get(&connected) != 0) {
 			/* A disconnection can fail: a phone from a closed window does not get to stay. */
 			bt_conn_foreach(BT_CONN_TYPE_LE, disconnect_one, NULL);
@@ -1861,6 +1928,33 @@ bool bt_ota_is_open(void)
 {
 	return window.phase != BT_OTA_CLOSED;
 }
+
+#if defined(CONFIG_APP_BLE_RELAY)
+bool bt_ota_radio_taken(void)
+{
+	return window.phase != BT_OTA_CLOSED || status_window.open || status_due;
+}
+
+void bt_ota_relay_offer(bool on)
+{
+	if (!on) {
+		relay_yield();
+		return;
+	}
+
+	if (bt_ota_radio_taken() || start_bluetooth() != 0) {
+		return;
+	}
+
+	/* Advertising starts with the next tick, once the controller is ready. */
+	(void)atomic_or(&gate, GATE_RELAY);
+}
+
+bool bt_ota_relay_link(void)
+{
+	return atomic_get(&relay_link) != 0;
+}
+#endif
 
 #if defined(CONFIG_APP_BT_ONLY)
 enum bt_ota_link_view bt_ota_link_view(void)

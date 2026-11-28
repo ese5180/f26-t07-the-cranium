@@ -57,6 +57,11 @@ if(SB_CONFIG_APP_BT_OTA)
   add_overlay_config(${DEFAULT_IMAGE} "${CMAKE_CURRENT_LIST_DIR}/bt_ota.conf")
 endif()
 
+# The Bluetooth relay (docs/ble-relay.md), after bt_ota.conf, whose Bluetooth it builds on.
+if(SB_CONFIG_APP_BLE_RELAY)
+  add_overlay_config(${DEFAULT_IMAGE} "${CMAKE_CURRENT_LIST_DIR}/ble_relay.conf")
+endif()
+
 # The golden image is a module of MCUboot, not of this application: it has to live with the
 # bootloader's own code. With CONFIG_CRANIUM_GOLDEN off the golden image adds nothing to it, and
 # the module still holds the bootloader's check on serial recovery's image number.

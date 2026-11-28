@@ -12,6 +12,12 @@
     "mcuboot": { "flash_free_min": 12288 },
     "tfm": { "flash_free_min": 500, "ram_free_min": 12288 }
   },
+  "BLE relay": {
+    "_measured": "1.21.0 (Bluetooth relay, docs/ble-relay.md): the nRF7002 DK's default build plus ble_relay_sysbuild.conf, which gives the relay the 4 KB that bt_ota.conf adds to the kernel heap (CONFIG_HEAP_MEM_POOL_SIZE 44240 down to 40144). app 24722 flash / 2452 RAM free, mcuboot 12484 flash, tfm 552 flash / 12532 RAM; the default build of the same commit has app 38138 flash / 924 RAM free, so the relay takes 13416 bytes of flash and 2568 of RAM. A new configuration: its floors start just below what it has",
+    "app": { "flash_free_min": 24576, "ram_free_min": 2304 },
+    "mcuboot": { "flash_free_min": 12288 },
+    "tfm": { "flash_free_min": 500, "ram_free_min": 12288 }
+  },
   "nRF5340 DK": {
     "_measured": "1.18.0, main e29e53a: app 598114 flash / 302552 RAM free, mcuboot 22016 flash, tfm 49708 flash / 19316 RAM",
     "app": { "flash_free_min": 589824, "ram_free_min": 294912 },

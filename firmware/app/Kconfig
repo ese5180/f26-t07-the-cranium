@@ -255,6 +255,38 @@ config APP_BT_OTA_TRIAL_MIN_SECONDS
 	  a person at the board: see firmware/README.md. This long first, so that an image that
 	  falls over soon after it starts does not get kept, and Wi-Fi has its chance.
 
+config APP_BLE_RELAY
+	bool "Bluetooth relay: a phone carries the cloud connection when there is no Wi-Fi"
+	depends on WIFI && !APP_BT_ONLY
+	depends on BT_L2CAP_DYNAMIC_CHANNEL && BT_L2CAP_SEG_RECV && NET_SOCKETS_OFFLOAD
+	help
+	  From 1.21.0, nRF7002 DK, off by default: build with
+	  -DSB_EXTRA_CONF_FILE=ble_relay_sysbuild.conf, which adds ble_relay.conf. After a minute
+	  without Wi-Fi the board advertises the relay, and a phone running the Cranium app moves the
+	  bytes of the board's own TLS connection to AWS IoT between an L2CAP channel and TCP. The
+	  board keeps its certificate and its session; the phone never sees either. See
+	  src/bt/ble_relay.h and docs/ble-relay.md.
+
+if APP_BLE_RELAY
+
+config APP_BLE_RELAY_RX_SIZE
+	int "Bytes from the phone that wait for the TLS layer"
+	default 768
+	range 247 4096
+	help
+	  The phone gets a credit for each 247 bytes free here, so this sets how much it can send
+	  before the board has read it: about three segments by default. RAM is the limit.
+
+config APP_BLE_RELAY_TX_BUFFERS
+	int "Frames to the phone that can be in flight"
+	default 2
+	range 1 8
+	help
+	  Each is one L2CAP SDU of up to 247 bytes. A send waits, or says EAGAIN, while all are
+	  out. At least one more than the TLS layer needs keeps a CLOSE from waiting on data.
+
+endif # APP_BLE_RELAY
+
 endif # APP_BT_OTA
 
 config APP_MEMFAULT

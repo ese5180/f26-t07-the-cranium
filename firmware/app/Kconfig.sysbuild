@@ -46,4 +46,11 @@ config APP_BT_OTA
 	  network core has to run the Bluetooth controller, so sysbuild.conf selects that too, and
 	  it has to be flashed over the debug port.
 
+config APP_BLE_RELAY
+	bool "Bluetooth relay for the cloud connection"
+	depends on APP_BT_OTA
+	help
+	  Adds ble_relay.conf to the application: see CONFIG_APP_BLE_RELAY and docs/ble-relay.md.
+	  ble_relay_sysbuild.conf sets it, with what Bluetooth needs.
+
 source "share/sysbuild/Kconfig"
