@@ -3,7 +3,7 @@
 // carry the board type (tag 0xA1, lib/boards.mjs), signed with a key made for the run.
 //
 //   const key = imageKey();                              // ECDSA P-256, never leaves the process
-//   const image = buildImage({ version: '1.13.0+0', board: 'nrf5340dk', key });
+//   const image = buildImage({ version: '1.13.0+0', board: 'nrf7002dk', key });
 //   createTestConsole({ env: keyEnv(key) });             // a console that trusts that key
 //
 // Nothing here is a real image and no board trusts the key. This file is test and preview code.

@@ -761,18 +761,9 @@ test('fleet: the Events and Diagnostics pages have a history of every kind to sh
   const withDiag = devices.filter((device) => device.diag !== null);
   assert.equal(withDiag.length, 1);
   // The board with diagnostics reports its own name with them; the others are their thing names alone.
-  // Two of the five are nRF5340 DKs, which never connect (the Fleet page has them). Three more, on 1.13.0,
-  // are on the Map page with the board that took 1.13.0 in the staged rollout (campusMap in preview.mjs).
-  assert.deepEqual(devices.map((device) => device.name).sort(), [
-    'CRVIHAAN01',
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-  ]);
+  // Three more, on 1.13.0, are on the Map page with the board that took 1.13.0 in the staged rollout
+  // (campusMap in preview.mjs).
+  assert.deepEqual(devices.map((device) => device.name).sort(), ['CRVIHAAN01', null, null, null, null, null]);
   assert.equal(withDiag[0].name, 'CRVIHAAN01');
   assert.ok(events.some((event) => event.what === 'named' && event.text === 'Reported its name CRVIHAAN01'));
   assert.equal(withDiag[0].diag.channel, 11);
@@ -1434,8 +1425,8 @@ test('fleet: boards around a campus are on the map, one moved, one heard too few
     .filter((device) => device.position === null)
     .map((device) => core.unplacedReason(device).code)
     .sort();
-  // CRVIHAAN01 and the board on 1.9.0 send no scan; the two nRF5340 DKs have no Wi-Fi; one board heard one access point.
-  assert.deepEqual(reasons, ['bluetooth', 'bluetooth', 'no_scan', 'no_scan', 'too_few']);
+  // CRVIHAAN01 and the board on 1.9.0 send no scan; one board heard one access point.
+  assert.deepEqual(reasons, ['no_scan', 'no_scan', 'too_few']);
 
   const moved = placed.find((device) => device.position.lon < -75.2);
   const history = await api.positions(moved.thing);

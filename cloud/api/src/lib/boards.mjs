@@ -2,10 +2,9 @@
  * Board types (docs/fleet.md, Board types): what an image is for, and what a board is.
  *
  *   nrf7002dk   nRF7002 DK: Wi-Fi to AWS IoT and Bluetooth LE. Updated by AWS IoT Jobs or by a phone.
- *   nrf5340dk   nRF5340 DK: Bluetooth LE only. Updated by a phone or over USB, never by a job.
  *
  * The image. A signed image carries its type in a protected TLV, tag 0xA1, as ASCII (imgtool sign
- * --custom-tlv 0xa1 nrf5340dk, which puts it in the protected area). The protected area is covered
+ * --custom-tlv 0xa1 nrf7002dk, which puts it in the protected area). The protected area is covered
  * by the image's hash and signature (lib/mcuboot.mjs), so the type cannot be changed without the
  * key. The same tag anywhere else is never read: in the unprotected area anyone can add it to a
  * signed image without breaking the signature, and the validator refuses an image that has it
@@ -13,10 +12,10 @@
  * image, as every release up to 1.12.0 is.
  *
  * The board. From firmware 1.13.0 the diagnostics report says what the board is
- * ("diag": { "board": "nrf7002dk", ... }). A board that never reaches AWS gets its type from its
- * thing's attribute `board`, set when it is provisioned (tools/provision_device.py --board).
- * Without either it is a nrf7002dk. A board can only write its own shadow: claiming another type
- * keeps releases from itself, and nothing from any other board.
+ * ("diag": { "board": "nrf7002dk", ... }). A board that has not said gets its type from its
+ * thing's attribute `board`, when one is set. Without either it is a nrf7002dk. A board can only
+ * write its own shadow: claiming another type keeps releases from itself, and nothing from any
+ * other board.
  *
  * The flash layout (docs/fleet.md, Compatibility): a second protected TLV, tag 0xA2, a positive
  * whole number in ASCII. It goes up whenever the partitions change, so that an image never lands on
@@ -30,11 +29,9 @@ export const LAYOUT_TLV = 0xa2;
 export const DEFAULT_LAYOUT = 1;
 // Far more than a product's partitions will ever be rearranged, and still a short word.
 const MAX_LAYOUT = 9999;
-export const BOARD_TYPES = Object.freeze(['nrf7002dk', 'nrf5340dk']);
+export const BOARD_TYPES = Object.freeze(['nrf7002dk']);
 export const DEFAULT_BOARD = 'nrf7002dk';
-// No Wi-Fi chip: such a board never connects to AWS IoT by itself, and is never the target of a job.
-export const BLUETOOTH_ONLY = Object.freeze(['nrf5340dk']);
-export const BOARD_LABELS = Object.freeze({ nrf7002dk: 'nRF7002 DK', nrf5340dk: 'nRF5340 DK' });
+export const BOARD_LABELS = Object.freeze({ nrf7002dk: 'nRF7002 DK' });
 
 // What a value of the TLV may look like at all: 1 to 16 lower-case letters and digits.
 const TYPE_WORD = /^[a-z0-9]{1,16}$/;
@@ -43,10 +40,6 @@ const LAYOUT_WORD = /^[1-9]\d{0,3}$/;
 
 export function isBoardType(value) {
   return typeof value === 'string' && BOARD_TYPES.includes(value);
-}
-
-export function isBluetoothOnly(type) {
-  return BLUETOOTH_ONLY.includes(type);
 }
 
 /** A reason an image's board TLV was refused. `code` is stable and safe to show. */

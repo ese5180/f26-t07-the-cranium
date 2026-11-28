@@ -1281,7 +1281,7 @@ test('provisioning through the console: the IoT actions it needs, on the boards,
   const thing = "'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'";
   const cert = "'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:cert/*'";
 
-  assert.deepEqual(actions('RegisterBoards'), ['iot:CreateThing', 'iot:UpdateThing']);
+  assert.deepEqual(actions('RegisterBoards'), ['iot:CreateThing']);
   assert.ok(statement(role, 'RegisterBoards').includes(`Resource: !Sub ${thing}`));
   assert.deepEqual(actions('PutBoardsInTheGroup'), ['iot:AddThingToThingGroup']);
   assert.ok(statement(role, 'PutBoardsInTheGroup').includes('- !GetAtt DeviceGroup.Arn'));

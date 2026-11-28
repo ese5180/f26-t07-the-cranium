@@ -378,7 +378,7 @@ export function createApp({
   const tokens = createTokenHandlers(context);
   // The map, commands and alerts (docs/fleet.md): positions on the boards, commands to them, e-mail alerts.
   const location = createLocationHandlers(context, { devices });
-  const commands = createCommandHandlers(context, { devices, fleet });
+  const commands = createCommandHandlers(context, { devices });
   const alerts = createAlertHandlers(context);
   // What Memfault knows of the boards, read from its REST API on the server (docs/memfault.md).
   memfault = createMemfaultHandlers(context, { devices });
@@ -631,8 +631,8 @@ export function createApp({
       action: 'fleet.rollback_last_good',
       maxBody: SMALL_BODY_LIMIT,
     }),
-    // What a phone saw of a board over Bluetooth: how a board without Wi-Fi shows at all. Like the other
-    // calls of a person at a board, no fresh sign-in; at most 60 a minute, and one over that leaves no entry.
+    // What a phone saw of a board over Bluetooth. Like the other calls of a person at a board, no fresh
+    // sign-in; at most 60 a minute, and one over that leaves no entry.
     route(
       'POST',
       '/api/devices/{thing}/seen',

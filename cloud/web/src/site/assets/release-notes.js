@@ -26,7 +26,7 @@ const TEXT_MAX = 4000;
 const ENTRIES_MAX = 400;
 const BLOCKS_MAX = 60;
 const ITEMS_MAX = 60;
-const BOARDS = Object.freeze(['nRF7002 DK', 'nRF5340 DK']);
+const BOARDS = Object.freeze(['nRF7002 DK']);
 const FIGURE = /^[\d,. ]{1,24}(?:KB )?of [\d,. ]{1,24}(?:KB|bytes)$/;
 
 // The tabs: id (in the address), name, and the changelogs of release-notes.json it shows.

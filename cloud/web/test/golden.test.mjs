@@ -72,11 +72,11 @@ function page(canWrite, releases, goldenKey = true) {
   return { box, calls };
 }
 
-test('a release manager has Make golden on an active release of a board with Wi-Fi; a viewer has not', () => {
+test('a release manager has Make golden on an active release from 1.19.3 on; a viewer has not', () => {
   const { box, calls } = page(true, [
     release(),
     release({ version: '1.19.1+0', status: 'revoked', revoked: { by: {}, at: at(1000), reason: 'bad' } }),
-    release({ version: '1.19.0+0', board: 'nrf5340dk' }),
+    release({ version: '1.19.0+0' }),
   ]);
   const rows = all(box, 'li.release');
   one(rows[0], 'button', 'Make golden').dispatchEvent({ type: 'click' });
@@ -84,7 +84,7 @@ test('a release manager has Make golden on an active release of a board with Wi-
     calls.filter(([name]) => name === 'openGolden').map(([, item]) => item.version),
     ['1.19.3+0']
   );
-  // Not on a revoked release, and not for a board without Wi-Fi: no job reaches one.
+  // Not on a revoked release, and not on one from before the bootloader took a golden image.
   for (const row of rows.slice(1)) {
     assert.equal(
       all(row, 'button').some((el) => textOf(el) === 'Make golden'),

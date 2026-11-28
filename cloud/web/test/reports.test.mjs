@@ -90,7 +90,6 @@ const REPORT = {
     total: 2,
     online: 1,
     offline: 1,
-    bluetoothOnly: 0,
     added: [B],
     addedCount: 1,
   },

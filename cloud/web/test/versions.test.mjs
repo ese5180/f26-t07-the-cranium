@@ -219,7 +219,7 @@ Flash 749,176 of 794,474 bytes (1.15.0: 746,488); RAM 404,404 of 405,504 (1,100 
 
 ## 1.13.0
 
-Identify blinks both LEDs on the nRF5340DK too.
+Identify blinks both LEDs on the nRF7002DK too.
 
 Commit 792ad07, 2026-11-05. RAM 393.2 KB of 400 KB.
 `;
@@ -304,7 +304,7 @@ test('release notes hold every entry in full, its tag and commit, and what is cu
       },
       {
         version: '1.13.0',
-        boards: ['nRF5340 DK'],
+        boards: ['nRF7002 DK'],
         flash: undefined,
         ram: '393.2 KB of 400 KB',
         tag: 'firmware-v1.13.0',

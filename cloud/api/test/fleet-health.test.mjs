@@ -28,7 +28,7 @@ import {
 } from '../src/lib/fleet-score.mjs';
 import { HEALTH_DAYS } from '../src/lib/fleet.mjs';
 import { MEMFAULT_ENV, TOKEN, startFakeMemfault } from './fake-memfault.mjs';
-import { A, B, C, D, fleetConsole, report } from './fleet-world.mjs';
+import { A, B, C, fleetConsole, report } from './fleet-world.mjs';
 
 const DAY = 86_400_000;
 const MINUTE = 60_000;
@@ -39,7 +39,7 @@ before(async () => {
 });
 after(() => memfault.close());
 
-const board = (thing, online, bluetoothOnly = false) => ({ thing, online, bluetoothOnly });
+const board = (thing, online) => ({ thing, online });
 
 // The parts' maths.
 
@@ -52,8 +52,6 @@ test('an empty fleet has no part to count, and no score', () => {
     score.parts.map((part) => [part.id, part.value, part.weight]),
     PART_IDS.map((id) => [id, null, SCORE_WEIGHTS[id]])
   );
-  // A board without Wi-Fi is not counted by any part: it is never online and has no events.
-  assert.equal(fleetScore(scoreParts({ boards: [board(D, false, true)] })).value, null);
 });
 
 test('a fleet all offline: online 0, no signal heard, no update in the window, crash-free by the rest', () => {
@@ -70,7 +68,7 @@ test('a fleet all offline: online 0, no signal heard, no update in the window, c
 });
 
 test('a mixed fleet: each part counts its own boards, and the score is their weighted mean', () => {
-  const boards = [board(A, true), board(B, true), board(C, false), board(D, false, true)];
+  const boards = [board(A, true), board(B, true), board(C, false)];
   const rssi = new Map([
     [A, -60],
     [B, GOOD_SIGNAL_DBM - 1],
@@ -79,8 +77,8 @@ test('a mixed fleet: each part counts its own boards, and the score is their wei
   const parts = scoreParts({
     boards,
     rssi,
-    // D is Bluetooth only, and not of the fleet with Wi-Fi; a thing not registered is not counted at all.
-    crashed: new Set([C, D, 'cranium-00000000000000ff']),
+    // A thing not registered is not counted at all.
+    crashed: new Set([C, 'cranium-00000000000000ff']),
     jobs: { succeeded: 3, failed: 1, rolledBack: 0 },
   });
   assert.deepEqual(parts.online, { counted: 2, of: 3, value: 2 / 3 });
@@ -181,13 +179,12 @@ function useMemfault(world) {
 test('GET /api/fleet/health has the score, its parts from the boards, their events and Memfault', async () => {
   const world = fleetConsole();
   useMemfault(world);
-  // A well; B on a weak signal, stuck twice in a row (a restart at warning level); C quiet; D Bluetooth only.
+  // A well; B on a weak signal, stuck twice in a row (a restart at warning level); C quiet.
   world.online(A, '1.13.0+0', { rssi: -55 });
   world.online(B, '1.13.0+0', { rssi: -82 });
   world.fake.device(B).report({ stuck: { count: 1, reason: 'wifi_silent' } });
   world.fake.device(B).report({ stuck: { count: 2, reason: 'wifi_silent' } });
   world.online(C, '1.13.0+0');
-  world.bluetoothOnly(D);
   // A's update ended well; then one rolled back.
   world.fake.device(A).report({ ota: { state: 'downloading', progress: 0, last: 'none', error: '' } });
   world.fake.device(A).report({ ota: { state: 'idle', progress: 0, last: 'succeeded', error: '' } });

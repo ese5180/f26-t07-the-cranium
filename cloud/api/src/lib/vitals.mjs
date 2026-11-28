@@ -23,9 +23,9 @@
  * uptime, by day, for one board's page only (a fleet's samples are too many to read on each view).
  *
  * Each is counted by UTC day, and by the version the board ran (withVersions, as an issue's version):
- * those are the daily trends and the cohorts by version. Fleet vitals are over the boards with Wi-Fi
- * that were seen in the window ("active": time known or an event): a board in a drawer all window
- * does not count against the fleet, and a Bluetooth-only board never connects to the cloud at all.
+ * those are the daily trends and the cohorts by version. Fleet vitals are over the boards that were
+ * seen in the window ("active": time known or an event): a board in a drawer all window does not
+ * count against the fleet.
  *
  * No AWS here, and no clock: the caller passes the events and the times.
  */
@@ -236,13 +236,13 @@ export function versionCohorts(boards) {
 /**
  * The fleet's vitals from each board's.
  *
- * @param {object[]} boards  [{ thing, name, type, bluetoothOnly, online, version, rssi, vitals, cut }],
+ * @param {object[]} boards  [{ thing, name, type, online, version, rssi, vitals, cut }],
  *                           `vitals` boardVitals' answer, or null for a board whose events could not be read
  * @param {object} options
  * @param {Record<string, string|null>} options.newestByType  the newest active release of each board type
  */
 export function fleetVitals(boards, { newestByType = {} } = {}) {
-  const counted = boards.filter((board) => !board.bluetoothOnly && board.vitals !== null);
+  const counted = boards.filter((board) => board.vitals !== null);
   const active = counted.filter((board) => board.vitals.total.active);
   const crashFree = active.filter((board) => board.vitals.total.unexpected === 0).length;
   const sum = tally();
@@ -285,15 +285,14 @@ export function fleetVitals(boards, { newestByType = {} } = {}) {
       thing: board.thing,
       name: board.name ?? null,
       type: board.type ?? null,
-      bluetoothOnly: board.bluetoothOnly === true,
       online: board.online === true,
       version: board.version ?? null,
       newest: Boolean(board.version && newestByType[board.type] === board.version),
       rssi: Number.isInteger(board.rssi) ? board.rssi : null,
-      unread: board.vitals === null && board.bluetoothOnly !== true,
+      unread: board.vitals === null,
       cut: board.cut === true,
     };
-    if (board.vitals === null || board.bluetoothOnly) return { ...row, active: false };
+    if (board.vitals === null) return { ...row, active: false };
     return {
       ...row,
       active: board.vitals.total.active,
@@ -307,8 +306,7 @@ export function fleetVitals(boards, { newestByType = {} } = {}) {
     vitals: {
       boards: boards.length,
       active: active.length,
-      bluetoothOnly: boards.filter((board) => board.bluetoothOnly).length,
-      unread: boards.filter((board) => board.vitals === null && !board.bluetoothOnly).length,
+      unread: boards.filter((board) => board.vitals === null).length,
       crashFree: { boards: crashFree, of: active.length, share: share(crashFree, active.length) },
       connectivity: { onlineHours: totals.onlineHours, knownHours: totals.knownHours, share: totals.connectivity },
       newest: { boards: onNewest, of: withRelease.length, share: share(onNewest, withRelease.length) },

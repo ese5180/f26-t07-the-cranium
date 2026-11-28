@@ -824,7 +824,7 @@ test('on a phone the Devices page opens with a strip of figures that lead nowher
   const devices = page(views.devicesView, await consoleState(WORLD));
   const strip = one(devices, 'div.glance');
   assert.equal(strip.getAttribute('role'), 'group');
-  assert.deepEqual(all(strip, 'span.glance-label').map(textOf), ['Online', 'Offline', 'Bluetooth only', 'Updating']);
+  assert.deepEqual(all(strip, 'span.glance-label').map(textOf), ['Online', 'Offline', 'Updating']);
   assert.deepEqual(
     all(strip, 'a').map((link) => link.getAttribute('href')),
     ['#/deployments']

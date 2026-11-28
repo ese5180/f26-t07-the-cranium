@@ -9,7 +9,6 @@ import {
   CANARY_INSTALL_MS,
   CANARY_STALL_MS,
   DEFAULT_CANARY_MINUTES,
-  LEFT_OUT,
   OFFLINE_LONG_MS,
   canaryClock,
   canaryLateWords,
@@ -20,6 +19,7 @@ import {
   selectTargets,
   wavePlan,
 } from '../src/lib/fleet.mjs';
+import { LAYOUT_TLV } from '../src/lib/boards.mjs';
 import { suggestPlan } from '../src/lib/stages.mjs';
 import { A, B, C, D, E, fleetConsole, report } from './fleet-world.mjs';
 
@@ -27,7 +27,6 @@ const NOW = Date.parse('2026-11-04T12:00:00Z');
 const board = (thing, changes = {}) => ({
   thing,
   type: 'nrf7002dk',
-  bluetoothOnly: false,
   online: true,
   lastSeen: new Date(NOW).toISOString(),
   version: '1.0.0+0',
@@ -46,7 +45,7 @@ test('a release goes to the boards of its type that can take it; the others are 
       board(A),
       board(B, { version: '1.13.0+0' }),
       board(C, { version: '1.14.0+0' }),
-      board(D, { type: 'nrf5340dk', bluetoothOnly: true }),
+      board(D, { type: 'otherboard' }),
       board(E, { online: false, lastSeen: new Date(NOW - OFFLINE_LONG_MS - 1).toISOString() }),
       board('cranium-00000000000000ff', { online: false, lastSeen: null, version: null }),
       board('cranium-0000000000000011'),
@@ -72,16 +71,6 @@ test('a release goes to the boards of its type that can take it; the others are 
   assert.deepEqual(
     selectTargets({ release, candidates: [board(E, { online: false, lastSeen: null })], nowMs: NOW }).things,
     [E]
-  );
-  // A release of the Bluetooth-only type: its boards are left out of every job.
-  const bt = selectTargets({
-    release: { version: '1.0.0+0', board: 'nrf5340dk' },
-    candidates: [board(D, { type: 'nrf5340dk', bluetoothOnly: true })],
-    nowMs: NOW,
-  });
-  assert.deepEqual(
-    bt.leftOut.map((entry) => [entry.reason, entry.text]),
-    [['bluetooth_only', LEFT_OUT.bluetooth_only]]
   );
   // Going back to an older release, a board on something newer would refuse it.
   const older = selectTargets({ release, candidates: [board(C, { version: '1.14.0+0' })], nowMs: NOW, older: true });
@@ -163,24 +152,26 @@ test('the canary is a board that is online and heard from last; the waves are pa
 async function fiveBoards() {
   const world = fleetConsole();
   for (const thing of [A, B, C, D]) world.online(thing, '1.12.0+0');
-  world.bluetoothOnly(E);
+  // E is registered and has never reported, and its thing says its flash is laid out differently.
+  world.fake.addThing(E, { attributes: { layout: '2' } });
   await world.release('1.13.0+0');
   return world;
 }
 
-test('a rollout to boards named one by one refuses another type, a Bluetooth-only board or a busy one', async () => {
+test('a rollout to boards named one by one refuses another layout, an unknown type or a busy one', async () => {
   const world = await fiveBoards();
-  await world.release('1.13.1+0', 'nrf5340dk');
+  await world.release('1.13.1+0', 'nrf7002dk', { protectedTlvs: [[LAYOUT_TLV, '2']] });
   const post = (body) => world.call('POST', '/api/rollouts', { version: '1.13.0+0', ...body });
   const other = await world.call('POST', '/api/rollouts', {
     version: '1.13.1+0',
     target: { kind: 'boards', things: [A] },
   });
-  assert.deepEqual([other.status, other.body.error.code], [400, 'incompatible_board']);
+  assert.deepEqual([other.status, other.body.error.code], [400, 'incompatible_layout']);
   const away = await post({ target: { kind: 'boards', things: [A, E] } });
-  assert.deepEqual([away.status, away.body.error.code], [400, 'incompatible_board']);
+  assert.deepEqual([away.status, away.body.error.code], [400, 'incompatible_layout']);
+  // The nRF5340 DK is not a type this console knows.
   const typed = await post({ target: { kind: 'type', type: 'nrf5340dk' } });
-  assert.deepEqual([typed.status, typed.body.error.code], [400, 'incompatible_board']);
+  assert.deepEqual([typed.status, typed.body.error.code], [400, 'invalid_type']);
 
   assert.equal((await world.call('POST', '/api/deployments', { version: '1.13.0+0', things: [B] })).status, 201);
   const busy = await post({ target: { kind: 'boards', things: [A, B] } });
@@ -222,7 +213,7 @@ test("a rollout to the fleet takes the boards of the release's type, starts with
     rollout.leftOut.map((entry) => [entry.thing, entry.reason]),
     [
       [D, 'current'],
-      [E, 'other_type'],
+      [E, 'other_layout'],
     ]
   );
   assert.equal(rollout.canary.things.length, 1);
@@ -720,7 +711,7 @@ test('a rollout to a group leaves out its other boards and says why; a viewer re
   assert.deepEqual(response.body.rollout.things, [A]);
   assert.deepEqual(
     response.body.rollout.leftOut.map((entry) => entry.reason),
-    ['current', 'other_type']
+    ['current', 'other_layout']
   );
   const listed = (await world.call('GET', '/api/rollouts', undefined, world.viewer)).body.rollouts;
   assert.deepEqual(
@@ -746,12 +737,13 @@ async function mixedFleet() {
   world.online(A, '1.12.0+0');
   world.online(B, '1.12.0+0');
   world.online(C, '1.13.1+0');
-  world.bluetoothOnly(D);
+  // D is registered and has never reported, and its thing says its flash is laid out differently.
+  world.fake.addThing(D, { attributes: { layout: '2' } });
   world.online(E, '1.12.0+0');
   world.advance(OFFLINE_LONG_MS + 60_000);
   for (const thing of [A, B, C])
     world.fake.device(thing).report(report(world.fake.device(thing).get().state.reported.fw.version));
-  await world.release('1.13.0+0', 'nrf5340dk');
+  await world.release('1.13.0+0');
   await world.release('1.13.1+0');
   return world;
 }
@@ -759,21 +751,18 @@ async function mixedFleet() {
 test('"Update everything" plans, for each type, its newest release and the boards behind, and what is left out', async () => {
   const world = await mixedFleet();
   const { plan } = (await world.call('GET', '/api/fleet/update-everything', undefined, world.viewer)).body;
-  const [wifi, bt] = plan.types;
+  assert.equal(plan.types.length, 1);
+  const [wifi] = plan.types;
   assert.deepEqual([wifi.type, wifi.release.version, wifi.things], ['nrf7002dk', '1.13.1+0', [A, B]]);
   assert.deepEqual(
     wifi.leftOut.map((entry) => [entry.thing, entry.reason]),
     [
       [C, 'current'],
+      [D, 'other_layout'],
       [E, 'offline'],
     ]
   );
   assert.equal(wifi.canary.length, 1);
-  assert.deepEqual([bt.type, bt.release.version, bt.things], ['nrf5340dk', '1.13.0+0', []]);
-  assert.deepEqual(
-    bt.leftOut.map((entry) => [entry.thing, entry.reason]),
-    [[D, 'bluetooth_only']]
-  );
 });
 
 test('"Update everything" starts a staged rollout per type, checked against the plan as it is now', async () => {
@@ -790,9 +779,7 @@ test('"Update everything" starts a staged rollout per type, checked against the 
     [409, 'plan_changed', 'offline']
   );
   const other = await start([{ type: 'nrf7002dk', version: '1.13.1+0', things: [A, D] }]);
-  assert.deepEqual([other.status, other.body.error.code], [400, 'incompatible_board']);
-  const away = await start([{ type: 'nrf5340dk', version: '1.13.0+0', things: [D] }]);
-  assert.deepEqual([away.status, away.body.error.details[0].reason], [409, 'bluetooth_only']);
+  assert.deepEqual([other.status, other.body.error.code], [400, 'incompatible_layout']);
   for (const types of [[], 'all', [{ type: 'esp32', version: '1.0.0+0', things: [A] }], [...behind, ...behind]]) {
     assert.equal((await start(types)).status, 400, JSON.stringify(types));
   }

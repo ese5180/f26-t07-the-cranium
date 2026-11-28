@@ -31,7 +31,7 @@ test('an image without a layout TLV is for layout 1; the layout is read from the
   assert.equal(layoutOf([[LAYOUT_TLV, '2']]), 2);
   assert.equal(
     layoutOf([
-      [BOARD_TLV, 'nrf5340dk'],
+      [BOARD_TLV, 'nrf7002dk'],
       [LAYOUT_TLV, '17'],
     ]),
     17
@@ -68,7 +68,7 @@ test('a layout that is not one positive whole number, or is given twice, is refu
     (error) => error.code === 'invalid_layout_tlv'
   );
   // The board type is 1 to 16 lower-case letters and digits.
-  for (const value of ['nrf_5340dk', 'a'.repeat(17)]) {
+  for (const value of ['nrf_7002dk', 'a'.repeat(17)]) {
     assert.throws(
       () => boardOfImage(tlvs(buildImage({ version: '1.13.0+0', key, protectedTlvs: [[BOARD_TLV, value]] }))),
       (error) => error.code === 'invalid_board_tlv',
@@ -209,16 +209,16 @@ test('"Update everything" leaves out boards of another layout, and refuses one n
 
 test('the check before a Bluetooth send refuses a release of another layout, by the board or by what it said', async () => {
   const world = fleetConsole();
-  world.fake.addThing(D, { attributes: { board: 'nrf5340dk', layout: '2' } });
-  await world.release('1.13.0+0', 'nrf5340dk');
+  world.fake.addThing(D, { attributes: { board: 'nrf7002dk', layout: '2' } });
+  await world.release('1.13.0+0', 'nrf7002dk');
   const { sha256 } = (await world.call('GET', `/api/firmware/${encodeURIComponent('1.13.0+0')}`)).body.release;
   const check = (body) =>
     world.call('POST', `/api/firmware/${encodeURIComponent('1.13.0+0')}/bluetooth`, { sha256, ...body });
   const byThing = await check({ thing: D });
   assert.deepEqual([byThing.status, byThing.body.error.code], [400, 'incompatible_layout']);
-  const bySaying = await check({ type: 'nrf5340dk', layout: 2 });
+  const bySaying = await check({ type: 'nrf7002dk', layout: 2 });
   assert.deepEqual([bySaying.status, bySaying.body.error.code], [400, 'incompatible_layout']);
-  assert.equal((await check({ type: 'nrf5340dk', layout: 1 })).status, 200);
+  assert.equal((await check({ type: 'nrf7002dk', layout: 1 })).status, 200);
   const bad = await check({ layout: '1' });
   assert.deepEqual([bad.status, bad.body.error.code], [400, 'invalid_layout']);
   const entries = world.entries('firmware.bluetooth_send');

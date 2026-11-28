@@ -248,7 +248,7 @@ test('a line or an event that is not what the firmware says makes no fact', () =
     'on trial: 1.13.0+0 from 1.12.0+0, pending, proof maybe, update 4 of this board',
     'update over Bluetooth: 1.13.0+0 from 1.12.0+0, succeeded, proof cloud, update 4 of this board, really',
     'firmware 1.13.0+0 has arrived, hash 0123: press Button 1',
-    'refused an upload: it is for nrf5340dk, and this board is nrf7002dk',
+    'refused an upload: it is for otherboard, and this board is nrf7002dk',
   ]) {
     assert.deepEqual(factsFromItems([lineItem(THING, at, text, 1)]), [], text);
   }

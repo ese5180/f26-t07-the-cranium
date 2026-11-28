@@ -59,7 +59,6 @@ const FLEET = {
       name: 'CRVIHAAN01',
       type: 'nrf7002dk',
       typeFrom: 'board',
-      bluetoothOnly: false,
       online: true,
       lastSeen: at(20_000),
       version: '1.13.0+0',
@@ -72,7 +71,6 @@ const FLEET = {
       name: null,
       type: 'nrf7002dk',
       typeFrom: 'default',
-      bluetoothOnly: false,
       online: true,
       lastSeen: at(20_000),
       version: '1.13.1+0',
@@ -80,25 +78,24 @@ const FLEET = {
       seen: null,
       groups: [],
     },
+    // Registered, never reported, and its thing says its flash is laid out differently.
     {
       thing: C,
       name: null,
-      type: 'nrf5340dk',
-      typeFrom: 'thing',
-      bluetoothOnly: true,
+      type: 'nrf7002dk',
+      typeFrom: 'default',
+      layout: 2,
+      layoutFrom: 'thing',
       online: false,
       lastSeen: null,
-      version: '1.0.0+0',
-      versionFrom: 'phone',
-      seen: { version: '1.0.0+0', at: at(2 * 3_600_000), by: 'manager@example.invalid', name: 'Cranium-1A2B' },
+      version: null,
+      versionFrom: null,
+      seen: null,
       groups: ['grp-0a0b0c0d'],
     },
   ],
   groups: [{ id: 'grp-0a0b0c0d', name: 'Bench', things: [A, C], gone: 0 }],
-  types: [
-    { type: 'nrf7002dk', boards: 2, newest: '1.13.1+0', previous: '1.13.0+0', bluetoothOnly: false },
-    { type: 'nrf5340dk', boards: 1, newest: '1.0.0+0', previous: null, bluetoothOnly: true },
-  ],
+  types: [{ type: 'nrf7002dk', boards: 3, newest: '1.13.1+0', previous: '1.13.0+0' }],
 };
 
 /** The fleet module connected to a state, with an API that answers from the test. */
@@ -150,33 +147,23 @@ function connected(extra = {}) {
   return { state, asked, answers, ctx: { state, actions: {}, fleet } };
 }
 
-test('a board says its type and its groups; a board without Wi-Fi says what a phone saw', async () => {
+test('a board says its type and its groups', async () => {
   const { state, answers, ctx } = connected();
   answers.set('GET /api/fleet', FLEET);
   await fleet.refreshFor('devices', true);
   assert.equal(state.fleet.value.boards.length, 3);
   const tags = draw(fleet.boardTags(state.devices.value.devices[0], ctx));
   assert.deepEqual(all(tags, 'span.fleet-chip').map(textOf), ['nRF7002 DK · layout 1', 'Bench']);
-  assert.equal(fleet.bluetoothOnly(state.devices.value.devices[0], ctx), null);
-  const phone = fleet.bluetoothOnly(state.devices.value.devices[2], ctx);
-  assert.equal(textOf(draw(phone.badge)), 'Bluetooth only');
-  assert.match(
-    textOf(draw(views.h('p', null, phone.line))),
-    /^Runs 1\.0\.0\+0 as a phone saw it 2 h ago \(manager@example\.invalid\)$/
-  );
+  const other = draw(fleet.boardTags(state.devices.value.devices[2], ctx));
+  assert.deepEqual(all(other, 'span.fleet-chip').map(textOf), ['nRF7002 DK · layout 2', 'Bench']);
 
-  // On the Devices page itself: the chips, and Bluetooth only in place of Offline.
+  // On the Devices page itself: a board that never reported says how to bring it up.
   const page = draw(views.devicesView(ctx));
   const third = all(page, 'article.device')[2];
-  assert.match(textOf(third), /Bluetooth only/);
-  assert.doesNotMatch(textOf(third), /Has not reported to the console yet/);
+  assert.match(textOf(third), /Power it up and check that it was provisioned\./);
   // The groups, with each type's group first.
   const groups = one(page, 'section.groups-card');
-  assert.deepEqual(all(groups, 'p.group-name').map(textOf), [
-    'nRF7002 DK · 2 boards',
-    'nRF5340 DK · 1 board · Bluetooth only',
-    'Bench · 2 boards',
-  ]);
+  assert.deepEqual(all(groups, 'p.group-name').map(textOf), ['nRF7002 DK · 3 boards', 'Bench · 2 boards']);
   // The old group "Roll back" is gone: only "Roll back to last good" remains.
   assert.equal(
     all(groups, 'button').some((el) => textOf(el) === 'Roll back'),
@@ -203,22 +190,11 @@ test("the Overview's health card: versions by type, the last week's updates, and
         newest: '1.13.1+0',
         onNewest: 1,
         share: 0.5,
-        bluetoothOnly: false,
         unknown: 0,
         versions: [
           { version: '1.13.1+0', count: 1, newest: true },
           { version: '1.13.0+0', count: 1, newest: false },
         ],
-      },
-      {
-        type: 'nrf5340dk',
-        boards: 0,
-        newest: null,
-        onNewest: 0,
-        share: null,
-        bluetoothOnly: true,
-        unknown: 0,
-        versions: [],
       },
     ],
     updates: { days: 7, succeeded: 3, failed: 1, rolledBack: 1 },
@@ -237,7 +213,6 @@ test("the Overview's health card: versions by type, the last week's updates, and
   await fleet.refreshFor('overview', true);
   const card = draw(fleet.healthCard(ctx));
   assert.deepEqual(all(card, 'h2').map(textOf), ['Versions by board type', 'Updates, last 7 days', 'Needs attention']);
-  // A type with no boards is not shown.
   assert.deepEqual(
     all(card, 'div.health-type').map((el) => textOf(one(el, 'p.health-type-head'))),
     ['nRF7002 DK1 of 2 boards on 1.13.1+0']
@@ -260,7 +235,11 @@ const DETAIL = {
   stage: 'stopped',
   things: [A, B, C],
   leftOut: [
-    { thing: 'cranium-00000000000000dd', reason: 'bluetooth_only', text: 'Bluetooth only: updated from a phone' },
+    {
+      thing: 'cranium-00000000000000dd',
+      reason: 'other_layout',
+      text: 'Flash layout 2: this release is built for layout 1',
+    },
   ],
   canary: { size: 1, things: [A], job: CANARY_JOB },
   rest: { things: [B, C], leftOut: [], job: WAVES_JOB, startedAt: at(50 * 60_000) },
@@ -296,7 +275,7 @@ test("a staged rollout's page: the canary, the waves, what was never offered, an
   const cards = all(page, 'section.card');
   assert.match(textOf(cards[0]), /The canary.*Installed/s);
   assert.match(textOf(cards[1]), /Wave 1.*Failed \(rolled_back\).*Never offered.*Not offered yet/s);
-  assert.match(textOf(cards[2]), /Left out: 1 board.*Bluetooth only/s);
+  assert.match(textOf(cards[2]), /Left out: 1 board.*Another layout.*Flash layout 2/s);
   // Stopped: nothing left to cancel.
   assert.equal(
     all(page, 'button').some((el) => textOf(el) === 'Cancel rollout'),
@@ -332,7 +311,7 @@ test('the Deployments page lists the staged rollouts and Update everything; Devi
   const types = draw(fleet.boardTypesPanel(ctx));
   assert.deepEqual(
     all(types, 'div.fleet-type').map((el) => textOf(one(el, 'h2'))),
-    ['nRF7002 DK', 'nRF5340 DK']
+    ['nRF7002 DK']
   );
   const tools = fleet.deploymentTools(ctx).map((node) => draw(node));
   assert.ok(tools.some((el) => textOf(el) === 'Update everything'));
@@ -345,7 +324,7 @@ test('the fleet asks the API at its own addresses only', async () => {
   answers.set('GET /api/fleet', FLEET);
   answers.set('POST /api/rollouts', { rollout: DETAIL });
   const types = await fleet.boardTypes();
-  assert.deepEqual(types.get(C), { type: 'nrf5340dk', layout: 1, bluetoothOnly: true });
+  assert.deepEqual(types.get(C), { type: 'nrf7002dk', layout: 2 });
   const started = await fleet.startRollout({
     version: '1.13.1+0',
     things: [A, B],
@@ -361,19 +340,15 @@ test('the fleet asks the API at its own addresses only', async () => {
   ]);
 });
 
-test('the New deployment dialog offers a release to the boards of its type only', () => {
-  const types = new Map(
-    FLEET.boards.map((board) => [board.thing, { type: board.type, bluetoothOnly: board.bluetoothOnly }])
-  );
+test('the New deployment dialog offers a release to the boards of its type and layout only', () => {
+  const types = new Map(FLEET.boards.map((board) => [board.thing, { type: board.type, layout: board.layout ?? 1 }]));
   const devices = [device(A), device(B), device(C, { online: false, lastSeen: null, fw: null })];
   assert.deepEqual(
     core.offeredBoards(devices, types, { board: 'nrf7002dk' }).map((item) => item.thing),
     [A, B]
   );
-  // A release of the Bluetooth-only type goes to no job at all.
-  assert.deepEqual(core.offeredBoards(devices, types, { board: 'nrf5340dk' }), []);
   // Without the fleet's word every board is offered, and the server decides.
-  assert.equal(core.offeredBoards(devices, null, { board: 'nrf5340dk' }).length, 3);
+  assert.equal(core.offeredBoards(devices, null, { board: 'nrf7002dk' }).length, 3);
   // A release from a server before types is a nrf7002dk one.
   assert.deepEqual(
     core.offeredBoards(devices, types, { version: '1.0.0+0' }).map((item) => item.thing),
@@ -420,7 +395,7 @@ test('the New deployment dialog offers a release to the boards of its type only'
   assert.equal(all(boards, 'input').filter((el) => el.getAttribute('type') === 'checkbox').length, 2);
   assert.match(
     textOf(boards),
-    /For the nRF7002 DK, layout 1, only: 1 board of another type or flash layout, or without Wi-Fi, is not offered it\./
+    /For the nRF7002 DK, layout 1, only: 1 board of another type or flash layout is not offered it\./
   );
   const review = draw(views.deployDialog({ ...model, step: 2 }, ctx));
   assert.match(textOf(review), /A staged rollout: 1 board gets 1\.13\.1\+0 first/);
@@ -443,7 +418,7 @@ test("a release shows its board type and a clamped note; a release manager may e
     uploadedAt: at(60_000),
     status: 'active',
     revoked: null,
-    board: 'nrf5340dk',
+    board: 'nrf7002dk',
     ...changes,
   });
   const calls = [];
@@ -475,11 +450,11 @@ test("a release shows its board type and a clamped note; a release manager may e
     release({ version: '1.13.0+0', status: 'revoked', revoked: { by: {}, at: at(1000), reason: 'bad' } }),
   ]);
   const rows = all(written, 'li.release');
-  assert.equal(textOf(one(rows[0], 'span.board-chip')), 'For nRF5340 DK · layout 1');
+  assert.equal(textOf(one(rows[0], 'span.board-chip')), 'For nRF7002 DK · layout 1');
   // And in its details, where it was read from.
   assert.match(
     textOf(one(rows[0], 'details')),
-    /Compatible with nRF5340 DK, flash layout 1 Read from the image’s signed TLVs/
+    /Compatible with nRF7002 DK, flash layout 1 Read from the image’s signed TLVs/
   );
   const note = one(rows[0], 'p.release-notes');
   assert.equal(note.getAttribute('title'), 'Reconnects faster after the Wi-Fi drops out.');
@@ -630,8 +605,8 @@ test("the activity log tells the fleet's changes in words, the note of a release
 
 test('a release is offered to the boards of its flash layout only, and says what it is built for', () => {
   const types = new Map([
-    [A, { type: 'nrf7002dk', layout: 1, bluetoothOnly: false }],
-    [B, { type: 'nrf7002dk', layout: 2, bluetoothOnly: false }],
+    [A, { type: 'nrf7002dk', layout: 1 }],
+    [B, { type: 'nrf7002dk', layout: 2 }],
   ]);
   const devices = [device(A), device(B)];
   assert.deepEqual(
@@ -674,18 +649,23 @@ test("a board's page says its type and layout, where each is known from, and the
   assert.match(textOf(card), /Board type nRF7002 DK as it says itself/);
   assert.match(textOf(card), /Flash layout 1 as its thing says/);
   assert.match(textOf(card), /Takes 1\.13\.0\+0 is the newest release built for it/);
-  // A board without Wi-Fi with nothing built for it yet.
+  // A board of the other layout takes the release built for it, and nothing when there is none.
   assert.match(
     textOf(draw(fleet.compatibilityCard(state.devices.value.devices[2], ctx))),
-    /No release is built for it yet.*Over Bluetooth from the phone app/
+    /Flash layout 2 as its thing says.*Takes 1\.13\.1\+0 is the newest release built for it/
+  );
+  state.firmware.value = { releases: releases.slice(1) };
+  assert.match(
+    textOf(draw(fleet.compatibilityCard(state.devices.value.devices[2], ctx))),
+    /No release is built for it yet/
   );
 });
 
-test('the Overview says the newest release of each board type, and a board without Wi-Fi is not one that never connected', async () => {
+test('the Overview says the newest release of each type named, and counts a board that never connected', async () => {
   const releases = [
     {
       version: '1.13.0+1',
-      board: 'nrf5340dk',
+      board: 'otherboard',
       layout: 1,
       status: 'active',
       uploadedAt: at(3_600_000),
@@ -714,14 +694,14 @@ test('the Overview says the newest release of each board type, and a board witho
   const newest = all(page, 'section.card').find((el) => textOf(el).startsWith('Newest releases'));
   assert.deepEqual(
     all(newest, 'li').map((el) => textOf(one(el, 'span.board-chip'))),
-    ['For nRF5340 DK · layout 1', 'For nRF7002 DK · layout 1']
+    ['For otherboard · layout 1', 'For nRF7002 DK · layout 1']
   );
-  assert.match(textOf(newest), /1\.13\.0\+1.*0 of 1 board on it.*1\.13\.0\+0.*1 of 2 boards on it/s);
+  // No board is of the type that only the first release names.
+  assert.match(textOf(newest), /1\.13\.0\+1.*1\.13\.0\+0.*1 of 3 boards on it/s);
+  assert.doesNotMatch(textOf(newest), /of 0 boards/);
   const online = all(page, 'section.card').find((el) => textOf(el).startsWith('Fleet'));
-  assert.match(textOf(online), /2 of 2 boards online/);
-  assert.match(textOf(online), /1 Bluetooth only/);
-  assert.doesNotMatch(textOf(online), /never connected/);
-  assert.equal(all(online, 'span.tile').filter((el) => el.getAttribute('class').includes('is-phone')).length, 1);
+  assert.match(textOf(online), /2 of 3 boards online/);
+  assert.match(textOf(online), /1 never connected/);
 
   // Without the fleet's word, as before: one card for the newest, and the board counted as it reported.
   const before = draw(views.overviewView({ state: { ...state, fleet: { value: null } }, actions: {} }));

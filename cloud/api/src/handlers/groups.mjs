@@ -16,11 +16,11 @@
  *
  * Where groups live. In the state table (pk GRP), not as AWS IoT thing groups:
  *
- *  - A rollout only ever takes boards of the release's type that are not on it already, and never
- *    a board that updates over Bluetooth only. A thing group as the target of a job would offer
- *    the job to every member, whatever its type; a continuous job would offer it to every board
- *    that joins the group later, unchecked. So a rollout names its boards one by one in any case,
- *    and a group only has to say which boards those are.
+ *  - A rollout only ever takes boards of the release's type that are not on it already. A thing
+ *    group as the target of a job would offer the job to every member, whatever its type; a
+ *    continuous job would offer it to every board that joins the group later, unchecked. So a
+ *    rollout names its boards one by one in any case, and a group only has to say which boards
+ *    those are.
  *  - A group can be renamed. A thing group's name is its identity in AWS IoT and cannot change.
  *  - A write here is one conditional item: the name, the boards and who changed them, together.
  *    AWS IoT would take one call per board added or removed, with nothing to hold them together.

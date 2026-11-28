@@ -104,10 +104,6 @@ export function fleetConsole(options = {}) {
       known.add(thing);
       console_.fake.device(thing).report(report(version, extra));
     },
-    /** A board without Wi-Fi: provisioned with the attribute, and never reporting. */
-    bluetoothOnly(thing) {
-      console_.fake.addThing(thing, { attributes: { board: 'nrf5340dk' } });
-    },
     /** What a board does with a job: take it, and end it as `status`. */
     finish(job, thing, status = 'SUCCEEDED', version = null) {
       const execution = console_.fake.execution(job, thing);

@@ -719,7 +719,7 @@ newer version (`Rebuild of <version>`), released and rolled out like any other. 
 release before the newest was removed in 2.19.1.
 
 **What a phone saw** (`POST /api/devices/{thing}/seen`, pk `SEEN`): the version a phone read from a board over
-Bluetooth, when, and who; the last one per board is kept. It is how a board without Wi-Fi shows on the console.
+Bluetooth, when, and who; the last one per board is kept.
 Release managers only, with no fresh sign-in asked of a phone (it changes no board), at most 60 a minute per person.
 
 **Fleet health** (`GET /api/fleet/health`, the Overview): versions by board type and how many run the newest;

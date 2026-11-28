@@ -26,8 +26,8 @@
  * `target` is { kind: "boards", things } | { kind: "group", group } | { kind: "type", type } |
  * { kind: "fleet" }. Whatever it is, a rollout only ever takes boards of the release's type that
  * can take a job and are not on the release already (lib/fleet.mjs selectTargets). Boards named
- * one by one are refused if they cannot (400 incompatible_board, 400 bluetooth_only, 409
- * device_busy); boards that a group, a type or the fleet stand for are left out, each with why.
+ * one by one are refused if they cannot (400 incompatible_board, 409 device_busy); boards that a
+ * group, a type or the fleet stand for are left out, each with why.
  * "Update everything" also leaves out boards offline for more than a day.
  *
  * How it runs. Stage "canary": a job on the canary alone (one board unless asked for more; online
@@ -497,9 +497,7 @@ export function createRolloutHandlers(
 
   /** The boards a group, a type or the fleet stands for, with why the others are left out. */
   async function computedBoards(candidates, release, { leaveOutAway = false, older = false } = {}) {
-    const busy = await busyOf(
-      candidates.filter((board) => !board.bluetoothOnly && board.type === release.board).map((board) => board.thing)
-    );
+    const busy = await busyOf(candidates.filter((board) => board.type === release.board).map((board) => board.thing));
     return selectTargets({ release, candidates, busy, nowMs: now(), leaveOutAway, older });
   }
 
@@ -690,8 +688,8 @@ export function createRolloutHandlers(
   async function lastGoodPlan(group = null) {
     const loaded = (await fleet.boards()).map(({ board }) => board);
     const inScope = group === null ? loaded : loaded.filter((board) => group.things.includes(board.thing));
-    const wifi = inScope.filter((board) => !board.bluetoothOnly).map((board) => board.thing);
-    const [histories, listed, busy] = await Promise.all([recordsOfAll(wifi), aws.listReleases(), busyOf(wifi)]);
+    const things = inScope.map((board) => board.thing);
+    const [histories, listed, busy] = await Promise.all([recordsOfAll(things), aws.listReleases(), busyOf(things)]);
     const releases = listed.map(releaseFromItem).filter((release) => release !== null);
     const found = planLastGood({ boards: inScope, histories, releases, busy, nowMs: now() });
     return {

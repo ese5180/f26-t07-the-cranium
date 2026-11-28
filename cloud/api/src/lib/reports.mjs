@@ -238,7 +238,7 @@ export function healthPart(span, snapshots) {
 
 /**
  * The boards and versions at the end of the week. `end` is { from: "snapshot" | "now", boards, online,
- * offline, bluetoothOnly, versions: { version: count }, unknown, things } or null when nothing counted them;
+ * offline, versions: { version: count }, unknown, things } or null when nothing counted them;
  * `before` the same of the snapshot before the week, or null; `registered` the boards registered through the
  * console that week.
  */
@@ -256,7 +256,6 @@ export function boardsPart({ end, before, registered }) {
       total: null,
       online: null,
       offline: null,
-      bluetoothOnly: null,
       added: added.slice(0, SHOWN.newBoards),
       addedCount: added.length,
     };
@@ -267,7 +266,6 @@ export function boardsPart({ end, before, registered }) {
     total: end.boards,
     online: end.online,
     offline: end.offline,
-    bluetoothOnly: end.bluetoothOnly,
     added: added.slice(0, SHOWN.newBoards),
     addedCount: added.length,
   };
@@ -518,7 +516,6 @@ export function reportRows(report) {
   add('boards', 'total', boards.total, boards.from ?? 'not recorded');
   add('boards', 'online', boards.online);
   add('boards', 'offline', boards.offline);
-  add('boards', 'bluetooth only', boards.bluetoothOnly);
   add('boards', 'new', boards.addedCount, boards.added.join(' '));
   for (const one of report.versions.list) add('versions', one.version, one.count);
   if (report.versions.unknown) add('versions', 'not known', report.versions.unknown);
