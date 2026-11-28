@@ -27,7 +27,7 @@
     "network": "The network or the service could not be reached",
     "failed": "Anything else; the message says what"
   },
-  "features": ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage", "usb", "camera", "bleOffline"],
+  "features": ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage", "usb", "camera", "bleOffline", "bleRelay"],
   "methods": {
     "app.hello": {
       "feature": null,
@@ -234,6 +234,16 @@
       "params": {},
       "result": "{}. Lets go of the offline link; nothing if there is none."
     },
+    "ble.relay.start": {
+      "feature": "bleRelay",
+      "params": {"thing": {"type": "string", "max": 64, "pattern": "^cranium-[0-9a-f]{16}$"}},
+      "result": "{}. The Bluetooth relay (firmware 1.21.0, docs/ble-relay.md): this phone carries that board's own TLS connection to AWS IoT while the board has no Wi-Fi. Looks for a board advertising the relay service (D38F3C14-34A8-4CDD-8E9A-BDB7FE83A2F0), opens its L2CAP channel, and goes on only if the board's HELLO names this thing; then opens TCP only to the AWS IoT endpoint of the app's own region, on 8883, as the board asks. Answers at once; how it goes comes as ble.relay.state. busy while another board is relayed, an update over Bluetooth runs or offline mode has a board."
+    },
+    "ble.relay.stop": {
+      "feature": "bleRelay",
+      "params": {},
+      "result": "{}. Ends the relay: the board's connection drops and it reconnects as it can. Nothing if there is none."
+    },
     "usb.open": {
       "feature": "usb",
       "params": {
@@ -282,6 +292,7 @@
     "ble.status": "{payload: base64 of the 64 bytes or more, afterRestart: boolean}",
     "ble.offline.status": "{payload: base64}: the board's offline status, each time it is read while the offline link is up",
     "ble.offline.link": "{state: 'disconnected', error: string|null}: the offline link went by itself (the board closed its Bluetooth window, Bluetooth went off); not sent for ble.offline.disconnect",
+    "ble.relay.state": "{state: 'looking'|'connecting'|'ready'|'relaying'|'stopped', thing: string|null, bytesUp, bytesDown, error: string|null}: the relay, each time it changes and at most once a second while it relays; the page shows 'Relaying for <board>' while state is relaying",
     "usb.data": "{port, data: base64}: bytes the board sent on an open port, in order",
     "usb.closed": "{port, reason: 'unplugged'|'failed'}: the port closed by itself (the cable came out, or reading failed); not sent for usb.close"
   },

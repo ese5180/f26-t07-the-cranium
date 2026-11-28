@@ -4,6 +4,16 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.9.6
+
+Bluetooth relay, not yet tried with a board: from the Offline page, this phone carries a board's own connection to the cloud while the board has no Wi-Fi (firmware 1.21.0's relay build). The board's connection stays encrypted from end to end; the app only passes the bytes on, and only to AWS IoT in the app's region.
+
+`core/Relay.kt` (RelayProtocol, RelayReader, RelayPump), tested with a fake board and server against the firmware's
+sample frames, as the iPhone app is. `ble/RelayLink.kt`: the relay service scan, the PSM over GATT,
+`createInsecureL2capChannel` (Android 10 and later; the feature is offered only there) and a plain `Socket`. The
+bridge's `bleRelay`, never at the same time as an update or offline mode. While the app runs; a foreground service
+for the screen off is left.
+
 ## 0.9.5
 
 Vitals (console 2.31.0 and later): a new page under Monitoring shows how the boards are doing over 7, 30 or 90 days, from what they already send: the share of boards with no crash, the share of the time they were connected, the share on the newest release, restarts, connection drops and memory that ran low, by day, by board and by version. A board's vitals add its Wi-Fi signal, lowest free heap and longest uptime of the last 7 days. (versionCode 42)

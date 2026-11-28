@@ -1,11 +1,13 @@
 package com.craniumiot.cranium.shell
 
 import android.content.Context
+import android.os.Build
 import com.craniumiot.cranium.ble.BlePermissions
 import com.craniumiot.cranium.ble.BoardScanner
 import com.craniumiot.cranium.ble.BoardSession
 import com.craniumiot.cranium.ble.FoundBoard
 import com.craniumiot.cranium.ble.OfflineLink
+import com.craniumiot.cranium.ble.RelayLink
 import com.craniumiot.cranium.ble.StatusClient
 import com.craniumiot.cranium.ble.StatusFollower
 import com.craniumiot.cranium.ui.Messages
@@ -123,6 +125,7 @@ class ShellBle(
 
     suspend fun connect(params: JsonObject): JsonObject {
         if (offline != null) throw BridgeError("busy", "A board is connected in offline mode. Let it go first.")
+        if (relay != null) throw BridgeError("busy", "A board is relayed over Bluetooth. Stop the relay first.")
         val id = params.text("id")
         val found = scanner.boards.value.firstOrNull { it.address == id }
             ?: throw BridgeError("failed", "That board is not in range any more. Look for it again.")
@@ -325,6 +328,7 @@ class ShellBle(
     suspend fun offlineConnect(params: JsonObject): JsonObject {
         if (session != null) throw BridgeError("busy", "An update over Bluetooth has a board. Let it finish first.")
         if (offline != null) throw BridgeError("busy", "A board is connected already. Let it go first.")
+        if (relay != null) throw BridgeError("busy", "A board is relayed over Bluetooth. Stop the relay first.")
         val id = params.text("id")
         val found = scanner.boards.value.firstOrNull { it.address == id }
             ?: throw BridgeError("failed", "That board is not in range any more. Look for it again.")
@@ -395,12 +399,65 @@ class ShellBle(
         link?.close()
     }
 
+    // The Bluetooth relay (firmware 1.21.0, docs/ble-relay.md): RelayLink carries a board's own TLS connection to
+    // AWS IoT. Never with ble.connect's link or offline mode, which want the board's one link.
+
+    private var relay: RelayLink? = null
+    private var relaySentAt = 0L
+    private var relaySentState = ""
+
+    suspend fun relayStart(params: JsonObject, region: String): JsonObject {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) throw BridgeError("unavailable", "The relay needs Android 10 or later.")
+        if (session != null) throw BridgeError("busy", "An update over Bluetooth has a board. Let it finish first.")
+        if (offline != null) throw BridgeError("busy", "A board is connected in offline mode. Let it go first.")
+        if (relay != null) throw BridgeError("busy", "A board is relayed already. Stop that first.")
+        if (region.isBlank()) throw BridgeError("failed", "This build has no AWS region, so it cannot check where a board connects.")
+        ready()
+        stopScan()
+        lateinit var link: RelayLink
+        link = RelayLink(app, scope, params.text("thing"), region) { status -> if (relay === link) sendRelay(status, false) }
+        relay = link
+        relaySentState = ""
+        link.start()
+        return EMPTY
+    }
+
+    suspend fun relayStop(): JsonObject {
+        closeRelay()
+        return EMPTY
+    }
+
+    private suspend fun closeRelay() {
+        val link = relay ?: return
+        relay = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            link.stop()
+            sendRelay(link.status, true)
+        }
+    }
+
+    /** Each change of state, and the byte counts at most once a second while it relays. */
+    private fun sendRelay(status: RelayLink.Status, force: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!force && status.state == relaySentState && now - relaySentAt < 1000) return
+        relaySentState = status.state
+        relaySentAt = now
+        emit("ble.relay.state", buildJsonObject {
+            put("state", status.state)
+            put("thing", status.thing)
+            put("bytesUp", status.bytesUp)
+            put("bytesDown", status.bytesDown)
+            put("error", status.error)
+        })
+    }
+
     /** The page went (another page, a reload): whatever it had going stops. */
     fun release() {
         stopScan()
         stopWatch()
         closeLink()
         closeOffline()
+        scope.launch { closeRelay() }
     }
 
     private companion object {

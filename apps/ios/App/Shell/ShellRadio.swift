@@ -76,6 +76,7 @@ final class ShellRadio {
     func connect(_ id: String) async throws -> String {
         guard transport == nil else { throw BridgeError(.busy, "A board is connected already. Let it go first.") }
         guard offline == nil else { throw BridgeError(.busy, "A board is connected in offline mode. Let it go first.") }
+        guard relay == nil else { throw BridgeError(.busy, "A board is relayed over Bluetooth. Stop the relay first.") }
         guard let board = made?.boards.first(where: { $0.id.uuidString.caseInsensitiveCompare(id) == .orderedSame }),
               let link = made?.transport(for: board) else {
             throw BridgeError.failed("That board is not in the list any more. Look for it again.")
@@ -191,6 +192,7 @@ final class ShellRadio {
             throw BridgeError(.busy, "An update over Bluetooth has a board. Let it finish first.")
         }
         guard offline == nil else { throw BridgeError(.busy, "A board is connected already. Let it go first.") }
+        guard relay == nil else { throw BridgeError(.busy, "A board is relayed over Bluetooth. Stop the relay first.") }
         guard let board = made?.boards.first(where: { $0.id.uuidString.caseInsensitiveCompare(id) == .orderedSame }),
               let link = made?.offlineLink(for: board) else {
             throw BridgeError.failed("That board is not in the list any more. Look for it again.")
@@ -262,6 +264,51 @@ final class ShellRadio {
             offlineConnecting = nil
             waiting.resume(throwing: BridgeError(.cancelled, "The board was let go."))
         }
+    }
+
+    // MARK: The Bluetooth relay (firmware 1.21.0, docs/ble-relay.md)
+
+    /// `RelayLink`: this phone carries the board's own TLS connection to AWS IoT. Never with `transport` or
+    /// `offline`, which want the same radio and the board's one link.
+    private var relay: RelayLink?
+    private var relayLastSent = Date.distantPast
+    private var relayLastState = ""
+
+    func relayStart(thing: String, region: String) throws {
+        guard transport == nil else { throw BridgeError(.busy, "An update over Bluetooth has a board. Let it finish first.") }
+        guard offline == nil else { throw BridgeError(.busy, "A board is connected in offline mode. Let it go first.") }
+        guard relay == nil else { throw BridgeError(.busy, "A board is relayed already. Stop that first.") }
+        let link = radio.relayLink(thing: thing, region: region)
+        relay = link
+        relayLastState = ""
+        link.onStatus = { [weak self, weak link] status in
+            guard let self, let link, self.relay === link else { return }
+            self.sendRelay(status)
+        }
+        link.start()
+    }
+
+    func relayStop() {
+        guard let link = relay else { return }
+        relay = nil
+        link.onStatus = nil
+        link.stop()
+        sendRelay(link.status, force: true)
+    }
+
+    /// Each change of state, and the byte counts at most once a second while it relays.
+    private func sendRelay(_ status: RelayLink.Status, force: Bool = false) {
+        let now = Date()
+        guard force || status.state != relayLastState || now.timeIntervalSince(relayLastSent) >= 1 else { return }
+        relayLastState = status.state
+        relayLastSent = now
+        send("ble.relay.state", [
+            "state": .string(status.state),
+            "thing": status.thing.map { .string($0) } ?? .null,
+            "bytesUp": .number(Double(status.bytesUp)),
+            "bytesDown": .number(Double(status.bytesDown)),
+            "error": status.error.map { .string($0) } ?? .null,
+        ])
     }
 
     // MARK: A made-up board for the Simulator (Debug only)

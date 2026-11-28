@@ -13,7 +13,7 @@ final class ShellBridgeHost {
     /// board) where the iPhone has one. Offline mode (bleOffline) is the board's own GATT service on the same radio.
     static var features: Set<String> {
         var offered: Set<String> = ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings",
-                                    "storage", "bleOffline"]
+                                    "storage", "bleOffline", "bleRelay"]
         if BoardScanner.hasCamera { offered.insert("camera") }
         return offered
     }
@@ -291,6 +291,18 @@ final class ShellBridgeHost {
         }
         dispatcher.register("ble.offline.disconnect") { [unowned self] _ in
             radio.offlineDisconnect()
+            return [:]
+        }
+        // The Bluetooth relay: the host a board asks for must be AWS IoT in this build's region.
+        dispatcher.register("ble.relay.start") { [unowned self] params in
+            guard let loaded = try model.loaded, let region = loaded.config.userPool?.region else {
+                throw BridgeError.failed("This build has no AWS region, so it cannot check where a board connects.")
+            }
+            try radio.relayStart(thing: params.string("thing"), region: region)
+            return [:]
+        }
+        dispatcher.register("ble.relay.stop") { [unowned self] _ in
+            radio.relayStop()
             return [:]
         }
     }

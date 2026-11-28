@@ -301,3 +301,99 @@ test('the page: a short lede, How offline mode works, and only in the apps that 
   find(standalone).props.onClick();
   assert.equal(back, 1);
 });
+
+/** The Bluetooth relay (firmware 1.21.0, docs/ble-relay.md), where the app offers bleRelay. */
+function relayWorld({ offered = true, start = () => ({}) } = {}) {
+  const listeners = new Map();
+  const calls = [];
+  const bridge = {
+    has: (feature) => offered && feature === 'bleRelay',
+    call(method, params = {}) {
+      calls.push({ method, params });
+      try {
+        return Promise.resolve(method === 'ble.relay.start' ? start(params) : {});
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    },
+    on(event, listener) {
+      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+      return () => {};
+    },
+  };
+  const flow = off.createOfflineFlow({ bridge, onChange: () => {}, device: 'phone' });
+  return {
+    flow,
+    calls,
+    emit: (event, data) => (listeners.get(event) ?? []).forEach((listener) => listener(data)),
+  };
+}
+
+const THING = 'cranium-0123456789abcdef';
+
+test('the relay is there only where the app offers it', () => {
+  assert.equal(relayWorld({ offered: false }).flow.relay, null);
+  assert.doesNotMatch(words(view(relayWorld({ offered: false }))), /Bluetooth relay/);
+  const w = relayWorld();
+  assert.ok(w.flow.relay);
+  assert.match(words(view(w)), /Bluetooth relay/);
+  assert.match(words(view(w)), /Relay for this board/);
+});
+
+test('the relay starts for the board named, and says when it relays', async () => {
+  const w = relayWorld();
+  const relay = w.flow.relay;
+  relay.setWanted('  Cranium-0123456789ABCDEF ');
+  await relay.start();
+  assert.deepEqual(w.calls.at(-1), { method: 'ble.relay.start', params: { thing: THING } });
+  assert.equal(relay.relay.state, 'looking');
+  assert.match(words(view(w)), /Looking for cranium-0123456789abcdef/);
+
+  w.emit('ble.relay.state', { state: 'relaying', thing: THING, bytesUp: 2048, bytesDown: 5, error: null });
+  assert.equal(off.relayWords(relay.relay), `Relaying for ${THING}`);
+  assert.match(words(view(w)), /Relaying for cranium-0123456789abcdef/);
+  assert.match(words(view(w)), /2\.0 KB sent, 5 B received/);
+  assert.match(words(view(w)), /Stop relaying/);
+
+  // What the app says went wrong is shown; a state it does not know is not taken.
+  w.emit('ble.relay.state', {
+    state: 'looking',
+    thing: THING,
+    bytesUp: 2048,
+    bytesDown: 5,
+    error: 'The board went out of reach.',
+  });
+  assert.match(words(view(w)), /The board went out of reach/);
+  w.emit('ble.relay.state', { state: 'sideways', thing: 'x' });
+  assert.equal(relay.relay.state, 'looking');
+  assert.equal(relay.relay.thing, THING);
+
+  await relay.stop();
+  assert.equal(w.calls.at(-1).method, 'ble.relay.stop');
+  assert.equal(relay.relay.state, 'stopped');
+  assert.match(words(view(w)), /Relay for this board/);
+});
+
+test('a name that is not a board’s, or a busy radio, is said and nothing starts', async () => {
+  const w = relayWorld();
+  w.flow.relay.setWanted('my board');
+  await w.flow.relay.start();
+  assert.equal(w.calls.length, 0);
+  assert.match(w.flow.relay.relay.problem, /cranium- and 16 letters and digits/);
+
+  const busy = relayWorld({
+    start: () => {
+      throw Object.assign(new Error('busy'), { code: 'busy' });
+    },
+  });
+  busy.flow.relay.setWanted(THING);
+  await busy.flow.relay.start();
+  assert.equal(busy.flow.relay.relay.state, 'stopped');
+  assert.match(busy.flow.relay.relay.problem, /update over Bluetooth is using the radio/);
+});
+
+test('bytes in words', () => {
+  assert.equal(off.bytesWords(0), '0 B');
+  assert.equal(off.bytesWords(1536), '1.5 KB');
+  assert.equal(off.bytesWords(3 * 1024 * 1024), '3.0 MB');
+});

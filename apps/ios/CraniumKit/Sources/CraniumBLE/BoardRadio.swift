@@ -60,11 +60,14 @@ public final class BoardRadio: NSObject, @unchecked Sendable {
     private var pruneTimer: Timer?
     /// Who is told of a board that advertises its status, while that is looked for.
     private var statusFound: ((CBPeripheral) -> Void)?
+    /// Who is told of a board that offers the Bluetooth relay (firmware 1.21.0), while that is looked for.
+    private var relayFound: ((CBPeripheral) -> Void)?
 
     private struct WeakLink { weak var link: RadioLink? }
 
     private static let serviceUUID = CBUUID(string: SMP.serviceUUID)
     static let statusServiceUUID = CBUUID(string: BoardStatus.serviceUUID)
+    static let relayServiceUUID = CBUUID(string: RelayProtocol.serviceUUID)
 
     public override init() {
         super.init()
@@ -102,6 +105,30 @@ public final class BoardRadio: NSObject, @unchecked Sendable {
     func stopStatusScan() {
         statusFound = nil
         rescan()
+    }
+
+    // MARK: Used by RelayLink, on the main queue
+
+    /// Looks for boards that offer the relay, and hands each one to `found`.
+    func startRelayScan(_ found: @escaping (CBPeripheral) -> Void) {
+        relayFound = found
+        rescan()
+    }
+
+    func stopRelayScan() {
+        relayFound = nil
+        rescan()
+    }
+
+    /// For the relay: the scan for boards to update is not this one's to stop.
+    func connectForRelay(_ peripheral: CBPeripheral) {
+        central.connect(peripheral, options: nil)
+    }
+
+    /// The relay for the board whose thing name is `thing` (any board that offers it, for nil), in the app's
+    /// configured AWS region. Call `start()` on it.
+    public func relayLink(thing: String?, region: String) -> RelayLink {
+        RelayLink(radio: self, thing: thing, region: region)
     }
 
     func register(_ link: RadioLink, for peripheral: CBPeripheral) {
@@ -154,6 +181,7 @@ public final class BoardRadio: NSObject, @unchecked Sendable {
         var services: [CBUUID] = []
         if wantsScan { services.append(Self.serviceUUID) }
         if statusFound != nil { services.append(Self.statusServiceUUID) }
+        if relayFound != nil { services.append(Self.relayServiceUUID) }
         guard !services.isEmpty else { return }
         central.scanForPeripherals(withServices: services,
                                    options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
@@ -201,6 +229,12 @@ extension BoardRadio: CBCentralManagerDelegate {
         let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? peripheral.name
         guard let name, BoardName.isValid(name) else { return }
         let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
+        if services.contains(Self.relayServiceUUID) {
+            // Offering the relay: for RelayLink alone, never on the list of boards to update.
+            peripherals[peripheral.identifier] = peripheral
+            relayFound?(peripheral)
+            return
+        }
         if services.contains(Self.statusServiceUUID) {
             // After a restart: for the status alone, never on the list of boards to update.
             peripherals[peripheral.identifier] = peripheral

@@ -87,8 +87,8 @@ Every app is a thin native shell around the same web bundle, so a console change
 
 | App | Platform | Where | What the shell adds |
 | --- | --- | --- | --- |
-| iPhone | iOS, Swift, WKWebView | `apps/ios` | Bluetooth update and offline mode, Face ID sign-in, camera for QR, safe areas for the iPhone 17 Pro |
-| Android | Kotlin, WebView | `apps/android` | Bluetooth, USB serial to the board, camera, app updates from CI |
+| iPhone | iOS, Swift, WKWebView | `apps/ios` | Bluetooth update, offline mode and the Bluetooth relay (0.9.6, `docs/ble-relay.md`), Face ID sign-in, camera for QR, safe areas for the iPhone 17 Pro |
+| Android | Kotlin, WebView | `apps/android` | Bluetooth (update, offline mode, the relay from 0.9.6), USB serial to the board, camera, app updates from CI |
 | Desktop | Electron, Windows and Linux | `apps/desktop` | USB serial, keep-awake during long jobs, auto-update |
 | Mac | macOS 13+, WKWebView | `apps/macos` | Native serial (IOKit, J-Link only), menus, file picker, radio sharing between windows |
 
@@ -186,6 +186,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-28 | Bluetooth relay, apps side: the iPhone and Android apps carry a board's own TLS connection to AWS IoT over L2CAP; the Offline page shows Relaying for <board>; not tried with a board | apps 0.9.6, console 2.31.2 | #318 |
 | 2026-11-26 | Local CI: `scripts/ci/local-ci.sh` runs the workflows' checks on a teammate's computer, picked by the changed files, and sets the `local-ci` commit status (GitHub Actions off) | — | #312 |
 | 2026-11-26 | Customer site redesign: boards before mixes, health in plain words, label first, floating tab bar for the iPhone 17 Pro | console 2.31.1 | #309 |
 | 2026-11-26 | Our own Vitals: crash-free boards, connected time and the newest release, by day, board and version, from the events boards already send | console 2.31.0, apps 0.9.5, desktop 0.1.19 | #304 |

@@ -195,7 +195,7 @@ public struct BridgeMethod: Equatable, Sendable {
 /// file and compares it with this, entry by entry.
 public enum BridgeSpec {
     public static let features = ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings",
-                                  "appUpdate", "storage", "usb", "camera", "bleOffline"]
+                                  "appUpdate", "storage", "usb", "camera", "bleOffline", "bleRelay"]
 
     static let pool = BridgeParam.enumeration(["admin", "customer"])
     static let storageKey = BridgeParam.string(max: 208, pattern: "^cranium\\.[!-~]{1,200}$")
@@ -255,6 +255,9 @@ public enum BridgeSpec {
         "ble.offline.status": BridgeMethod(feature: "bleOffline", params: [:]),
         "ble.offline.accept": BridgeMethod(feature: "bleOffline", params: ["version": .string(max: 7, pattern: "^\\d{1,3}\\.\\d{1,3}$")]),
         "ble.offline.disconnect": BridgeMethod(feature: "bleOffline", params: [:]),
+        // The Bluetooth relay (firmware 1.21.0): this phone carries a board's own TLS connection to AWS IoT.
+        "ble.relay.start": BridgeMethod(feature: "bleRelay", params: ["thing": .string(max: 64, pattern: "^cranium-[0-9a-f]{16}$")]),
+        "ble.relay.stop": BridgeMethod(feature: "bleRelay", params: [:]),
         // Android only: this app never offers `usb` (an iPhone has no USB serial port for an app).
         "usb.open": BridgeMethod(feature: "usb", params: ["baudRate": .integer(min: 1200, max: 1_000_000)]),
         "usb.write": BridgeMethod(feature: "usb", params: [
@@ -269,7 +272,7 @@ public enum BridgeSpec {
     ]
 
     public static let events = ["app.lifecycle", "app.bundleReady", "auth.locked", "ble.boards", "ble.link", "ble.progress",
-                                "ble.status", "ble.offline.status", "ble.offline.link", "usb.data", "usb.closed"]
+                                "ble.status", "ble.offline.status", "ble.offline.link", "ble.relay.state", "usb.data", "usb.closed"]
 }
 
 // MARK: A request
