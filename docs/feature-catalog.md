@@ -186,6 +186,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-28 | Bluetooth relay, apps side: the iPhone and Android apps carry a board's own TLS connection to AWS IoT over L2CAP; the Offline page shows Relaying for <board>; not tried with a board | apps 0.9.6, console 2.31.2 | #318 |
 | 2026-11-26 | Local CI: `scripts/ci/local-ci.sh` runs the workflows' checks on a teammate's computer, picked by the changed files, and sets the `local-ci` commit status (GitHub Actions off) | — | #312 |
 | 2026-11-26 | Customer site redesign: boards before mixes, health in plain words, label first, floating tab bar for the iPhone 17 Pro | console 2.31.1 | #309 |
 | 2026-11-26 | Our own Vitals: crash-free boards, connected time and the newest release, by day, board and version, from the events boards already send | console 2.31.0, apps 0.9.5, desktop 0.1.19 | #304 |
