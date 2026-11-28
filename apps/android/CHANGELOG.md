@@ -4,6 +4,12 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.9.6
+
+One board type (console 2.31.2 and later): the nRF5340 DK is set aside, and the pages no longer mark a board as "Bluetooth only". The console's refusal for such a board is gone from the activity log's words. (versionCode 43)
+
+`core/Audit.kt`: `bluetooth_only` and the nRF5340 DK's board label removed. The pages are the console's.
+
 ## 0.9.5
 
 Vitals (console 2.31.0 and later): a new page under Monitoring shows how the boards are doing over 7, 30 or 90 days, from what they already send: the share of boards with no crash, the share of the time they were connected, the share on the newest release, restarts, connection drops and memory that ran low, by day, by board and by version. A board's vitals add its Wi-Fi signal, lowest free heap and longest uptime of the last 7 days. (versionCode 42)

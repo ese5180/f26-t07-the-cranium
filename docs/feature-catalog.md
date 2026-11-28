@@ -186,6 +186,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-27 | The nRF5340 DK put on ice: its board files, Bluetooth-only mode, tools, tests, board type and words leave `main`; the branch `ice/nrf5340dk` and the tag `archive/nrf5340dk` keep them | console 2.31.2, apps 0.9.6, desktop 0.1.20 | #314 |
 | 2026-11-26 | Local CI: `scripts/ci/local-ci.sh` runs the workflows' checks on a teammate's computer, picked by the changed files, and sets the `local-ci` commit status (GitHub Actions off) | — | #312 |
 | 2026-11-26 | Customer site redesign: boards before mixes, health in plain words, label first, floating tab bar for the iPhone 17 Pro | console 2.31.1 | #309 |
 | 2026-11-26 | Our own Vitals: crash-free boards, connected time and the newest release, by day, board and version, from the events boards already send | console 2.31.0, apps 0.9.5, desktop 0.1.19 | #304 |
