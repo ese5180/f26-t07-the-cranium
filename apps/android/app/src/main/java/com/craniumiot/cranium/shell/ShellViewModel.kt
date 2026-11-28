@@ -185,6 +185,8 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
         register("ble.offline.status") { ble.offlineStatus() }
         register("ble.offline.accept") { params -> ble.offlineAccept(params) }
         register("ble.offline.disconnect") { ble.offlineDisconnect() }
+        register("ble.relay.start") { params -> ble.relayStart(params, config.region) }
+        register("ble.relay.stop") { ble.relayStop() }
         register("usb.open") { params -> usb.open(params) }
         register("usb.write") { params -> usb.write(params) }
         register("usb.close") { params -> usb.close(params) }
@@ -236,6 +238,8 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
             all += "ble"
             // Offline mode: the board's own service on the same radio (ble.offline.*).
             all += "bleOffline"
+            // The Bluetooth relay: L2CAP channels need Android 10.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) all += "bleRelay"
         }
         if (usb.available) all += "usb"
         if (hasCamera) all += "camera"

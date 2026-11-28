@@ -15,6 +15,10 @@
  *
  * The flow (createOfflineFlow) is given the bridge and timers, so that the tests drive it with stand-ins.
  * offlineView draws it.
+ *
+ * Where the app also offers `bleRelay` (firmware 1.21.0, docs/ble-relay.md), the page has the Bluetooth relay
+ * as well: this phone carries a board's own TLS connection to AWS IoT while the board has no Wi-Fi. The app
+ * does it all (ble.relay.*); the page asks for the board and says how it goes.
  */
 
 import { signalQuality } from './core.js';
@@ -292,6 +296,7 @@ export function createOfflineFlow({ bridge, onChange = () => {}, device = 'devic
 
   return {
     flow,
+    relay: typeof bridge.has === 'function' && bridge.has('bleRelay') ? createRelayFlow({ bridge, onChange }) : null,
     lookForBoards,
     connect,
     askToAccept,
@@ -304,6 +309,131 @@ export function createOfflineFlow({ bridge, onChange = () => {}, device = 'devic
       await lookForBoards();
     },
   };
+}
+
+// The Bluetooth relay.
+
+const THING = /^cranium-[0-9a-f]{16}$/;
+const RELAY_STATES = ['looking', 'connecting', 'ready', 'relaying', 'stopped'];
+
+/**
+ * The relay for one board, as the app reports it (ble.relay.state). `wanted` is what the person typed: the
+ * board's cloud name, which the app checks against what the board says before it relays anything.
+ */
+export function createRelayFlow({ bridge, onChange = () => {} }) {
+  const relay = { state: 'stopped', thing: null, bytesUp: 0, bytesDown: 0, error: null, problem: null, wanted: '' };
+  const count = (value, before) => (Number.isInteger(value) && value >= 0 ? value : before);
+
+  bridge.on('ble.relay.state', (data) => {
+    if (!RELAY_STATES.includes(data?.state)) return;
+    relay.state = data.state;
+    if (typeof data.thing === 'string' && THING.test(data.thing)) relay.thing = data.thing;
+    relay.bytesUp = count(data.bytesUp, relay.bytesUp);
+    relay.bytesDown = count(data.bytesDown, relay.bytesDown);
+    relay.error = typeof data.error === 'string' && data.error !== '' ? data.error : null;
+    onChange();
+  });
+
+  return {
+    relay,
+    setWanted(text) {
+      relay.wanted = String(text ?? '');
+    },
+    async start() {
+      const thing = relay.wanted.trim().toLowerCase();
+      if (!THING.test(thing)) {
+        relay.problem = 'Type the board’s name in the cloud: cranium- and 16 letters and digits, as on its page.';
+        onChange();
+        return;
+      }
+      relay.problem = null;
+      try {
+        await bridge.call('ble.relay.start', { thing });
+        relay.state = 'looking';
+        relay.thing = thing;
+        relay.bytesUp = 0;
+        relay.bytesDown = 0;
+        relay.error = null;
+      } catch (error) {
+        relay.problem = bridgeWords(error, 'The relay could not start.');
+      }
+      onChange();
+    },
+    async stop() {
+      await bridge.call('ble.relay.stop').catch(() => null);
+      relay.state = 'stopped';
+      onChange();
+    },
+  };
+}
+
+/** What the relay is doing, in words: "Relaying for <board>" while it relays. */
+export function relayWords(relay, name = null) {
+  const board = name ?? relay.thing ?? 'the board';
+  switch (relay.state) {
+    case 'looking':
+      return `Looking for ${board}…`;
+    case 'connecting':
+      return `Connecting to ${board}…`;
+    case 'ready':
+      return `Connected to ${board}, waiting for it to reach the cloud`;
+    case 'relaying':
+      return `Relaying for ${board}`;
+    default:
+      return 'The relay is off';
+  }
+}
+
+export function bytesWords(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function relayPanel(model) {
+  const { relay } = model;
+  const on = relay.state !== 'stopped';
+  return h(
+    'section',
+    { key: 'relay', class: 'ui-card card of-relay' },
+    h('h2', { class: 'bt-pick-title' }, 'Bluetooth relay'),
+    h(
+      'p',
+      { class: 'quiet' },
+      'With no Wi-Fi, a board can reach the cloud through this phone. Its connection stays encrypted from the board to the cloud: the app only passes it on.'
+    ),
+    on
+      ? h(
+          'p',
+          { class: relay.state === 'relaying' ? 'status is-good' : 'status', role: 'status' },
+          icon(relay.state === 'relaying' ? 'check' : 'bluetooth'),
+          h('span', null, relayWords(relay))
+        )
+      : null,
+    on && relay.state === 'relaying'
+      ? h('p', { class: 'quiet' }, `${bytesWords(relay.bytesUp)} sent, ${bytesWords(relay.bytesDown)} received`)
+      : null,
+    relay.error ? notice('warn', 'alert', relay.error) : null,
+    relay.problem ? notice('bad', 'alert', relay.problem) : null,
+    on
+      ? h('div', { class: 'actions' }, button('is-quiet', model.stop, icon('stop'), 'Stop relaying'))
+      : h(
+          'div',
+          { class: 'actions' },
+          h('input', {
+            type: 'text',
+            class: 'of-relay-thing',
+            'aria-label': 'The board’s name in the cloud',
+            placeholder: 'cranium-…',
+            autocapitalize: 'off',
+            autocomplete: 'off',
+            spellcheck: 'false',
+            value: relay.wanted,
+            onInput: (event) => model.setWanted(event.target.value),
+          }),
+          button('is-primary', model.start, icon('bluetooth'), 'Relay for this board')
+        )
+  );
 }
 
 // Drawing.
@@ -577,5 +707,6 @@ export function offlineView(ctx) {
       )
     );
   }
+  if (model.relay) body.push(relayPanel(model.relay));
   return h('div', { class: `page of-page bt-page${ctx.back ? ' is-standalone' : ''}`, key: 'page' }, head, body);
 }

@@ -87,8 +87,8 @@ Every app is a thin native shell around the same web bundle, so a console change
 
 | App | Platform | Where | What the shell adds |
 | --- | --- | --- | --- |
-| iPhone | iOS, Swift, WKWebView | `apps/ios` | Bluetooth update and offline mode, Face ID sign-in, camera for QR, safe areas for the iPhone 17 Pro |
-| Android | Kotlin, WebView | `apps/android` | Bluetooth, USB serial to the board, camera, app updates from CI |
+| iPhone | iOS, Swift, WKWebView | `apps/ios` | Bluetooth update, offline mode and the Bluetooth relay (0.9.6, `docs/ble-relay.md`), Face ID sign-in, camera for QR, safe areas for the iPhone 17 Pro |
+| Android | Kotlin, WebView | `apps/android` | Bluetooth (update, offline mode, the relay from 0.9.6), USB serial to the board, camera, app updates from CI |
 | Desktop | Electron, Windows and Linux | `apps/desktop` | USB serial, keep-awake during long jobs, auto-update |
 | Mac | macOS 13+, WKWebView | `apps/macos` | Native serial (IOKit, J-Link only), menus, file picker, radio sharing between windows |
 

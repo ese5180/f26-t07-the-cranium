@@ -57,6 +57,7 @@ const FEATURES = new Set([
   'usb',
   'camera',
   'bleOffline',
+  'bleRelay',
 ]);
 const MAX_ID = 2147483647;
 

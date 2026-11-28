@@ -7,6 +7,14 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.31.2
+
+The Offline page in the iPhone and Android apps has a Bluetooth relay: type a board's name in the cloud and the phone carries that board's own connection to the cloud while the board has no Wi-Fi, with "Relaying for <board>" while it does. Needs firmware 1.21.0's relay build and app 0.9.6. Not yet tried with a board.
+
+`cloud/web/src/site/assets/offline.js` (createRelayFlow, relayWords, the relay panel), shown where the app's hello
+offers `bleRelay`; `bridge.js` knows the feature. The bridge's `ble.relay.start {thing}`, `ble.relay.stop` and
+`ble.relay.state` are in `apps/shared/bridge.json`. Design in `docs/ble-relay.md`.
+
 ## 2.31.1
 
 The customer site, redesigned onto the console's look. A customer's Overview now opens on their boards: each board's label first and its own name second, its health as a sentence ("Running normally") with the week's restarts drawn by day and said in words beside them ("1 restart this week, expected"), then what the boards did and the four figures; the mixes follow under their own heading. On a phone the sections sit in a floating glass tab bar shaped for the iPhone 17 Pro's rounded corners, the boards first, and a dialog rises as a sheet with the screen's corners. Every page, sign-in step, admin mode and figure is still there.

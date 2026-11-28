@@ -4,6 +4,16 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.9.6
+
+Bluetooth relay, not yet tried with a board: from the Offline page, this phone carries a board's own connection to the cloud while the board has no Wi-Fi (firmware 1.21.0's relay build). The board's connection stays encrypted from end to end; the app only passes the bytes on, and only to AWS IoT in the app's region.
+
+`CraniumKit/Relay` (RelayProtocol: the frames, a streaming reader and the host check; RelayPump: the decisions and a
+bounded buffer), tested with a fake board and server against the firmware's sample frames. `CraniumBLE/RelayLink`:
+the relay service scan in BoardRadio, the PSM, `CBL2CAPChannel`, and TCP with `NWConnection`. The bridge's
+`bleRelay` (`ble.relay.start`, `ble.relay.stop`, `ble.relay.state`), never at the same time as an update or offline
+mode. Foreground only: the app has no Bluetooth background mode.
+
 ## 0.9.5
 
 Vitals (console 2.31.0 and later): a new page under Monitoring shows how the boards are doing over 7, 30 or 90 days, from what they already send: the share of boards with no crash, the share of the time they were connected, the share on the newest release, restarts, connection drops and memory that ran low, by day, by board and by version. A board's vitals add its Wi-Fi signal, lowest free heap and longest uptime of the last 7 days. (build 44)

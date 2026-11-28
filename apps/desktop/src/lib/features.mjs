@@ -24,7 +24,7 @@
  */
 
 export const FEATURES = Object.freeze(['auth', 'clipboard', 'share', 'open', 'keepAwake', 'settings', 'ble']);
-export const NOT_OFFERED = Object.freeze(['biometric', 'haptics', 'appUpdate', 'storage', 'usb', 'camera', 'bleOffline']);
+export const NOT_OFFERED = Object.freeze(['biometric', 'haptics', 'appUpdate', 'storage', 'usb', 'camera', 'bleOffline', 'bleRelay']);
 
 export const METHODS = Object.freeze([
   'app.config',
