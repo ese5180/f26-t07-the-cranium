@@ -425,14 +425,14 @@ static const struct line firmware_lines[] = {
 	{ "BT", "trial: waiting for a minute of running", NULL },
 	{ "BT", "not opening: an update is under way", NULL },
 	/* From 1.13.0: an image for another board type or flash layout. */
-	{ "BT", "refused an upload: it is for nrf9999dk, and this board is nrf7002dk", NULL },
+	{ "BT", "refused an upload: it is for nrf5340dk, and this board is nrf7002dk", NULL },
 	{ "BT", "refused an upload: it is for flash layout 2, and this board has 1", NULL },
 	{ "BT", "refused an upload: its signed metadata is malformed", NULL },
-	{ "BT", "refused the image: it is for nrf9999dk, and this board is nrf7002dk", NULL },
+	{ "BT", "refused the image: it is for nrf5340dk, and this board is nrf7002dk", NULL },
 	{ "BT", "update over Bluetooth: 1.13.0+0 from 1.12.0+0, incompatible_board, proof none, update 4 of this board",
 	  NULL },
 	{ "bt_ota", "ERR: Update over Bluetooth refused: incompatible_layout", NULL },
-	{ "ota", "ERR: Update cranium-1-13-0 failed: incompatible_board (image is for nrf9999dk)", NULL },
+	{ "ota", "ERR: Update cranium-1-13-0 failed: incompatible_board (image is for nrf5340dk)", NULL },
 	{ "ota", "ERR: Update cranium-1-13-0 failed: incompatible_layout (image is for flash layout 2)", NULL },
 	/* console.c, console_cmd.c, main.c */
 	{ "CONSOLE", "test image: losing power before the init flag", NULL },

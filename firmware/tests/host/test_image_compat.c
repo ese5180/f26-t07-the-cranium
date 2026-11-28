@@ -191,7 +191,7 @@ static void test_an_image_for_this_board(void)
 		static const struct tlv mixed[] = {
 			{ 0x50, "\x01\x00\x00\x00", 4 }, { IMAGE_COMPAT_TLV_LAYOUT, "1", 0 },
 			{ 0xa3, "", 0 }, { IMAGE_COMPAT_TLV_BOARD, "nrf7002dk", 0 },
-			{ 0x1a1, "nrf9999dk", 0 }, END,
+			{ 0x1a1, "nrf5340dk", 0 }, END,
 		};
 
 		image(mixed, NULL);
@@ -202,13 +202,13 @@ static void test_an_image_for_this_board(void)
 static void test_an_image_for_another_board_or_layout(void)
 {
 	static const struct tlv other_board[] = {
-		{ IMAGE_COMPAT_TLV_BOARD, "nrf9999dk", 0 }, { IMAGE_COMPAT_TLV_LAYOUT, "1", 0 }, END,
+		{ IMAGE_COMPAT_TLV_BOARD, "nrf5340dk", 0 }, { IMAGE_COMPAT_TLV_LAYOUT, "1", 0 }, END,
 	};
 	static const struct tlv other_layout[] = {
 		{ IMAGE_COMPAT_TLV_BOARD, "nrf7002dk", 0 }, { IMAGE_COMPAT_TLV_LAYOUT, "2", 0 }, END,
 	};
 	static const struct tlv both[] = {
-		{ IMAGE_COMPAT_TLV_BOARD, "nrf9999dk", 0 }, { IMAGE_COMPAT_TLV_LAYOUT, "7", 0 }, END,
+		{ IMAGE_COMPAT_TLV_BOARD, "nrf5340dk", 0 }, { IMAGE_COMPAT_TLV_LAYOUT, "7", 0 }, END,
 	};
 	static const struct tlv big_layout[] = {
 		{ IMAGE_COMPAT_TLV_BOARD, "nrf7002dk", 0 },
@@ -218,7 +218,7 @@ static void test_an_image_for_another_board_or_layout(void)
 
 	image(other_board, NULL);
 	CHECK(check(&found) == IMAGE_COMPAT_OTHER_BOARD);
-	CHECK(strcmp(found.board, "nrf9999dk") == 0 && found.layout == 1);
+	CHECK(strcmp(found.board, "nrf5340dk") == 0 && found.layout == 1);
 
 	image(other_layout, NULL);
 	CHECK(check(&found) == IMAGE_COMPAT_OTHER_LAYOUT);
@@ -265,7 +265,7 @@ static void test_a_legacy_image_is_for_the_nrf7002dk_and_layout_1(void)
 
 static void test_a_board_type_outside_the_protected_area_counts_for_nothing(void)
 {
-	static const struct tlv outside[] = { { IMAGE_COMPAT_TLV_BOARD, "nrf9999dk", 0 },
+	static const struct tlv outside[] = { { IMAGE_COMPAT_TLV_BOARD, "nrf5340dk", 0 },
 					      { IMAGE_COMPAT_TLV_LAYOUT, "9", 0 }, END };
 	struct image_compat found;
 
@@ -276,7 +276,7 @@ static void test_a_board_type_outside_the_protected_area_counts_for_nothing(void
 
 	/* Nor does one there change what the protected area says. */
 	{
-		static const struct tlv other[] = { { IMAGE_COMPAT_TLV_BOARD, "nrf9999dk", 0 }, END };
+		static const struct tlv other[] = { { IMAGE_COMPAT_TLV_BOARD, "nrf5340dk", 0 }, END };
 		static const struct tlv ours[] = { { IMAGE_COMPAT_TLV_BOARD, "nrf7002dk", 0 }, END };
 
 		image(other, ours);
@@ -451,7 +451,7 @@ static void test_the_reader_gives_the_same_whatever_the_pieces(void)
 	const struct tlv *const images[] = {
 		this_board,
 		(const struct tlv[]){ { 0x50, "\x01\x00\x00\x00", 4 },
-				      { IMAGE_COMPAT_TLV_BOARD, "nrf9999dk", 0 }, END },
+				      { IMAGE_COMPAT_TLV_BOARD, "nrf5340dk", 0 }, END },
 		(const struct tlv[]){ { IMAGE_COMPAT_TLV_LAYOUT, "12", 0 }, END },
 		(const struct tlv[]){ { IMAGE_COMPAT_TLV_BOARD, "nrf7002dk", 0 },
 				      { IMAGE_COMPAT_TLV_BOARD, "nrf7002dk", 0 }, END },

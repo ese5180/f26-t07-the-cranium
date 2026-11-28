@@ -34,6 +34,7 @@ if(CONFIG_BOOTLOADER_MCUBOOT AND
                       "\"${CONFIG_MCUBOOT_EXTRA_IMGTOOL_ARGS}\"")
 endif()
 
+if(NOT CONFIG_APP_BT_ONLY)
 target_sources(app PRIVATE
   src/main.c
   src/cloud/cloud.c
@@ -61,6 +62,25 @@ target_sources_ifdef(CONFIG_APP_GOLDEN_PROMOTE app PRIVATE
   src/policy/golden_job_policy.c
   sysbuild/mcuboot/golden/src/golden_record.c
 )
+else()
+# A board with Bluetooth only: its own main loop and update manager, and no network or cloud at all.
+# src/bt_only/bt_only_stubs.c answers what the shared code asks of Wi-Fi and the cloud with "there is none".
+# The console reads the reset cause from src/reset_cause.c, as on the nRF7002 DK.
+target_sources(app PRIVATE
+  src/bt_only/bt_only_leds.c
+  src/bt_only/bt_only_main.c
+  src/bt_only/bt_only_ota.c
+  src/bt_only/bt_only_stubs.c
+  src/device.c
+  src/factory.c
+  src/health.c
+  src/identity.c
+  src/reset_cause.c
+  src/store.c
+  src/ui.c
+  src/ota/version.c
+)
+endif()
 
 # On every board: what a stored record of an update means after a restart, and what an image is
 # compatible with (image_compat.h), for ota.c and bt_ota.c.
@@ -77,8 +97,10 @@ target_sources_ifdef(CONFIG_APP_CONSOLE app PRIVATE
   src/console_stream.c
 )
 
-# Creating the device key for AWS IoT.
-target_sources_ifdef(CONFIG_APP_CONSOLE app PRIVATE src/console_keys.c)
+# Creating the device key for AWS IoT: there is no AWS IoT on a board with Bluetooth only.
+if(CONFIG_APP_CONSOLE AND NOT CONFIG_APP_BT_ONLY)
+  target_sources(app PRIVATE src/console_keys.c)
+endif()
 
 target_sources_ifdef(CONFIG_APP_BT_OTA app PRIVATE
   src/bt/bt_ota.c
@@ -103,6 +125,31 @@ endif()
 # warns about, and this would be an image with a Bluetooth host and nobody to read a passkey.
 if(CONFIG_BT AND NOT CONFIG_APP_BT_OTA)
   message(FATAL_ERROR "Firmware update over Bluetooth needs the console: CONFIG_APP_CONSOLE is off")
+endif()
+
+# Memfault's chunks go over AWS IoT (docs/memfault.md), which a board with Bluetooth only does not have.
+if(CONFIG_APP_BT_ONLY AND CONFIG_MEMFAULT)
+  message(FATAL_ERROR "A board with Bluetooth only has no AWS IoT to send Memfault's chunks over: "
+                      "CONFIG_MEMFAULT must be off")
+endif()
+
+# sysbuild.cmake gives the nRF5340 DK prj_bt_only.conf. A CONF_FILE of one's own must have it too.
+if(CONFIG_BOARD_NRF5340DK AND NOT CONFIG_APP_BT_ONLY)
+  message(FATAL_ERROR "The nRF5340 DK has no Wi-Fi chip: it builds with prj_bt_only.conf, and "
+    "Bluetooth only. A CONF_FILE given on the command line replaced it.")
+endif()
+
+# Nothing of the cloud in an image with Bluetooth only: no heartbeat, no shadow, no MQTT, no downloader.
+# bt_only_check.py looks at the linked image, and the build fails if any of it is there. A target of its
+# own after the link: Zephyr reads extra_post_build_commands before this file gets that far.
+if(CONFIG_APP_BT_ONLY)
+  add_custom_target(cranium_bt_only_check ALL
+    COMMAND ${PYTHON_EXECUTABLE} -I ${CMAKE_CURRENT_LIST_DIR}/bt_only_check.py
+            --nm ${CMAKE_NM} --elf ${CMAKE_BINARY_DIR}/zephyr/${KERNEL_ELF_NAME}
+            --bin ${CMAKE_BINARY_DIR}/zephyr/${KERNEL_BIN_NAME}
+    COMMENT "Checking that nothing of the cloud is in this image"
+    VERBATIM)
+  add_dependencies(cranium_bt_only_check ${logical_target_for_zephyr_elf})
 endif()
 
 target_sources_ifndef(CONFIG_APP_CONSOLE app PRIVATE src/log_discard.c)
@@ -145,6 +192,7 @@ zephyr_linker_sources_ifdef(CONFIG_LOG SECTIONS src/log_backend_check.ld)
 target_include_directories(app PRIVATE
   src
   src/bt
+  src/bt_only
   src/cloud
   src/mflt
   src/ota

@@ -1,6 +1,6 @@
 /*
  * What a board's own Bluetooth passkey may be, and when it is used, with no Bluetooth and no storage in
- * it. With CONFIG_APP_BT_STATIC_PASSKEY (offline mode). src/bt/bt_passkey.h has the
+ * it. With CONFIG_APP_BT_STATIC_PASSKEY, on a board with Bluetooth only. src/bt/bt_passkey.h has the
  * reasons, and src/bt/bt_passkey.c does what these functions decide. No side effects and no hardware
  * dependencies, so firmware/tests/host runs it.
  */

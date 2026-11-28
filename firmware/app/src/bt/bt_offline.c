@@ -17,8 +17,10 @@
 #include "ota.h"
 #include "reset_cause.h"
 #include "version.h"
+#if !defined(CONFIG_APP_BT_ONLY)
 #include "cloud.h"
 #include "net.h"
+#endif
 
 /*
  * What a phone reads, written by the main loop under the lock and read by the Bluetooth host's thread. A
@@ -146,8 +148,10 @@ void bt_offline_on_tick(void)
 	if (upload == BT_OTA_UPLOAD_WAITING) {
 		status.waiting = to_offline(&image);
 	}
+#if !defined(CONFIG_APP_BT_ONLY)
 	status.wifi = net_is_up() ? BT_OFFLINE_WIFI_UP : BT_OFFLINE_WIFI_DOWN;
 	status.cloud = cloud_is_connected() ? BT_OFFLINE_CLOUD_UP : BT_OFFLINE_CLOUD_DOWN;
+#endif
 
 	key = k_spin_lock(&lock);
 	bt_offline_encode(&status, payload);

@@ -8,7 +8,7 @@
 
 /*
  * A trace event's text: the reason of an update that failed or was refused, and what the image
- * said ("incompatible_board: image is for <type>"). It waits in the SDK's event storage until
+ * said ("incompatible_board: image is for nrf5340dk"). It waits in the SDK's event storage until
  * it is sent, so it is kept short.
  */
 #define MEMFAULT_TRACE_EVENT_MAX_LOG_LEN 64

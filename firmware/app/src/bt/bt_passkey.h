@@ -1,19 +1,19 @@
 /*
- * A board's own Bluetooth passkey, with CONFIG_APP_BT_STATIC_PASSKEY, which offline mode selects
- * (src/bt/bt_offline.h).
+ * A board's own Bluetooth passkey, with CONFIG_APP_BT_STATIC_PASSKEY: the nRF5340 DK, which has
+ * Bluetooth only.
  *
- * Without it the Bluetooth host draws a new passkey for every attempt, the console shows it, and a
- * board that is online also puts it into its device shadow for 150 s, where a release manager's phone
- * reads it. A board out of reach of the cloud has no shadow to put it in, and nobody need be at its
- * serial port, so the phone could never learn the passkey. So the board keeps one:
+ * On an nRF7002 DK the Bluetooth host draws a new passkey for every attempt, the console shows it, and
+ * a board that is online also puts it into its device shadow for 150 s, where a release manager's phone
+ * reads it. A board with no cloud has no shadow, and nobody need be at its serial port, so the phone
+ * could never learn the passkey. So this board keeps one:
  *
- *   - BT_OFFLINE|NEW draws a 6-digit passkey at random on the board and four hex digits for the name,
- *     and shows the passkey once; BT_PASSKEY stores one drawn elsewhere.
+ *   - tools/provision_device.py --board nrf5340dk draws a 6-digit passkey at random and four hex digits
+ *     for the name, registers both with the console for this thing, and sends them with BT_PASSKEY.
  *     The board keeps them in TF-M's protected storage, encrypted with a key derived from the
  *     hardware unique key, as the other secrets of a board are. Nothing reads the passkey back out:
  *     the console says only "set", and it is never printed or sent anywhere.
  *   - It advertises as Cranium- and those four digits in every window, so that the phone knows which
- *     board it has found before it pairs.
+ *     board it has found before it pairs, and asks the console's pairing route for that name.
  *   - The Bluetooth host is handed this passkey for LE Secure Connections pairing with MITM protection
  *     (CONFIG_BT_APP_PASSKEY), with everything else as before: a person holds Button 1 for a window,
  *     no bonds, three failed pairings close the window.
@@ -34,13 +34,15 @@
  *     up, so the failures are counted across windows and restarts, and 3 of them lock the passkey: an
  *     attacker who keeps guessing from the start pairs before that with a chance of 0.02%. With a budget
  *     of 6 it would be 2%.
+ *   - The console holds a copy, so whoever can read the console's pairing route, a release manager, can
+ *     pair with any of these boards whenever a person has opened a window on it. Each read is logged.
  *
  * What does not change: no window opens without a person holding Button 1 for 5 s, and it closes after
  * 3 minutes; nothing but a newer image signed with this project's key can be uploaded; nothing is
  * installed without a second press of Button 1; the image runs on trial and reverts unless a person
  * proves it; no bond is kept. A passkey that got out lets someone in range during a window upload a
  * signed newer image, which a person then has to choose to install, or read the board's status. Store
- * a new one (BT_OFFLINE|NEW) whenever that may have happened:
+ * a new one (provision_device.py --board nrf5340dk --new-passkey) whenever that may have happened:
  * after a pairing near people with radios, or when STATUS|bluetooth shows failures nobody explains.
  */
 

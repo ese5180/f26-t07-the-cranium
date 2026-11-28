@@ -74,6 +74,25 @@ static const char *const section_names[SECTION_COUNT] = {
 
 static const struct console_command *find_command(const char *name);
 
+/*
+ * A board with Bluetooth only (CONFIG_APP_BT_ONLY) has no Wi-Fi, no cloud and no certificate. Their
+ * commands stay in the table, so that each one says that, and HELP leaves them out.
+ */
+static bool on_this_board(const struct console_command *command)
+{
+#if defined(CONFIG_APP_BT_ONLY)
+	return command->section != SECTION_WIFI && command->section != SECTION_CLOUD &&
+	       command->section != SECTION_STREAM && strcmp(command->name, "RESET_CONFIG") != 0;
+#else
+	ARG_UNUSED(command);
+	return true;
+#endif
+}
+
+#if defined(CONFIG_APP_BT_ONLY)
+#define NOT_ON_THIS_BOARD "not on this board: an " CONFIG_APP_BOARD_TYPE " has Bluetooth only, no Wi-Fi and no cloud"
+#endif
+
 static struct console_reader reader;
 /* The reply being assembled. Only the console task uses this. */
 static char reply_text[REPLY_MAX];
@@ -792,10 +811,12 @@ static const char *mqtt_state_name(const struct cloud_stats *stats, char *buffer
 	return buffer;
 }
 
+#if !defined(CONFIG_APP_BT_ONLY)
 static const char *set_or_unset(bool set)
 {
 	return set ? "set" : "unset";
 }
+#endif
 
 static const char *mode_name(void)
 {
@@ -808,9 +829,15 @@ static void print_device(void)
 	console_reply_line(KEY_VALUE, "id", device_id());
 	console_reply_line(KEY_VALUE, "thing name", identity_thing_name());
 	console_reply_line(KEY_VALUE, "firmware", fw_version_running_string());
+#if defined(CONFIG_APP_BT_ONLY)
+	/* What tools/provision_device.py checks. A board that says none is an nRF7002 DK. */
+	console_reply_line(KEY_VALUE, "board", CONFIG_APP_BOARD_TYPE);
+	console_reply_line("%-14s %d", "layout", CONFIG_APP_IMAGE_LAYOUT);
+#endif
 	console_reply_line("%-14s %u", "stuck count", (unsigned int)main_view.stuck_count);
 }
 
+#if !defined(CONFIG_APP_BT_ONLY)
 static void print_wifi(void)
 {
 	net_status_get(&net_view);
@@ -844,6 +871,7 @@ static void print_certs(void)
 	console_reply_line(KEY_VALUE, "private key", set_or_unset(factory_has_private_key()));
 	console_reply_line(KEY_VALUE, "certificate", set_or_unset(factory_has_certificate()));
 }
+#endif /* !CONFIG_APP_BT_ONLY */
 
 static void print_update(void)
 {
@@ -895,9 +923,11 @@ static const struct {
 	void (*print)(void);
 } status_sections[] = {
 	{ "device", print_device },
+#if !defined(CONFIG_APP_BT_ONLY)
 	{ "wifi", print_wifi },
 	{ "cloud", print_cloud },
 	{ "certs", print_certs },
+#endif
 #if defined(CONFIG_APP_BT_STATIC_PASSKEY)
 	{ "bluetooth", print_bluetooth },
 #endif
@@ -928,6 +958,14 @@ static void cmd_status(int argc, char **argv)
 		return;
 	}
 
+#if defined(CONFIG_APP_BT_ONLY)
+	if (console_equal_nocase(argv[0], "wifi") || console_equal_nocase(argv[0], "cloud") ||
+	    console_equal_nocase(argv[0], "certs")) {
+		reply_err(NOT_ON_THIS_BOARD);
+		return;
+	}
+#endif
+
 	for (size_t i = 0; i < STATUS_SECTION_COUNT; i++) {
 		strcat(names, " ");
 		strcat(names, status_sections[i].name);
@@ -955,6 +993,10 @@ static void box_field(const char *prefix, const char *label, const char *value)
 
 static void box_wifi(const char *prefix)
 {
+#if defined(CONFIG_APP_BT_ONLY)
+	box_field(prefix, "Board", CONFIG_APP_BOARD_TYPE ", Bluetooth only");
+	return;
+#endif
 	net_status_get(&net_view);
 
 	if (!net_view.stored) {
@@ -1436,7 +1478,7 @@ static int do_bt_passkey(void *arg)
 
 /*
  * BT_PASSKEY|<6 digits>|<4 hex digits> stores the board's own passkey and the name it advertises,
- * drawn by whoever sets the board up (offline mode draws its own: BT_OFFLINE|NEW).
+ * which tools/provision_device.py --board nrf5340dk draws and registers with the console first.
  * BT_PASSKEY|CLEAR erases it: each pairing then shows a new passkey here. Nothing shows a stored
  * one: see src/bt/bt_passkey.h.
  */
@@ -1690,8 +1732,13 @@ static const struct console_command commands[] = {
 	{ "MQTT_RECONNECT", NULL, "MQTT_RECONNECT", "drop the MQTT connection and connect again now",
 	  SECTION_CLOUD, false, 0, 0, cmd_mqtt_reconnect },
 
+#if defined(CONFIG_APP_BT_ONLY)
+	{ "STATS", NULL, "STATS", "show state, id, firmware, board, uptime, memory, last reset",
+	  SECTION_STATUS, false, 0, 0, cmd_stats },
+#else
 	{ "STATS", NULL, "STATS", "show state, id, firmware, wifi, uptime, memory, last reset",
 	  SECTION_STATUS, false, 0, 0, cmd_stats },
+#endif
 #if defined(CONFIG_APP_BT_STATIC_PASSKEY)
 	{ "STATUS", NULL, "STATUS[|<device or bluetooth or update>]",
 	  "print the configuration, or one section of it", SECTION_STATUS, false, 0, 1, cmd_status },
@@ -1840,10 +1887,23 @@ static void cmd_help(int argc, char **argv)
 			   "ARGUMENTS", "WHAT IT DOES");
 
 	for (int section = 0; section < SECTION_COUNT; section++) {
+#if defined(CONFIG_APP_BT_ONLY)
+		/* A section whose commands are all for Wi-Fi or the cloud has nothing on this board. */
+		bool any = false;
+
+		for (size_t i = 0; i < COMMAND_COUNT; i++) {
+			any = any || ((int)commands[i].section == section && on_this_board(&commands[i]));
+		}
+
+		if (!any) {
+			continue;
+		}
+#endif
+
 		help_rule(section_names[section]);
 
 		for (size_t i = 0; i < COMMAND_COUNT; i++) {
-			if ((int)commands[i].section == section) {
+			if ((int)commands[i].section == section && on_this_board(&commands[i])) {
 				help_row(&commands[i]);
 			}
 		}
@@ -1873,6 +1933,13 @@ static void run_line(char *line)
 			  name);
 		return;
 	}
+
+#if defined(CONFIG_APP_BT_ONLY)
+	if (!on_this_board(command)) {
+		reply_err(NOT_ON_THIS_BOARD);
+		return;
+	}
+#endif
 
 	if (device_is_factory() && !command->in_factory) {
 		reply_err("factory mode, send INIT|<id> first");

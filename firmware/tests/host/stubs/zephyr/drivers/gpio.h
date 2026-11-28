@@ -1,6 +1,7 @@
 /*
  * Host build: the little of the GPIO API that ui.c uses. The pin goes nowhere, but what was last set
- * on it is kept, by the alias's number, for a test that looks: LED1 is led0, LED2 is led1.
+ * on it is kept, by the alias's number, for a test that looks: LED1 is led0, LED2 is led1, and on a
+ * board with Bluetooth only, LED3 is led2 and LED4 is led3 (bt_only_leds.c).
  */
 #ifndef HOST_STUB_GPIO_H_
 #define HOST_STUB_GPIO_H_

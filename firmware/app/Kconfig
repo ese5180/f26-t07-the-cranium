@@ -12,12 +12,15 @@ CRANIUM_LAYOUT_TLV := 0xa2
 
 # Each board's flash layout number. It goes up whenever its partitions change, and
 # firmware/app/flash_layouts.json holds what its partitions are for each number: the build stops if
-# they are not those (sysbuild.cmake). Numbers are per board type.
+# they are not those (sysbuild.cmake). Numbers are per board type: the nRF5340 DK's first layout,
+# boards/nrf5340dk_nrf5340_cpuapp_ns.overlay, is its 1.
 CRANIUM_NRF7002DK_LAYOUT := 1
+CRANIUM_NRF5340DK_LAYOUT := 1
 
 config APP_BOARD_TYPE
 	string
 	default "nrf7002dk" if BOARD_NRF7002DK_NRF5340_CPUAPP_NS || BOARD_NRF7002DK_NRF5340_CPUAPP
+	default "nrf5340dk" if BOARD_NRF5340DK_NRF5340_CPUAPP_NS || BOARD_NRF5340DK_NRF5340_CPUAPP
 	help
 	  From 1.13.0. The kind of board this image is for, as the console knows it (docs/fleet.md):
 	  in the image's protected TLV, through MCUBOOT_EXTRA_IMGTOOL_ARGS below, and in the
@@ -27,6 +30,7 @@ config APP_BOARD_TYPE
 config APP_IMAGE_LAYOUT
 	int
 	default $(CRANIUM_NRF7002DK_LAYOUT) if BOARD_NRF7002DK_NRF5340_CPUAPP_NS || BOARD_NRF7002DK_NRF5340_CPUAPP
+	default $(CRANIUM_NRF5340DK_LAYOUT) if BOARD_NRF5340DK_NRF5340_CPUAPP_NS || BOARD_NRF5340DK_NRF5340_CPUAPP
 	default 0
 	help
 	  From 1.13.0. The number of this board's flash layout: its partitions, its slot sizes and the
@@ -40,6 +44,7 @@ if BOOTLOADER_MCUBOOT
 # Before Zephyr's own definition, which defaults to "", so these defaults come first.
 config MCUBOOT_EXTRA_IMGTOOL_ARGS
 	default "--custom-tlv $(CRANIUM_BOARD_TLV) nrf7002dk --custom-tlv $(CRANIUM_LAYOUT_TLV) $(CRANIUM_NRF7002DK_LAYOUT)" if BOARD_NRF7002DK_NRF5340_CPUAPP_NS || BOARD_NRF7002DK_NRF5340_CPUAPP
+	default "--custom-tlv $(CRANIUM_BOARD_TLV) nrf5340dk --custom-tlv $(CRANIUM_LAYOUT_TLV) $(CRANIUM_NRF5340DK_LAYOUT)" if BOARD_NRF5340DK_NRF5340_CPUAPP_NS || BOARD_NRF5340DK_NRF5340_CPUAPP
 
 endif # BOOTLOADER_MCUBOOT
 
@@ -212,7 +217,7 @@ config APP_LOCATION
 
 config APP_SESSIONS
 	bool "Send listening sessions and now playing to AWS IoT, and the SESSION_TEST command"
-	depends on APP_CONSOLE
+	depends on APP_CONSOLE && !APP_BT_ONLY
 	default y
 	help
 	  From 1.18.0. What Mixxx plays, as sessions with their tracks and what is on the decks now, to
@@ -317,40 +322,8 @@ config APP_CRASH_DEMO_AFTER_SECONDS
 	default 60
 	range 10 3600
 
-# A passkey of the board's own, and offline Bluetooth mode.
-config APP_BT_STATIC_PASSKEY
-	bool "A passkey of its own for pairing, stored at provisioning"
-	depends on APP_BT_OTA
-	select BT_APP_PASSKEY
-	help
-	  For a phone that has no device shadow to get a fresh passkey from: the board keeps one 6-digit
-	  passkey in TF-M's protected storage, drawn on the board by BT_OFFLINE|NEW (offline mode) or
-	  given to it with BT_PASSKEY. It is never shown on the console after that. Without one, or once
-	  it is locked, the Bluetooth host draws a new passkey for each attempt and the console shows it.
-	  src/bt/bt_passkey.h says what this costs.
-
-config APP_BT_PASSKEY_FAILURE_BUDGET
-	int "Failed pairings that the stored passkey survives"
-	depends on APP_BT_STATIC_PASSKEY
-	default 3
-	range 1 20
-	help
-	  A guess at a passkey that does not change, which fails, gives away the bit it failed on and
-	  every bit it got right before that: two on average. After this many failures with it, counted
-	  from when it was stored and across windows and restarts, the board stops using it until a new
-	  one is stored. An attacker who guesses from the start pairs before that with a chance of 0.02%
-	  at 3, 0.13% at 4 and 2% at 6, against 0.0003% for three tries at a new passkey each time. Three
-	  failures in one window close the window, whatever this is.
-
-config APP_BT_OFFLINE
-	bool "Offline Bluetooth mode: status and accept-update from a phone, with no cloud"
-	depends on APP_BT_OTA
-	select APP_BT_STATIC_PASSKEY
-	help
-	  From 1.19.0. A GATT service of its own with the board's status (firmware version, uptime,
-	  Wi-Fi, cloud, update state, last restart) and one write that accepts the update that a phone
-	  has sent and that waits. Both need a link that paired with the board's own passkey, drawn on
-	  the board by BT_OFFLINE|NEW. See src/bt/bt_offline.h and "Offline mode" in docs/mobile-apps.md.
+# The board types of docs/fleet.md, and the board with Bluetooth only.
+rsource "Kconfig.bt_only"
 
 config APP_VERSION_FROM_BUILD
 	bool
@@ -450,7 +423,7 @@ config APP_TEST_GOLDEN_FLIP_OFFSET
 
 config APP_GOLDEN_PROMOTE
 	bool "Golden image promotion from a job"
-	default y if BOARD_NRF7002DK_NRF5340_CPUAPP_NS || BOARD_NRF7002DK_NRF5340_CPUAPP
+	default y if (BOARD_NRF7002DK_NRF5340_CPUAPP_NS || BOARD_NRF7002DK_NRF5340_CPUAPP) && !APP_BT_ONLY
 	help
 	  From 1.19.3. A golden_promote job carries a promotion record signed with the offline
 	  golden key: the application writes it into external flash past golden_partition, restarts

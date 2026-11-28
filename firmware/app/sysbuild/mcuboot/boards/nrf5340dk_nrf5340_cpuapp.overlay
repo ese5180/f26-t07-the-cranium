@@ -1,0 +1,75 @@
+/*
+ * MCUboot's view of the flash layout on the nRF5340 DK. It must match the application overlay
+ * (boards/nrf5340dk_nrf5340_cpuapp_ns.overlay in the application directory), and it is the nRF7002
+ * DK's layout, with the external flash on QSPI.
+ *
+ * Based on sysbuild/mcuboot/boards/nrf7002dk_nrf5340_cpuapp.overlay, itself from nRF Connect SDK
+ * v3.4.0 samples/net/aws_iot (Copyright (c) 2023 Nordic Semiconductor ASA, LicenseRef-Nordic-5-Clause).
+ */
+
+/ {
+	chosen {
+		nordic,pm-ext-flash = &mx25r64;
+		zephyr,code-partition = &boot_partition;
+		/*
+		 * Serial recovery cannot share a UART with the log. It takes uart0, the port the
+		 * application's console uses: the DK's second virtual COM port. The log goes to
+		 * uart1, on P1.00 and P1.01, the first.
+		 */
+		zephyr,uart-mcumgr = &uart0;
+		zephyr,console = &uart1;
+	};
+};
+
+&uart1 {
+	status = "okay";
+};
+
+/* P1.00 and P1.01 are uart1's here, and not the network core's. */
+&gpio_fwd {
+	status = "disabled";
+};
+
+/delete-node/ &boot_partition;
+/delete-node/ &slot0_partition;
+/delete-node/ &slot1_partition;
+
+&flash0 {
+	partitions {
+		boot_partition: partition@0 {
+			compatible = "zephyr,mapped-partition";
+			label = "mcuboot";
+			reg = <0x0 0x10000>;
+		};
+
+		slot0_partition: partition@10000 {
+			compatible = "zephyr,mapped-partition";
+			label = "image-0";
+			reg = <0x10000 0xe4000>;
+		};
+	};
+};
+
+&mx25r64 {
+	status = "okay";
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		slot1_partition: partition@0 {
+			label = "image-1";
+			reg = <0x0 0xe4000>;
+		};
+
+		/*
+		 * Kept free for a golden image, the same size as a slot, as on the nRF7002 DK. This
+		 * board's bootloader has CONFIG_CRANIUM_GOLDEN off, so nothing reads or writes it.
+		 */
+		golden_partition: partition@700000 {
+			label = "golden";
+			reg = <0x700000 0xe4000>;
+		};
+	};
+};
