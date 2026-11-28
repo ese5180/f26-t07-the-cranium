@@ -9,20 +9,21 @@
 #   scripts/board/new-board.sh list                 the boards plugged in, with their serial numbers
 #
 # Setup takes the board through these steps, each of which says what it does, checks what it did, and
-# can be run again on its own.
+# can be run again on its own. An nRF5340 DK has no golden image, so it has no golden step.
 #
 #   build      scripts/firmware/build.sh --keep --no-upload: the bootloader, TF-M with the application and the
 #              network core's Bluetooth controller, signed with your key. binaries/ is left as it was
 #   flash      west flash --recover: ERASES the whole board, then writes all of that. It starts in factory mode
 #   golden     tools/golden.py restore puts the golden image on, and you seal it with the gesture (nRF7002 DK)
 #   release    tools/recover.py upload: the newest release for the board's type, from the console or binaries/
-#   provision  tools/provision_device.py: device ID; Wi-Fi network, key and certificate; the thing in AWS IoT,
-#              through the console with a console token, or with the AWS CLI where this computer is signed in to AWS
-#   verify     what the board's console says, and the console's view of it
+#   provision  tools/provision_device.py: device ID; Wi-Fi network, key and certificate (nRF7002 DK) or
+#              Bluetooth passkey (nRF5340 DK); the thing in AWS IoT, through the console with a console token,
+#              or with the AWS CLI where this computer is signed in to AWS
+#   verify     what the board's console says, the console's view of it, and Bluetooth (nRF5340 DK)
 #
 # Options of setup:
 #   --serial-number <n>   which board, when more than one is plugged in: the debugger's serial number
-#   --board <type>        nrf7002dk, when the debugger does not say which DK it is
+#   --board <type>        nrf7002dk or nrf5340dk, when the debugger does not say which DK it is
 #   --from <step>         start at that step, after it stopped there; --resume starts after the last one done
 #   --only <step>         run that one step
 #   --dry-run             print every command, run none, and touch nothing
@@ -30,6 +31,8 @@
 #   --image <file>        install this signed image in place of the newest release
 #   --id <name>           the device ID (default: the SoC's identifier), for tools/provision_device.py
 #   --new-identity        nRF7002 DK: a new key and certificate (tools/provision_device.py --new-identity)
+#   --no-register         nRF5340 DK: no passkey of its own (tools/provision_device.py --no-register)
+#   --new-passkey         nRF5340 DK: a new passkey (tools/provision_device.py --new-passkey)
 #   --port <port>         the board's console port, if the one found is wrong; --log-port, its log port
 #   --console <url>       the console's address, where neither CRANIUM_CONSOLE_URL, cloud/.deploy/outputs.json
 #                         nor apps/config/cranium.json says it
@@ -90,6 +93,8 @@ RESUME=false
 CONFIRM=""
 IMAGE=""
 DEVICE_ID=""
+NO_REGISTER=false
+NEW_PASSKEY=false
 NEW_IDENTITY=false
 DEEP=false
 # How the board is registered: console or aws, as the checks find (check_registration), or left to
@@ -204,6 +209,8 @@ while [ $# -gt 0 ]; do
     --id) need_value "$@"; DEVICE_ID="$2"; shift ;;
     --port) need_value "$@"; PORT="$2"; shift ;;
     --log-port) need_value "$@"; LOG_PORT="$2"; shift ;;
+    --no-register) NO_REGISTER=true ;;
+    --new-passkey) NEW_PASSKEY=true ;;
     --new-identity) NEW_IDENTITY=true ;;
     --console) need_value "$@"; export CRANIUM_CONSOLE_URL="$2"; shift ;;
     --deep) DEEP=true ;;
@@ -222,8 +229,8 @@ done
 [ -f "$KEY" ] || KEYLESS=true
 
 case "$BOARD_TYPE" in
-  ""|nrf7002dk) ;;
-  *) die "--board takes nrf7002dk, not $BOARD_TYPE" ;;
+  ""|nrf7002dk|nrf5340dk) ;;
+  *) die "--board takes nrf7002dk or nrf5340dk, not $BOARD_TYPE" ;;
 esac
 [ -z "$SERIAL" ] || [[ "$SERIAL" =~ ^[0-9]{4,20}$ ]] || die "a serial number is digits, such as 001050797470, not $SERIAL"
 modes=0
@@ -231,6 +238,7 @@ modes=0
 [ -z "$ONLY" ] || modes=$((modes + 1))
 [ "$RESUME" = false ] || modes=$((modes + 1))
 [ "$modes" -le 1 ] || die "use one of --from, --only and --resume"
+[ "$NO_REGISTER" = false ] || [ "$NEW_PASSKEY" = false ] || die "--no-register and --new-passkey: pick one"
 
 cd "$REPO_DIR"
 WORK="$(mktemp -d)"
@@ -244,7 +252,23 @@ set_board_paths() {
       BUILD_NAME=build
       STEPS="build flash golden release provision verify"
       ;;
+    nrf5340dk)
+      LABEL="nRF5340 DK"
+      BUILD_NAME=build-nrf5340dk
+      STEPS="build flash release provision verify"
+      ;;
   esac
+  if [ "$BOARD_TYPE" = nrf7002dk ] && { [ "$NO_REGISTER" = true ] || [ "$NEW_PASSKEY" = true ]; }; then
+    die "--no-register and --new-passkey are for an nRF5340 DK, which has Bluetooth only"
+  fi
+  if [ "$BOARD_TYPE" = nrf5340dk ] && [ "$NEW_IDENTITY" = true ]; then
+    die "--new-identity is for an nRF7002 DK: an nRF5340 DK has no key or certificate in AWS IoT"
+  fi
+}
+
+# The nRF5340 DK came to main with PR #5: a checkout from before it builds and provisions none.
+has_nrf5340dk_support() {
+  grep -q -- '--board nrf5340dk' scripts/firmware/build.sh && grep -q -- '--board nrf5340dk' tools/provision_device.py
 }
 
 # So that tools/recover.py and tools/golden.py, which run `nrfutil` from the PATH, find this one.
@@ -589,6 +613,7 @@ check_registration() {
   fi
 }
 
+# $1: yes if the steps cannot do without a token.
 check_token() {
   local said_ status=0
   said_="$(helper token --online 2>&1)" || status=$?
@@ -598,8 +623,17 @@ check_token() {
       local fix=("On the console: Developer > API tokens > New token. Keep it readable by you alone:"
         "mkdir -p ~/.cranium && (umask 077 && pbpaste > ~/.cranium/console-token) on macOS; elsewhere"
         "(umask 077 && cat > ~/.cranium/console-token), paste it, Enter, then Ctrl-D")
-      warned "no console token: the release then comes from binaries/, and the console's view of the board is not checked" "${fix[@]}" ;;
-    3) warned "$said_: the release then comes from binaries/" ;;
+      if [ "${1:-no}" = yes ]; then
+        failed "no console token, which an nRF5340 DK's passkey needs (or --no-register)" "${fix[@]}"
+      else
+        warned "no console token: the release then comes from binaries/, and the console's view of the board is not checked" "${fix[@]}"
+      fi ;;
+    3)
+      if [ "${1:-no}" = yes ]; then
+        failed "$said_: an nRF5340 DK's passkey needs a release manager's token (or --no-register)"
+      else
+        warned "$said_: the release then comes from binaries/"
+      fi ;;
     *) failed "the console token: $said_" ;;
   esac
 }
@@ -610,6 +644,15 @@ check_node() {
   else
     warned "node was not found: an image from binaries/ is not checked here before it goes on" \
       "The bootloader checks it anyway. To check it here too, install Node.js"
+  fi
+}
+
+check_nrf5340dk_support() {
+  if has_nrf5340dk_support; then
+    pass "this checkout builds and provisions an nRF5340 DK"
+  else
+    failed "this checkout cannot build or provision an nRF5340 DK yet" \
+      "It is on main from PR #5: git pull"
   fi
 }
 
@@ -639,16 +682,28 @@ cmd_check() {
     BOARD_TYPE="${BOARD_TYPE:-nrf7002dk}"
   fi
   set_board_paths
-  say "What this computer needs to set up an $LABEL:"
+  if [ "$BOARD_TYPE" = nrf7002dk ]; then
+    say "What this computer needs to set up an $LABEL (for an nRF5340 DK: scripts/board/new-board.sh check --board nrf5340dk):"
+  else
+    say "What this computer needs to set up an $LABEL (for an nRF7002 DK: scripts/board/new-board.sh check --board nrf7002dk):"
+  fi
   check_once nrfutil
   check_once toolchain
   check_once python
   check_once boards
   check_once key
-  check_once golden
-  check_once wifi
+  if [ "$BOARD_TYPE" = nrf7002dk ]; then
+    check_once golden
+    check_once wifi
+  else
+    check_once nrf5340dk_support
+  fi
   check_once registration
-  check_once token
+  if [ "$BOARD_TYPE" = nrf5340dk ] && [ "$NO_REGISTER" = false ]; then
+    check_once token yes
+  else
+    check_once token no
+  fi
   check_once node
   check_summary
 }
@@ -662,7 +717,8 @@ preflight() {
       build)
         check_once nrfutil
         check_once toolchain
-        check_once key ;;
+        check_once key
+        [ "$BOARD_TYPE" = nrf7002dk ] || check_once nrf5340dk_support ;;
       flash)
         check_once nrfutil
         check_once toolchain ;;
@@ -672,14 +728,19 @@ preflight() {
       release)
         check_once nrfutil
         check_once python
-        check_once token ;;
+        check_once token no ;;
       provision)
         check_once python
         check_once registration
-        check_once wifi ;;
+        if [ "$BOARD_TYPE" = nrf7002dk ]; then
+          check_once wifi
+        else
+          check_once nrf5340dk_support
+          if [ "$NO_REGISTER" = false ]; then check_once token yes; fi
+        fi ;;
       verify)
         check_once python
-        check_once token ;;
+        check_once token no ;;
     esac
   done
   if [ "$CHECK_FAILS" -gt 0 ]; then
@@ -919,16 +980,29 @@ step_release() {
 }
 
 step_provision() {
-  say "Sets the board's ID, sends it the Wi-Fi network from ~/.cranium/wifi_secrets.h (sudo may ask for your"
-  say "password: the file is root's), has it make its own key pair, registers it in AWS IoT with a certificate and"
-  say "the device policy, and loads the certificate, the root CA and the cloud settings. Then it waits for the"
-  say "board to reach AWS IoT. The network's name and the AWS names are left out of what it prints."
+  if [ "$BOARD_TYPE" = nrf7002dk ]; then
+    say "Sets the board's ID, sends it the Wi-Fi network from ~/.cranium/wifi_secrets.h (sudo may ask for your"
+    say "password: the file is root's), has it make its own key pair, registers it in AWS IoT with a certificate and"
+    say "the device policy, and loads the certificate, the root CA and the cloud settings. Then it waits for the"
+    say "board to reach AWS IoT. The network's name and the AWS names are left out of what it prints."
+  else
+    say "Sets the board's ID, registers it in AWS IoT as a thing with board=nrf5340dk and no certificate, and gives"
+    say "it its own Bluetooth passkey, registered with the console first. The passkey is never shown."
+  fi
   local args=(-u tools/provision_device.py --port "$PORT" --profile "$AWS_PROFILE")
   [ -z "$DEVICE_ID" ] || args+=(--id "$DEVICE_ID")
   [ "$NEW_IDENTITY" = false ] || args+=(--new-identity)
   [ -z "$PROVISION_VIA" ] || args+=(--via "$PROVISION_VIA")
+  if [ "$BOARD_TYPE" = nrf5340dk ]; then
+    args+=(--board nrf5340dk)
+    [ "$NO_REGISTER" = false ] || args+=(--no-register)
+    [ "$NEW_PASSKEY" = false ] || args+=(--new-passkey)
+  fi
   show_cmd python3 "${args[@]}"
   [ "$DRY_RUN" = false ] || return 0
+  if [ "$BOARD_TYPE" = nrf5340dk ] && ! has_nrf5340dk_support; then
+    die "this checkout cannot provision an nRF5340 DK yet" "It is on main from PR #5: git pull."
+  fi
   # What it prints goes through redact, which leaves out the network's name and anything that names the account.
   if ! python3 "${args[@]}" 2>&1 | helper redact --indent 4; then
     die "provisioning stopped: provision_device.py says why above" \
@@ -940,29 +1014,73 @@ step_provision() {
   ok "$(said 'thing name') is provisioned"
 }
 
+verify_bluetooth() {
+  echo
+  say "  At the board, hold Button 1 for 5 s and let go: LED1 flashes four times, and Bluetooth opens for 3 minutes."
+  board_says --wait 90 --poll 2 --expect-bt-window open --quiet \
+    || die "Bluetooth did not open: the board's window stays closed" \
+      "Hold Button 1 for a full 5 s, then let go. Run this step again: --from verify"
+  local name status=0 scan=(--prefix Cranium-) answer
+  name="$(said 'bt name')"
+  case "$name" in Cranium-*) scan=(--name "$name") ;; esac
+  helper ble-scan "${scan[@]}" --timeout 20 || status=$?
+  case "$status" in
+    0) ok "the board advertises over Bluetooth${name:+ as $name}" ;;
+    3)
+      printf '  Does a phone (nRF Connect, or the Cranium app) see %s now? [y/N] ' "${name:-Cranium- and four hex digits}"
+      IFS= read -r answer || answer=""
+      case "$answer" in
+        y|Y|yes) ok "the board advertises over Bluetooth (seen from a phone)" ;;
+        *) die "the board is not seen over Bluetooth" "Hold Button 1 for 5 s again, and look once more: --from verify" ;;
+      esac ;;
+    *) die "the board's Bluetooth window is open, and nothing advertises as ${name:-Cranium-...}" \
+      "Its controller may be missing on the network core: flash it again with --from flash" ;;
+  esac
+}
+
 step_verify() {
-  say "Checks the board: what its serial console says, and that the console shows it online with that firmware."
+  if [ "$BOARD_TYPE" = nrf7002dk ]; then
+    say "Checks the board: what its serial console says, and that the console shows it online with that firmware."
+  else
+    say "Checks the board: what its serial console says, that the console lists it, and that it advertises over"
+    say "Bluetooth."
+  fi
   local release expect=(--expect-state OPERATING --expect-board "$BOARD_TYPE")
   release="$(state_get release)"
   [ -z "$release" ] || expect+=(--expect-version "$release")
-  expect+=(--expect-cloud connected)
+  [ "$BOARD_TYPE" = nrf5340dk ] || expect+=(--expect-cloud connected)
   if [ "$DRY_RUN" = true ]; then
     show_cmd python3 "$HELPER" serial-status --port "$PORT" --wait 120 "${expect[@]}"
-    show_cmd python3 "$HELPER" console-status --thing "<its thing name>" --wait 300 --expect-online --expect-version "<its firmware>"
+    if [ "$BOARD_TYPE" = nrf7002dk ]; then
+      show_cmd python3 "$HELPER" console-status --thing "<its thing name>" --wait 300 --expect-online --expect-version "<its firmware>"
+    else
+      show_cmd python3 "$HELPER" console-status --thing "<its thing name>" --wait 60 --expect-listed
+      note "would ask for Button 1 to be held, then:"
+      show_cmd python3 "$HELPER" serial-status --port "$PORT" --wait 90 --expect-bt-window open
+      show_cmd python3 "$HELPER" ble-scan --name "<its Bluetooth name>"
+    fi
     return 0
   fi
   board_says --wait 120 "${expect[@]}" || die "the board is not as it should be: see above"
   local thing firmware status=0
   thing="$(said 'thing name')"
   firmware="$(said firmware)"
-  note "Waiting for the console to show $thing online with $firmware (up to 5 minutes):"
-  helper console-status --thing "$thing" --wait 300 --expect-online --expect-version "$firmware" || status=$?
+  if [ "$BOARD_TYPE" = nrf5340dk ] && [ "$NO_REGISTER" = false ] && [ "$(said 'bt passkey')" != set ]; then
+    die "the board has no passkey of its own (bt passkey $(said 'bt passkey'))" "Provision it again: --from provision"
+  fi
+  if [ "$BOARD_TYPE" = nrf7002dk ]; then
+    note "Waiting for the console to show $thing online with $firmware (up to 5 minutes):"
+    helper console-status --thing "$thing" --wait 300 --expect-online --expect-version "$firmware" || status=$?
+  else
+    helper console-status --thing "$thing" --wait 60 --expect-listed || status=$?
+  fi
   case "$status" in
     0) ok "the console shows $thing as it should" ;;
     2) note "The console's view was not checked: there is no console token. Look on the console's Overview." ;;
     *) die "the console does not show $thing as it should: see above" \
       "Give it a few minutes, then: scripts/board/new-board.sh --from verify --serial-number $SERIAL" ;;
   esac
+  [ "$BOARD_TYPE" = nrf7002dk ] || verify_bluetooth
   state_set thing "$thing"
 }
 
@@ -986,6 +1104,9 @@ valid_step() {
   case " $STEPS " in
     *" $1 "*) return 0 ;;
   esac
+  if [ "$1" = golden ] && [ "$BOARD_TYPE" = nrf5340dk ]; then
+    die "an nRF5340 DK has no golden step: its bootloader has no golden image" "Its steps: $STEPS"
+  fi
   die "there is no step $1" "The steps of an $LABEL: $STEPS"
 }
 
@@ -1052,6 +1173,7 @@ cmd_setup() {
     # Nothing at all is run: not even nrfutil device list.
     if [ -z "$BOARD_TYPE" ]; then
       BOARD_TYPE=nrf7002dk
+      say "(No --board: these are an nRF7002 DK's steps. --board nrf5340dk shows the other's.)"
     fi
     SERIAL="${SERIAL:-<serial>}"
     PORT="${PORT:-<console port>}"

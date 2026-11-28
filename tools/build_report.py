@@ -9,8 +9,8 @@ the ELF files. It fails if anything is over its limit, or if what binaries/ hold
 build made from this commit, so that a stale file cannot pass for this build.
 
 The board type is the build's CONFIG_APP_BOARD_TYPE, and what binaries/ holds is named as
-tools/store_binary.py names it: latest.signed.bin for an nRF7002 DK, latest-<type>.signed.bin for another
-board type, whose record also has to say "board": "<type>".
+tools/store_binary.py names it: latest.signed.bin for an nRF7002 DK, latest-nrf5340dk.signed.bin for an
+nRF5340 DK, whose record also has to say "board": "nrf5340dk".
 
 --summary appends the table to that file, as Markdown. --artifact puts the image, latest.json, the
 table and a note in that folder. Images built on GitHub Actions are signed with a throwaway key, so

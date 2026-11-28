@@ -7,22 +7,22 @@
 #   scripts/firmware/build.sh --keep            the version already in firmware/app/VERSION
 #   scripts/firmware/build.sh --jobs 8          compile with that many jobs (default 4)
 #   scripts/firmware/build.sh --no-upload       build, and upload it nowhere: not to the console, not to Memfault
-#   scripts/firmware/build.sh --board nrf7002dk for that board type (docs/fleet.md): nrf7002dk, the default
-#                                      and the only one
+#   scripts/firmware/build.sh --board nrf5340dk for that board type (docs/fleet.md): nrf7002dk (the default)
+#                                      or nrf5340dk, which has Bluetooth only
 #   scripts/firmware/build.sh --keep --no-upload --without-key
 #                                      with no signing key, to set up a board (scripts/board/new-board.sh):
 #                                      the bootloader takes the team's public key, firmware/keys/fw_signing_pub.pem,
 #                                      and the application is signed with a throwaway key, which that bootloader
 #                                      refuses. binaries/ is left as it was. No release is ever built this way
-#   scripts/firmware/build.sh --build-dir DIR   build in DIR instead of build/
+#   scripts/firmware/build.sh --build-dir DIR   build in DIR instead of build/ (build-nrf5340dk/ for that board)
 #   scripts/firmware/build.sh --cmake-arg ARG   pass ARG to CMake as well, as a configuration of the CI firmware
 #                                      job does (-DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf); only with --without-key,
 #                                      so a check build never becomes a release (scripts/ci/local-ci.sh)
 #
 # Each build starts clean, and stores binaries/cranium-<version>-0.signed.bin, along with
 # binaries/latest.signed.bin and binaries/latest.json. For a board type other than nrf7002dk the type
-# is in the names, as binaries/cranium-<type>-<version>-0.signed.bin and latest-<type>.* (tools/store_binary.py).
-# From 1.13.0 the image says its board type and flash layout in protected
+# is in the names, as binaries/cranium-nrf5340dk-<version>-0.signed.bin and latest-nrf5340dk.*, and it
+# builds in build-nrf5340dk/. From 1.13.0 the image says its board type and flash layout in protected
 # TLVs (firmware/README.md, "Board type and compatibility"): this reads them back with
 # tools/check_image.py, stops if they are missing or not this build's, and writes them into both
 # records as "board" and "layout". It then checks the image's signature with the same code the console
@@ -32,7 +32,7 @@
 # binaries/. A version can be uploaded only once, which is why each build takes a new one. Exit status
 # 3: built, but the upload failed. From 1.14.0 an nRF7002 DK's build also gives Memfault its symbols
 # and the image as a release (tools/memfault_upload.py, docs/memfault.md), when ~/.cranium has a
-# Memfault token.
+# Memfault token. An nRF5340 DK has no Memfault: it has no AWS IoT to send it over.
 #
 # The next version is one above the highest in firmware/app/VERSION, binaries/ and ota-demo/, of any
 # board type: one version is one image, and a build for another type takes the next number
@@ -119,7 +119,7 @@ while [ $# -gt 0 ]; do
     --no-upload) upload=false ;;
     --without-key) without_key=true ;;
     --board)
-      [ $# -ge 2 ] || die "--board needs a board type: nrf7002dk"
+      [ $# -ge 2 ] || die "--board needs a board type: nrf7002dk or nrf5340dk"
       board_type="$2"
       shift
       ;;
@@ -155,7 +155,13 @@ case "$board_type" in
     name_prefix=cranium-
     latest=latest
     ;;
-  *) die "--board takes nrf7002dk, not $board_type" ;;
+  nrf5340dk)
+    BOARD=nrf5340dk/nrf5340/cpuapp/ns
+    BUILD_DIR="$REPO_DIR/build-nrf5340dk"
+    name_prefix=cranium-nrf5340dk-
+    latest='latest-nrf5340dk'
+    ;;
+  *) die "--board takes nrf7002dk or nrf5340dk, not $board_type" ;;
 esac
 if [ -n "$build_dir" ]; then
   mkdir -p "$build_dir" || die "the folder $build_dir could not be made"
@@ -360,6 +366,7 @@ fi
 # From 1.14.0 (docs/memfault.md): the ELF's symbols, without which Memfault cannot read a coredump of
 # this image, and the image as a release there. Only with an organization token and the project's
 # slugs; without them it says so in one line. A failure here leaves the console's upload as it is.
+# An nRF5340 DK's image has no Memfault in it.
 if [ "$board_type" = nrf7002dk ]; then
   echo
   if ! python3 -I "$REPO_DIR/tools/memfault_upload.py" --build "$BUILD_DIR"; then

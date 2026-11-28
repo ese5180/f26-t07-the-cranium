@@ -119,11 +119,11 @@ class RecordTest(unittest.TestCase):
 class BoardTest(unittest.TestCase):
     def test_the_board_type_is_read_from_the_protected_area(self):
         self.assertEqual(check_image.board_of(signed()), "nrf7002dk")
-        other = signed(protected=((0xA1, b"nrf9999dk"), (0xA2, b"1")))
-        self.assertEqual(check_image.board_of(other), "nrf9999dk")
+        other = signed(protected=((0xA1, b"nrf5340dk"), (0xA2, b"1")))
+        self.assertEqual(check_image.board_of(other), "nrf5340dk")
         # Among other protected TLVs, before or after it.
-        self.assertEqual(check_image.board_of(signed(protected=((0x50, b"\x01\0\0\0"), (0xA1, b"nrf9999dk"),
-                                                                (0xA2, b"x")))), "nrf9999dk")
+        self.assertEqual(check_image.board_of(signed(protected=((0x50, b"\x01\0\0\0"), (0xA1, b"nrf5340dk"),
+                                                                (0xA2, b"x")))), "nrf5340dk")
         status, title, detail = check_image.check_board(signed(), None)[0]
         self.assertEqual((status, title), (PASS, "Board"))
         self.assertIn("nrf7002dk", detail)
@@ -145,7 +145,7 @@ class BoardTest(unittest.TestCase):
         prot_at = 0x200 + 200
         cases = {
             # Changed after signing: the SHA-256, which the signature covers, no longer matches.
-            "a changed type": good[:prot_at + 8] + b"nrf9999dk" + good[prot_at + 17:],
+            "a changed type": good[:prot_at + 8] + b"nrf5340dk" + good[prot_at + 17:],
             "a changed digest": signed(digest=bytes(32)),
             "no digest": good[:prot_at + 17] + struct.pack("<HH", 0x6907, 4),
             # Not well formed.
@@ -169,7 +169,7 @@ class BoardTest(unittest.TestCase):
                 self.assertEqual(check_image.check_board(image, None)[0][0], FAIL)
         # Twice, or outside the signed area.
         self.assertEqual(check_image.check_board(
-            signed(protected=((0xA1, b"nrf7002dk"), (0xA1, b"nrf9999dk"), (0xA2, b"1"))), None)[0][0], FAIL)
+            signed(protected=((0xA1, b"nrf7002dk"), (0xA1, b"nrf5340dk"), (0xA2, b"1"))), None)[0][0], FAIL)
         self.assertEqual(check_image.check_board(
             signed(protected=(), unprotected=((0xA1, b"nrf7002dk"),)), None)[0][0], FAIL)
         # Well formed, and a type the console does not know.
@@ -181,10 +181,10 @@ class BoardTest(unittest.TestCase):
     def test_the_build_record_must_say_the_same_board(self):
         image = signed()
         self.assertEqual(check_image.check_board(image, {"board": "nrf7002dk"})[0][0], PASS)
-        self.assertEqual(check_image.check_board(image, {"board": "nrf9999dk"})[0][0], FAIL)
+        self.assertEqual(check_image.check_board(image, {"board": "nrf5340dk"})[0][0], FAIL)
         old = signed(version=(1, 12, 0, 0), protected=())
         self.assertEqual(check_image.check_board(old, {"board": "nrf7002dk"})[0][0], PASS)
-        self.assertEqual(check_image.check_board(old, {"board": "nrf9999dk"})[0][0], FAIL)
+        self.assertEqual(check_image.check_board(old, {"board": "nrf5340dk"})[0][0], FAIL)
 
     def test_board_and_layout_on_the_command_line(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -241,9 +241,9 @@ class LayoutTest(unittest.TestCase):
                 signed(protected=((0xA1, b"nrf7002dk"), (0xA2, b"3"))), None, known)[0]
             self.assertEqual(status, FAIL)
             self.assertIn("3", detail)
-            # The type decides which layouts there are: none for a type the file does not name.
+            # The type decides which layouts there are: none yet for the nRF5340 DK.
             self.assertEqual(check_image.check_layout(
-                signed(protected=((0xA1, b"nrf9999dk"), (0xA2, b"1"))), None, known)[0][0], FAIL)
+                signed(protected=((0xA1, b"nrf5340dk"), (0xA2, b"1"))), None, known)[0][0], FAIL)
             # Without the file, the number is only read.
             missing = Path(folder) / "none.json"
             self.assertEqual(check_image.check_layout(

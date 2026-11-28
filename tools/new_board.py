@@ -55,13 +55,13 @@ OUTPUTS = REPO / "cloud" / ".deploy" / "outputs.json"
 VERIFY_IMAGE = REPO / "cloud" / "api" / "verify-image.mjs"
 
 SEGGER_VID = 0x1366
-BOARD_TYPES = ("nrf7002dk",)
+BOARD_TYPES = ("nrf7002dk", "nrf5340dk")
 DEFAULT_BOARD = "nrf7002dk"
-LABELS = {"nrf7002dk": "nRF7002 DK"}
+LABELS = {"nrf7002dk": "nRF7002 DK", "nrf5340dk": "nRF5340 DK"}
 # What a DK's on-board debugger says the board is: boardVersion in `nrfutil device list --json`.
-BOARD_OF_PCA = {"PCA10143": "nrf7002dk"}
+BOARD_OF_PCA = {"PCA10143": "nrf7002dk", "PCA10095": "nrf5340dk"}
 # The names a build gives each board type's images in binaries/ (tools/store_binary.py).
-IMAGE_PREFIX = {"nrf7002dk": "cranium-"}
+IMAGE_PREFIX = {"nrf7002dk": "cranium-", "nrf5340dk": "cranium-nrf5340dk-"}
 
 TOKEN = re.compile(r"^crn_[A-Za-z0-9_-]{43}$")
 CONSOLE_URL = re.compile(r"^(https://[A-Za-z0-9.-]+(:[0-9]{1,5})?|http://(127\.0\.0\.1|localhost)(:[0-9]{1,5})?)$")
@@ -281,8 +281,8 @@ def pick(boards: list, serial: str | None, board_type: str | None, need_debugger
                       f"{label(board_type)}. Pass --board {detected}, or plug in the other board.", 5)
     chosen_type = detected or board_type or ""
     if not chosen_type and not any_type:
-        raise Refusal(f"the debugger of the board {board.serial} does not say it is a DK this project knows "
-                      f"({board.pca or 'no board version'}). For an nRF7002 DK, say it: --board nrf7002dk.", 5)
+        raise Refusal(f"the debugger of the board {board.serial} does not say which DK it is "
+                      f"({board.pca or 'no board version'}). Say it: --board nrf7002dk or --board nrf5340dk.", 5)
     if not board.console_port():
         raise Refusal(f"no serial port of the board {board.serial} was found. Unplug it and plug it in again; on "
                       "Linux, check that you are in the dialout group.", 4)
@@ -428,7 +428,10 @@ def describe_fleet_board(board: dict | None, now: float) -> list:
     if board is None:
         return ["  console        not registered: the board is not in the project's device group"]
     kind = label(str(board.get("type") or DEFAULT_BOARD))
-    where = ("online" if board.get("online") else "offline") + f", last seen {age(board.get('lastSeen'), now)}"
+    if board.get("bluetoothOnly"):
+        where = "Bluetooth only: it never reaches AWS by itself"
+    else:
+        where = ("online" if board.get("online") else "offline") + f", last seen {age(board.get('lastSeen'), now)}"
     version = board.get("version")
     source = {"board": "as the board reported it", "phone": "as a phone last saw it"}.get(board.get("versionFrom"), "")
     return [f"  console        registered, {kind}, {where}",

@@ -11,10 +11,10 @@ That is for an nRF7002 DK. A build for another board type (CONFIG_APP_BOARD_TYPE
 type in its names, and a latest of its own, so that nothing that takes latest.signed.bin to an nRF7002
 DK can take it by mistake:
 
-    binaries/cranium-<type>-1.2.0-0.signed.bin
-    binaries/cranium-<type>-1.2.0-0.json    its record, which also says "board": "<type>"
-    binaries/latest-<type>.signed.bin
-    binaries/latest-<type>.json
+    binaries/cranium-nrf5340dk-1.2.0-0.signed.bin
+    binaries/cranium-nrf5340dk-1.2.0-0.json    its record, which also says "board": "nrf5340dk"
+    binaries/latest-nrf5340dk.signed.bin
+    binaries/latest-nrf5340dk.json
 
 Only a build of the checkout itself is kept: the test bench builds from scratch copies,
 which have no .git, and an image built with a test fault is refused. latest.json says whether

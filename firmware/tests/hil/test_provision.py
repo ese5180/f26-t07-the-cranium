@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
-"""Tests of tools/provision_device.py: registering a board through the console with a console token, in
-place of the AWS CLI (--via console), and the board type it is said to be.
+"""Tests of tools/provision_device.py: a board with Bluetooth only (--board nrf5340dk), and registering a
+board through the console with a console token, in place of the AWS CLI (--via console).
 
 With no board, no AWS and no console: a fake serial port answers as the firmware's console does,
-and fakes of the AWS CLI and of the console's API record what they are asked. They show what the
-board is sent and never sent, what the console is sent when it registers a board (the board's
-request, never a key), and what happens when a step fails.
+and fakes of the AWS CLI and of the console's API record what they are asked. They show the order
+(the console gets the passkey before the board does), what the board is sent and never sent, that
+the passkey is drawn at random and never printed, what the console is sent when it registers a board
+(the board's request, never a key), and what happens when a step fails.
 
     python3 firmware/tests/hil/test_provision.py
 """
 
 import base64
 import contextlib
+import hashlib
 import io
 import json
+import re
 import sys
 import time
 import unittest
@@ -37,28 +40,36 @@ ENDPOINT = "a1b2c3d4e5f6g7-ats.iot.us-east-1.amazonaws.com"
 PREFIX = "https://cranium-firmware-0123.s3.us-east-1.amazonaws.com/firmware/"
 
 
-def status_reply(board="nrf7002dk", state="OPERATING", identity=None):
+def status_reply(board="nrf5340dk", passkey="unset", name="a new one for each window", state="OPERATING",
+                 identity=None):
     lines = [("state", state), ("id", "CRVIHAAN01"), ("thing name", THING), ("firmware", "1.12.0+0"),
              ("board", board), ("stuck count", "0")]
-    identity = identity or {}
-    lines += [("wifi password", "set"), ("root CA", identity.get("root CA", "unset")),
-              ("private key", identity.get("private key", "unset")),
-              ("certificate", identity.get("certificate", "unset")),
-              ("endpoint", identity.get("endpoint", "unset")), ("cloud", "connected")]
+    if board == "nrf5340dk":
+        lines += [("bt passkey", passkey), ("bt failures", "0 of 3"), ("bt name", name),
+                  ("bt window", "closed")]
+    else:
+        identity = identity or {}
+        lines += [("wifi password", "set"), ("root CA", identity.get("root CA", "unset")),
+                  ("private key", identity.get("private key", "unset")),
+                  ("certificate", identity.get("certificate", "unset")),
+                  ("endpoint", identity.get("endpoint", "unset")), ("cloud", "connected")]
     lines.append(("update", "idle (last: none)"))
     return "".join(f"{key:<14} {value}\r\n" for key, value in lines) + "OK\r\n"
 
 
 class FakeBoard:
-    """The serial port of a board running the console, as test_board.py's."""
+    """The serial port of a board running the console, as test_board.py's, with BT_PASSKEY."""
 
-    def __init__(self, board="nrf7002dk", identity=None):
+    def __init__(self, board="nrf5340dk", passkey="unset", refuse=None, identity=None):
         self.board = board
+        self.passkey = passkey
+        self.refuse = refuse
         self.identity = dict(identity or {})
         self.streams = []
         self.lines = []
         self.incoming = b""
         self.outgoing = b""
+        self.stored = None
 
     def write(self, data):
         self.incoming += data
@@ -73,7 +84,7 @@ class FakeBoard:
         if line == "ECHO|OFF":
             reply = "OK echo off\r\n"
         elif line == "STATUS":
-            reply = status_reply(self.board, identity=self.identity)
+            reply = status_reply(self.board, self.passkey, identity=self.identity)
         elif line in ("KEYGEN", "KEYGEN|REPLACE"):
             self.identity["private key"] = "set"
             reply = CSR.replace("\n", "\r\n") + "\r\nOK key pair made\r\n"
@@ -85,6 +96,16 @@ class FakeBoard:
         elif line.startswith("CLOUD|"):
             self.identity["endpoint"] = line.split("|")[1]
             reply = "OK cloud settings stored\r\n"
+        elif line.startswith("BT_PASSKEY|"):
+            found = re.fullmatch(r"BT_PASSKEY\|(\d{6})\|([0-9A-F]{4})", line)
+            if self.refuse is not None:
+                reply = f"ERR {self.refuse}\r\n"
+            elif found is None:
+                reply = "ERR usage: BT_PASSKEY|<6 digits>|<4 hex digits> or BT_PASSKEY|CLEAR\r\n"
+            else:
+                self.stored = (found[1], found[2])
+                self.passkey = "set"
+                reply = f"OK passkey stored, advertising as Cranium-{found[2]}\r\n"
         else:
             reply = f"ERR unknown command {line.split('|')[0]}, type HELP\r\n"
         self.outgoing += reply.encode()
@@ -119,15 +140,24 @@ class FakeAws:
 
 
 class FakeApi:
-    def __init__(self, post=None):
+    def __init__(self, put=204, delete=204, order=None, post=None):
         self.calls = []
+        self.put = put
+        self.delete = delete
+        self.order = order if order is not None else []
         # What POST /devices/register answers: (status, body).
         self.post = post or (200, {"thing": THING, "certificatePem": CERTIFICATE, "rootCa": ROOT_CA,
                                    "endpoint": ENDPOINT, "downloadPrefix": PREFIX})
 
     def send(self, method, path, body=None):
         self.calls.append((method, path, body))
-        return self.post if method == "POST" else (404, None)
+        self.order.append(f"console {method}")
+        if method == "POST":
+            return self.post
+        return (self.put if method == "PUT" else self.delete), None
+
+    def call(self, method, path, body=None):
+        return self.send(method, path, body)[0]
 
 
 OUTPUTS = {"Region": "us-east-1", "DeviceGroupName": "cranium-devices", "DevicePolicyName": "cranium-device",
@@ -143,6 +173,15 @@ class ProvisionRun:
         self.aws = aws if aws is not None else FakeAws()
         self.out = io.StringIO()
         self.code = None
+        order = self.api.order
+        original_answer = fake.answer
+
+        def answer(line):
+            if line.startswith("BT_PASSKEY"):
+                order.append("board BT_PASSKEY")
+            original_answer(line)
+
+        fake.answer = answer
         with mock.patch.object(sys, "argv", ["provision_device.py", *argv]), \
                 mock.patch.object(provision_device, "Console", lambda port: Console("/dev/fake", fake)), \
                 mock.patch.object(provision_device, "Aws", lambda profile, region: self.aws), \
@@ -163,17 +202,131 @@ class ProvisionRun:
         return self.out.getvalue()
 
 
-class BoardTypeTest(unittest.TestCase):
-    def test_the_board_must_be_what_it_is_said_to_be(self):
-        run = ProvisionRun(FakeBoard(board="nrf9999dk"))
-        self.assertNotEqual(run.code, 0)
-        self.assertIn("says it is a nrf9999dk, not a nrf7002dk", run.text)
+class PasskeyTest(unittest.TestCase):
+    def test_a_pattern_is_weak_as_the_board_has_it(self):
+        weak = [key for key in range(1_000_000) if provision_device.weak_passkey(key)]
+        self.assertEqual(len(weak), 20)
+        for key in (0, 111111, 999999, 123456, 12345, 456789, 987654, 543210):
+            self.assertTrue(provision_device.weak_passkey(key), key)
+        for key in (123457, 284913, 1, 999998):
+            self.assertFalse(provision_device.weak_passkey(key), key)
 
-    def test_a_board_type_on_ice_is_refused_before_anything_is_sent(self):
+    def test_it_is_drawn_from_the_system_and_never_a_pattern(self):
+        with mock.patch.object(provision_device.SYSTEM_RANDOM, "randrange",
+                               side_effect=[123456, 111111, 284913]) as draw:
+            self.assertEqual(provision_device.draw_passkey(), 284913)
+        draw.assert_called_with(1_000_000)
+        # The operating system's source.
+        self.assertIsInstance(provision_device.SYSTEM_RANDOM, provision_device.random.SystemRandom)
+        for _ in range(200):
+            key = provision_device.draw_passkey()
+            self.assertTrue(0 <= key <= 999999)
+            self.assertFalse(provision_device.weak_passkey(key))
+        with mock.patch.object(provision_device.SYSTEM_RANDOM, "randrange", return_value=0x3f9c) as draw:
+            self.assertEqual(provision_device.draw_tag(), 0x3f9c)
+        draw.assert_called_with(0x10000)
+
+
+class BluetoothOnlyTest(unittest.TestCase):
+    def test_a_new_board_gets_a_thing_and_a_passkey_the_console_has_first(self):
         fake = FakeBoard()
+        with mock.patch.object(provision_device, "draw_passkey", return_value=284913), \
+                mock.patch.object(provision_device, "draw_tag", return_value=0x3f9c):
+            run = ProvisionRun(fake, "--board", "nrf5340dk")
+        self.assertEqual(run.code, 0, run.text)
+
+        # The console first, then the board, with the same passkey and name.
+        self.assertEqual(run.api.order, ["console PUT", "board BT_PASSKEY"])
+        method, path, body = run.api.calls[0]
+        self.assertEqual(path, f"/devices/{THING}/bluetooth-pairing")
+        self.assertEqual(body, {"board": "nrf5340dk", "name": "Cranium-3F9C", "passkey": "284913"})
+        self.assertEqual(fake.stored, ("284913", "3F9C"))
+
+        # A thing of its type in the group, and no certificate: it never connects.
+        create = [c for c in run.aws.calls if c[:2] == ("iot", "create-thing")][0]
+        self.assertEqual(json.loads(create[create.index("--attribute-payload") + 1]),
+                         {"attributes": {"board": "nrf5340dk"}, "merge": True})
+        self.assertIn(("iot", "add-thing-to-thing-group"), [c[:2] for c in run.aws.calls])
+        self.assertNotIn("create-certificate-from-csr", [c[1] for c in run.aws.calls])
+
+        # Nothing of Wi-Fi or the cloud goes to the board, and the passkey is never printed.
+        sent = " ".join(fake.lines)
+        for word in ("WIFI", "KEYGEN", "CLOUD", "STREAM", "MQTT"):
+            self.assertNotIn(word, sent)
+        self.assertNotIn("284913", run.text)
+        self.assertIn("Cranium-3F9C", run.text)
+
+    def test_an_existing_thing_gets_its_type(self):
+        run = ProvisionRun(FakeBoard(), "--board", "nrf5340dk", aws=FakeAws(exists=True))
+        self.assertEqual(run.code, 0, run.text)
+        self.assertIn(("iot", "update-thing"), [c[:2] for c in run.aws.calls])
+
+    def test_a_console_without_the_route_stops_it_before_the_board(self):
+        fake = FakeBoard()
+        run = ProvisionRun(fake, "--board", "nrf5340dk", api=FakeApi(put=404))
+        self.assertNotEqual(run.code, 0)
+        self.assertIn("does not take a board's passkey yet", run.text)
+        self.assertIn("--no-register", run.text)
+        self.assertIsNone(fake.stored)
+        self.assertNotIn("board BT_PASSKEY", run.api.order)
+
+        run = ProvisionRun(FakeBoard(), "--board", "nrf5340dk", api=FakeApi(put=403))
+        self.assertNotEqual(run.code, 0)
+        self.assertIn("refused", run.text)
+
+    def test_a_board_that_does_not_store_it_is_taken_out_of_the_console_again(self):
+        fake = FakeBoard(refuse="Bluetooth is open: close it with Button 2 first")
         run = ProvisionRun(fake, "--board", "nrf5340dk")
         self.assertNotEqual(run.code, 0)
-        self.assertEqual(fake.lines, [])
+        self.assertEqual([c[0] for c in run.api.calls], ["PUT", "DELETE"])
+        self.assertIn("Bluetooth is open", run.text)
+
+    def test_a_board_with_one_keeps_it_unless_asked(self):
+        fake = FakeBoard(passkey="set")
+        run = ProvisionRun(fake, "--board", "nrf5340dk")
+        self.assertEqual(run.code, 0, run.text)
+        self.assertEqual(run.api.calls, [])
+        self.assertIsNone(fake.stored)
+        self.assertIn("--new-passkey", run.text)
+
+        fake = FakeBoard(passkey="set")
+        run = ProvisionRun(fake, "--board", "nrf5340dk", "--new-passkey")
+        self.assertEqual(run.code, 0, run.text)
+        self.assertIsNotNone(fake.stored)
+        self.assertEqual(run.api.order, ["console PUT", "board BT_PASSKEY"])
+
+        # A locked one is no passkey: it gets a new one.
+        fake = FakeBoard(passkey="locked")
+        run = ProvisionRun(fake, "--board", "nrf5340dk")
+        self.assertIsNotNone(fake.stored)
+
+    def test_no_register_gives_it_none(self):
+        fake = FakeBoard()
+        run = ProvisionRun(fake, "--board", "nrf5340dk", "--no-register")
+        self.assertEqual(run.code, 0, run.text)
+        self.assertEqual(run.api.calls, [])
+        self.assertIsNone(fake.stored)
+        self.assertIn("a new one on its serial console", run.text)
+
+    def test_the_board_must_be_what_it_is_said_to_be(self):
+        run = ProvisionRun(FakeBoard(board="nrf5340dk"))
+        self.assertNotEqual(run.code, 0)
+        self.assertIn("says it is a nrf5340dk, not a nrf7002dk", run.text)
+
+        run = ProvisionRun(FakeBoard(board="nrf7002dk"), "--board", "nrf5340dk")
+        self.assertNotEqual(run.code, 0)
+        self.assertIn("says it is a nrf7002dk", run.text)
+
+    def test_what_is_not_for_this_board_is_refused_at_once(self):
+        for argv, words in ((["--board", "nrf5340dk", "--wifi"], "no Wi-Fi"),
+                            (["--board", "nrf5340dk", "--new-identity"], "no Wi-Fi"),
+                            (["--new-passkey"], "Bluetooth only"),
+                            (["--board", "nrf5340dk", "--new-passkey", "--no-register"], "pick one")):
+            fake = FakeBoard()
+            run = ProvisionRun(fake, *argv)
+            self.assertNotEqual(run.code, 0)
+            self.assertIn(words, run.text)
+            self.assertEqual(fake.lines, [])
 
 
 class ThroughTheConsoleTest(unittest.TestCase):
@@ -246,6 +399,15 @@ class ThroughTheConsoleTest(unittest.TestCase):
         self.assertIn("no console token and is not signed in to AWS", run.text)
         self.assertNotIn("KEYGEN", " ".join(fake.lines))
 
+    def test_an_nrf5340dk_is_registered_through_the_console_too(self):
+        fake = FakeBoard()
+        run = ProvisionRun(fake, "--board", "nrf5340dk", "--via", "console", "--no-register")
+        self.assertEqual(run.code, 0, run.text)
+        self.assertEqual(run.aws.calls, [])
+        self.assertEqual(run.api.calls[0], ("POST", "/devices/register",
+                                            {"id": THING.removeprefix("cranium-"), "board": "nrf5340dk"}))
+
+
 class ConsoleApiTest(unittest.TestCase):
     def test_it_asks_the_token_route_with_the_token_and_says_nothing(self):
         seen = {}
@@ -272,11 +434,11 @@ class ConsoleApiTest(unittest.TestCase):
         api = provision_device.ConsoleApi("https://console.example.org/", "secret-token")
         out = io.StringIO()
         with mock.patch.object(provision_device.urllib.request, "urlopen", urlopen), contextlib.redirect_stdout(out):
-            self.assertEqual(api.send("POST", "/devices/register", {"id": "fe5b26c0c5b1dcd7"}), (204, None))
-        self.assertEqual(seen["url"], "https://console.example.org/api/t/devices/register")
-        self.assertEqual(seen["method"], "POST")
+            self.assertEqual(api.call("PUT", provision_device.pairing_path(THING), {"passkey": "284913"}), 204)
+        self.assertEqual(seen["url"], f"https://console.example.org/api/t/devices/{THING}/bluetooth-pairing")
+        self.assertEqual(seen["method"], "PUT")
         self.assertEqual(seen["auth"], "Bearer secret-token")
-        self.assertEqual(seen["body"], {"id": "fe5b26c0c5b1dcd7"})
+        self.assertEqual(seen["body"], {"passkey": "284913"})
         self.assertEqual(out.getvalue(), "")
 
 

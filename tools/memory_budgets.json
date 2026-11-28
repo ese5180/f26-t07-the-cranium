@@ -12,6 +12,12 @@
     "mcuboot": { "flash_free_min": 12288 },
     "tfm": { "flash_free_min": 500, "ram_free_min": 12288 }
   },
+  "nRF5340 DK": {
+    "_measured": "1.18.0, main e29e53a: app 598114 flash / 302552 RAM free, mcuboot 22016 flash, tfm 49708 flash / 19316 RAM",
+    "app": { "flash_free_min": 589824, "ram_free_min": 294912 },
+    "mcuboot": { "flash_free_min": 20480 },
+    "tfm": { "flash_free_min": 49152, "ram_free_min": 18432 }
+  },
   "Pi image updates": {
     "_measured": "the firmware job's configuration 'Pi image updates', which comes with the Raspberry Pi work (#165); not built on main yet",
     "app": { "ram_free_min": 20480 }
