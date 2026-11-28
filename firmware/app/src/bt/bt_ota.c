@@ -122,7 +122,7 @@ BUILD_ASSERT(BT_OTA_IMAGE_HEADER_LEN == IMAGE_HEADER_SIZE);
 
 /*
  * P1.10 picks the antenna of the network core's radio: low for its own, high for the one it
- * would share with Wi-Fi. It starts undriven, so it is driven low before anything is sent. A board
+ * would share with Wi-Fi. It starts undriven, so it is driven low before anything is sent.
  */
 static const struct gpio_dt_spec antenna_switch =
 	GPIO_DT_SPEC_GET(DT_NODELABEL(nrf70), srrf_switch_gpios);
@@ -796,8 +796,7 @@ static void say_what_happened(void)
 
 #if defined(CONFIG_APP_BT_STATIC_PASSKEY)
 	if (what & SAY_OWN_KEY) {
-		console_event("BT", "pairing with the board's own passkey, which the console has: it is "
-				    "never shown here");
+		console_event("BT", "pairing with the board's own passkey: it is never shown here");
 	}
 #endif
 

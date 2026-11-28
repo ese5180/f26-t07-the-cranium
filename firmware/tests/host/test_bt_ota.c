@@ -2980,8 +2980,8 @@ static void test_what_led1_shows(void)
 	CHECK(bt_ota_ui_state() == UI_UPDATE_OFFERED);
 }
 
-#if !defined(TEST_BT_OTA_NO_MAIN)
-int main(void)
+/* Every test of this file. test_bt_ota_passkey.c runs them too, built with the board's own passkey. */
+static void run_bt_ota_tests(void)
 {
 	test_the_hooks_are_on_from_the_boot_on();
 	test_every_event_reaches_a_hook_that_asked_for_it();
@@ -3086,7 +3086,12 @@ int main(void)
 	test_a_cloud_update_this_boot_is_the_last_update();
 
 	test_what_led1_shows();
+}
 
+#if !defined(TEST_BT_OTA_NO_MAIN)
+int main(void)
+{
+	run_bt_ota_tests();
 	printf("%d Bluetooth update checks, %d failed\n", checks, failures);
 	return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -39,8 +39,8 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/console_sim_fault $(BUILD)/cloud_tests $(BUILD)/cloud_events_tests \
 		$(BUILD)/command_tests $(BUILD)/location_tests $(BUILD)/location_bt_tests $(BUILD)/image_compat_tests \
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
-		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
-		$(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests
+		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests $(BUILD)/bt_ota_passkey_tests \
+		$(BUILD)/console_bt_offline_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests $(BUILD)/golden_record_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -75,6 +75,8 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/reset_cause_tests
 	./$(BUILD)/bt_passkey_policy_tests
 	./$(BUILD)/bt_passkey_tests
+	./$(BUILD)/bt_ota_passkey_tests
+	./$(BUILD)/console_bt_offline_tests
 	./$(BUILD)/sessions_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
@@ -277,6 +279,23 @@ PASSKEY_DEFINES := -DCONFIG_APP_BT_OTA=1 -DCONFIG_APP_BT_STATIC_PASSKEY=1 \
 $(BUILD)/bt_passkey_policy_tests: test_bt_passkey_policy.c $(SRC)/policy/bt_passkey_policy.c $(SRC)/policy/bt_passkey_policy.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_bt_passkey_policy.c $(SRC)/policy/bt_passkey_policy.c
+
+# bt_ota.c as every nRF7002 DK has it: offline mode selects the board's own passkey. test_bt_ota_passkey.c
+# includes test_bt_ota.c and runs all of it in this build, then the tests of the passkey.
+$(BUILD)/bt_ota_passkey_tests: test_bt_ota_passkey.c test_bt_ota.c $(SRC)/bt/bt_ota.c $(SRC)/bt/bt_ota.h $(SRC)/bt/bt_passkey.h \
+		$(SRC)/policy/bt_ota_policy.c $(SRC)/policy/bt_ota_policy.h $(SRC)/policy/bt_passkey_policy.c $(SRC)/bt/bt_status.c \
+		$(SRC)/ota/ota_job.c $(SRC)/ota/ota_outcome.c $(SRC)/ota/version.c $(SRC)/ota/image_compat.c $(SRC)/ota/image_compat.h \
+		stubs/host_bt.h stubs/zephyr/kernel.h $(BUILD)/cJSON.o
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -o $@ test_bt_ota_passkey.c $(SRC)/policy/bt_ota_policy.c \
+		$(SRC)/policy/bt_passkey_policy.c $(SRC)/bt/bt_status.c $(SRC)/ota/ota_job.c $(SRC)/ota/ota_outcome.c \
+		$(SRC)/ota/version.c $(SRC)/ota/image_compat.c $(BUILD)/cJSON.o -lm
+
+# The console as every nRF7002 DK has it, with offline mode and the board's own passkey: BT_PASSKEY,
+# BT_OFFLINE|NEW, STATUS|bluetooth and a factory reset, against a fake of bt_passkey.c.
+$(BUILD)/console_bt_offline_tests: test_console_bt_offline.c $(CONSOLE_SOURCES) $(SRC)/policy/bt_passkey_policy.c \
+		$(BUILD)/base64.o $(CONSOLE_HEADERS)
+	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) $(PASSKEY_DEFINES) -DCONFIG_APP_BT_OFFLINE=1 -o $@ $(filter-out %.h,$^)
 
 # bt_passkey.c, included by its test to get at its state, against a fake of TF-M's protected storage.
 $(BUILD)/bt_passkey_tests: test_bt_passkey.c $(SRC)/bt/bt_passkey.c $(SRC)/bt/bt_passkey.h $(SRC)/policy/bt_passkey_policy.c \
